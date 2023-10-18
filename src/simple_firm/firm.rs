@@ -1,0 +1,92 @@
+use {
+    rand_pcg::Pcg64,
+    rand::{SeedableRng, 
+        distributions::{Uniform, Distribution}
+    },
+    std::io::Write,
+    super::*
+};
+
+struct Firm{
+    current_delay: f64,
+    buffer: f64
+}
+
+struct FocusFirm{
+    focus: Firm,
+    others: Vec<Firm>,
+    iteration: usize,
+    delta: f64,
+    rng: Pcg64
+}
+
+impl FocusFirm{
+    pub fn new(k: usize, delta: f64, buffer: f64) -> Self
+    {
+        let focus = Firm{
+            current_delay: 0.0,
+            buffer
+        };
+        let others = (0..k-1)
+            .map(
+                |_| 
+                {
+                    Firm{
+                        current_delay: 0.0,
+                        buffer
+                    }
+                }
+            ).collect();
+        Self{
+            focus,
+            others,
+            iteration: 0,
+            delta,
+            rng: Pcg64::seed_from_u64(892356)
+        }
+    }
+
+    pub fn iterate(&mut self)
+    {
+        let uniform = Uniform::new_inclusive(0.0, self.delta);
+        let mut iter = uniform.sample_iter(&mut self.rng);
+
+        let mut sum = 0.0;
+        for firm in self.others.iter_mut()
+        {
+            sum += firm.current_delay;
+
+            firm.current_delay = (firm.current_delay + iter.next().unwrap() - firm.buffer).max(0.0);
+        }
+
+        self.focus.current_delay = (self.focus.current_delay + iter.next().unwrap() - self.focus.buffer + sum).max(0.0);
+        self.iteration += 1;
+    }
+}
+
+pub fn different_k(option: &SimpleFirmDifferentKOpts)
+{
+
+    let mut buf = option.get_buf();
+    write!(buf, "#k=").unwrap();
+    for k in option.k.iter()
+    {
+        write!(buf, "{k} ").unwrap();
+    }
+    writeln!(buf).unwrap();
+
+    let mut firms: Vec<_> = option.k.iter()
+        .map(|k| FocusFirm::new(k.get(), option.delta, option.buffer))
+        .collect();
+
+    for i in 0..option.iter_limit.get()
+    {
+        write!(buf, "{i}").unwrap();
+        for firm in firms.iter_mut(){
+            write!(buf, " {}", firm.focus.current_delay).unwrap();
+            firm.iterate();
+        }
+        writeln!(buf).unwrap();
+    }
+
+}
