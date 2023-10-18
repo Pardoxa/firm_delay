@@ -96,10 +96,12 @@ pub fn measure_phase(opt: &SimpleFirmPhase)
     if opt.is_single(){
         let mut buf = opt.get_buf("");
         writeln!(buf, "#k lastDelay variance_time var_div_av_time var_div_time_sq").unwrap();
+        
+        let buffer = opt.buffer[0];
         for k in (1..10000).step_by(10){
             
     
-            let mut firms = FocusFirm::new(k, 0.5, 0.48);
+            let mut firms = FocusFirm::new(k, opt.delta, buffer);
             let mut sum = 0.0;
             let mut sum_sq = 0.0;
             let time = opt.iter_limit.get();
