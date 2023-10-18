@@ -10,5 +10,6 @@ pub struct SimpleOpt{
 
 #[derive(Parser)]
 pub enum CmdChooser{
-    SimpleFirmDifK(SimpleOpt)
+    SimpleFirmDifK(SimpleOpt),
+    SimpleFirmPhase(SimpleOpt)
 }

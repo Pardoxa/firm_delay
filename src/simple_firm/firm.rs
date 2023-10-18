@@ -90,3 +90,31 @@ pub fn different_k(option: &SimpleFirmDifferentKOpts)
     }
 
 }
+
+pub fn measure_phase(opt: &SimpleFirmPhase)
+{
+    if opt.is_single(){
+        let mut buf = opt.get_buf("");
+        writeln!(buf, "#k lastDelay variance_time var_div_av_time var_div_time_sq").unwrap();
+        for k in (1..10000).step_by(10){
+            
+    
+            let mut firms = FocusFirm::new(k, 0.5, 0.48);
+            let mut sum = 0.0;
+            let mut sum_sq = 0.0;
+            let time = opt.iter_limit.get();
+            for _ in 0..time{
+                firms.iterate();
+                sum += firms.focus.current_delay;
+                sum_sq += firms.focus.current_delay * firms.focus.current_delay;
+            }
+            let av = sum / (time as f64);
+            let var = sum_sq/(time as f64) - av*av;
+            let cv = var / av; 
+            let cv_div_t = cv / (time as f64);
+            writeln!(buf, "{} {} {var} {cv} {cv_div_t}", k, firms.focus.current_delay).unwrap();
+        }  
+    }
+
+    
+}
