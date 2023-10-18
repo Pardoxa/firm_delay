@@ -109,7 +109,7 @@ pub fn measure_phase(opt: &SimpleFirmPhase)
             |i|
             {
                 let mut buf = opt.get_buf(i);
-                writeln!(buf, "#k lastDelay variance_time var_div_av_time var_div_time_sq").unwrap();
+                writeln!(buf, "#k lastDelay av av_dt variance variance_dt").unwrap();
                 let mut rng = Pcg64::seed_from_u64(opt.seed);
                 let buffer = opt.buffer[i];
                 for k in (opt.k_start.get()..opt.k_end.get()).step_by(opt.k_step_by.get()){
@@ -125,10 +125,10 @@ pub fn measure_phase(opt: &SimpleFirmPhase)
                         sum_sq += firms.focus.current_delay * firms.focus.current_delay;
                     }
                     let av = sum / (time as f64);
+                    let av_dt = av / (time as f64);
                     let var = sum_sq/(time as f64) - av*av;
-                    let cv = var / av; 
-                    let cv_div_t = cv / (time as f64);
-                    writeln!(buf, "{} {} {var} {cv} {cv_div_t}", k, firms.focus.current_delay).unwrap();
+                    let var_dt = var / (time as f64);
+                    writeln!(buf, "{k} {} {av} {av_dt} {var} {var_dt}", firms.focus.current_delay).unwrap();
                 } 
             }
         );    
