@@ -24,6 +24,7 @@ pub struct SimpleFirmDifferentKOpts{
     /// How many time steps to iterate
     pub iter_limit: NonZeroU64,
 
+    /// Seed for the random number generator
     pub seed: u64
 }
 

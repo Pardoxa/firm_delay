@@ -1,8 +1,9 @@
-
-use clap::Parser;
-use global_opts::CmdChooser;
-use misc::parse;
-use simple_firm::{SimpleFirmDifferentKOpts, SimpleFirmPhase};
+use {
+    clap::Parser,
+    global_opts::CmdChooser,
+    misc::parse,
+    simple_firm::{SimpleFirmDifferentKOpts, SimpleFirmPhase}
+};
 
 pub mod misc;
 mod global_opts;

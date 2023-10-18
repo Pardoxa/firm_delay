@@ -48,6 +48,7 @@ impl FocusFirm{
         }
     }
 
+    #[inline]
     pub fn iterate(&mut self)
     {
         let uniform = Uniform::new_inclusive(0.0, self.delta);
