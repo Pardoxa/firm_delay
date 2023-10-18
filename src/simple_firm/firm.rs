@@ -4,8 +4,10 @@ use {
         distributions::{Uniform, Distribution}
     },
     std::io::Write,
-    super::*
+    super::*,
+    rayon::prelude::*
 };
+
 
 struct Firm{
     current_delay: f64,
@@ -21,7 +23,7 @@ struct FocusFirm{
 }
 
 impl FocusFirm{
-    pub fn new(k: usize, delta: f64, buffer: f64) -> Self
+    pub fn new(k: usize, delta: f64, buffer: f64, rng: Pcg64) -> Self
     {
         let focus = Firm{
             current_delay: 0.0,
@@ -42,7 +44,7 @@ impl FocusFirm{
             others,
             iteration: 0,
             delta,
-            rng: Pcg64::seed_from_u64(892356)
+            rng
         }
     }
 
@@ -74,9 +76,16 @@ pub fn different_k(option: &SimpleFirmDifferentKOpts)
         write!(buf, "{k} ").unwrap();
     }
     writeln!(buf).unwrap();
+    let mut rng = Pcg64::seed_from_u64(option.seed);
 
     let mut firms: Vec<_> = option.k.iter()
-        .map(|k| FocusFirm::new(k.get(), option.delta, option.buffer))
+        .map(
+            |k| 
+            {
+                let f_rng = Pcg64::from_rng(&mut rng).unwrap();
+                FocusFirm::new(k.get(), option.delta, option.buffer, f_rng)
+            }
+        )
         .collect();
 
     for i in 0..option.iter_limit.get()
@@ -93,30 +102,34 @@ pub fn different_k(option: &SimpleFirmDifferentKOpts)
 
 pub fn measure_phase(opt: &SimpleFirmPhase)
 {
-    if opt.is_single(){
-        let mut buf = opt.get_buf("");
-        writeln!(buf, "#k lastDelay variance_time var_div_av_time var_div_time_sq").unwrap();
-        
-        let buffer = opt.buffer[0];
-        for k in (1..10000).step_by(10){
-            
-    
-            let mut firms = FocusFirm::new(k, opt.delta, buffer);
-            let mut sum = 0.0;
-            let mut sum_sq = 0.0;
-            let time = opt.iter_limit.get();
-            for _ in 0..time{
-                firms.iterate();
-                sum += firms.focus.current_delay;
-                sum_sq += firms.focus.current_delay * firms.focus.current_delay;
-            }
-            let av = sum / (time as f64);
-            let var = sum_sq/(time as f64) - av*av;
-            let cv = var / av; 
-            let cv_div_t = cv / (time as f64);
-            writeln!(buf, "{} {} {var} {cv} {cv_div_t}", k, firms.focus.current_delay).unwrap();
-        }  
-    }
+    let len = opt.buffer.len();
 
-    
+    (0..len).into_par_iter()
+        .for_each(
+            |i|
+            {
+                let mut buf = opt.get_buf(i);
+                writeln!(buf, "#k lastDelay variance_time var_div_av_time var_div_time_sq").unwrap();
+                let mut rng = Pcg64::seed_from_u64(opt.seed);
+                let buffer = opt.buffer[i];
+                for k in (opt.k_start.get()..opt.k_end.get()).step_by(opt.k_step_by.get()){
+                    
+                    let f_rng = Pcg64::from_rng(&mut rng).unwrap();
+                    let mut firms = FocusFirm::new(k, opt.delta, buffer, f_rng);
+                    let mut sum = 0.0;
+                    let mut sum_sq = 0.0;
+                    let time = opt.iter_limit.get();
+                    for _ in 0..time{
+                        firms.iterate();
+                        sum += firms.focus.current_delay;
+                        sum_sq += firms.focus.current_delay * firms.focus.current_delay;
+                    }
+                    let av = sum / (time as f64);
+                    let var = sum_sq/(time as f64) - av*av;
+                    let cv = var / av; 
+                    let cv_div_t = cv / (time as f64);
+                    writeln!(buf, "{} {} {var} {cv} {cv_div_t}", k, firms.focus.current_delay).unwrap();
+                } 
+            }
+        );    
 }

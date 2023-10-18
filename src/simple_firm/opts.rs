@@ -23,6 +23,8 @@ pub struct SimpleFirmDifferentKOpts{
 
     /// How many time steps to iterate
     pub iter_limit: NonZeroU64,
+
+    pub seed: u64
 }
 
 impl Default for SimpleFirmDifferentKOpts{
@@ -31,7 +33,8 @@ impl Default for SimpleFirmDifferentKOpts{
             k: vec![NonZeroUsize::new(1).unwrap(), NonZeroUsize::new(10).unwrap(), NonZeroUsize::new(100).unwrap()], 
             buffer: 0.5, 
             delta: 0.49, 
-            iter_limit: NonZeroU64::new(1000).unwrap()
+            iter_limit: NonZeroU64::new(1000).unwrap(),
+            seed: 294
         }
     }
 }
@@ -95,6 +98,7 @@ pub struct SimpleFirmPhase
     pub delta: f64,
     pub buffer: Vec<f64>,
     pub iter_limit: NonZeroU64,
+    pub seed: u64
 }
 
 impl Default for SimpleFirmPhase{
@@ -105,13 +109,14 @@ impl Default for SimpleFirmPhase{
             k_step_by: NonZeroUsize::new(20).unwrap(),
             delta: 0.5,
             buffer: vec![0.5],
-            iter_limit: NonZeroU64::new(2000).unwrap()
+            iter_limit: NonZeroU64::new(2000).unwrap(),
+            seed: 2849170
         }
     }
 }
 
 impl SimpleFirmPhase{
-    pub fn get_name(&self, addition: &str) -> String
+    pub fn get_name(&self, idx: usize) -> String
     {
         let version = crate::misc::VERSION;
 
@@ -122,33 +127,19 @@ impl SimpleFirmPhase{
                 self.k_end
             );
 
-        let b = match self.buffer.len(){
-            0 => {
-                panic!("Specify at least 1 buffer size")
-            },
-            1 => {
-                format!("B{}", self.buffer[0])
-            },
-            2 => {
-                format!("B{}_{}", self.buffer[0], self.buffer[1])
-            },
-            _ => {
-                let start = self.buffer[0];
-                let end = self.buffer.last().unwrap();
-                format!("B{start}-{end}")
-            }
-        };
+        let b = self.buffer.get(idx)
+            .expect("buffer index out of bounds");
 
         format!(
-            "P_v{version}_b{b}_d{}_k{ks}_it{}{addition}.dat",
+            "P_v{version}_b{b}_d{}_k{ks}_it{}.dat",
             self.delta,
             self.iter_limit
         )
     }
 
-    pub fn get_buf(&self, addition: &str) -> BufWriter<File>
+    pub fn get_buf(&self, idx: usize) -> BufWriter<File>
     {
-        let name = self.get_name(addition);
+        let name = self.get_name(idx);
         let file = File::create(name)
             .unwrap();
         let mut buf = BufWriter::new(file);
@@ -159,11 +150,6 @@ impl SimpleFirmPhase{
             .expect("serialization error");
         write_json(&mut buf, &val);
         buf
-    }
-
-    pub fn is_single(&self) -> bool
-    {
-        self.buffer.len() == 1
     }
 
     pub fn exec(&self) 
