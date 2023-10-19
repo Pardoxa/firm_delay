@@ -23,7 +23,7 @@ struct FocusFirm{
 }
 
 impl FocusFirm{
-    pub fn new(k: usize, delta: f64, buffer: f64, rng: Pcg64) -> Self
+    pub fn new_const_buf(k: usize, delta: f64, buffer: f64, rng: Pcg64) -> Self
     {
         let focus = Firm{
             current_delay: 0.0,
@@ -48,21 +48,53 @@ impl FocusFirm{
         }
     }
 
+    pub fn new<D>(k: usize, delta: f64, focus_buffer: f64, buffer_dist: D, mut rng: Pcg64) -> Self
+    where D: Distribution<f64>
+    {
+        let focus = Firm{
+            current_delay: 0.0,
+            buffer: focus_buffer
+        };
+        let others = buffer_dist.sample_iter(&mut rng)
+            .take(k-1)
+            .map(
+                |buffer|
+                    {
+                        Firm{
+                            current_delay: 0.0,
+                            buffer
+                        }
+                    }
+            ).collect();
+        Self{
+            focus,
+            others,
+            iteration: 0,
+            delta,
+            rng
+        }
+    }
+
     #[inline]
     pub fn iterate(&mut self)
     {
         let uniform = Uniform::new_inclusive(0.0, self.delta);
         let mut iter = uniform.sample_iter(&mut self.rng);
 
-        let mut sum = 0.0;
+        let mut maximum = 0.0;
         for firm in self.others.iter_mut()
         {
-            sum += firm.current_delay;
-
-            firm.current_delay = (firm.current_delay + iter.next().unwrap() - firm.buffer).max(0.0);
+            maximum = firm.current_delay.max(maximum);
+            firm.current_delay =
+                (firm.current_delay  - firm.buffer)
+                    .max(0.0)
+                + unsafe{iter.next().unwrap_unchecked()};
         }
 
-        self.focus.current_delay = (self.focus.current_delay + iter.next().unwrap() - self.focus.buffer + sum).max(0.0);
+        self.focus.current_delay =
+            (self.focus.current_delay - self.focus.buffer + maximum)
+                .max(0.0)
+            + unsafe{iter.next().unwrap_unchecked()};
         self.iteration += 1;
     }
 }
@@ -84,7 +116,7 @@ pub fn different_k(option: &SimpleFirmDifferentKOpts)
             |k| 
             {
                 let f_rng = Pcg64::from_rng(&mut rng).unwrap();
-                FocusFirm::new(k.get(), option.delta, option.buffer, f_rng)
+                FocusFirm::new_const_buf(k.get(), option.delta, option.buffer, f_rng)
             }
         )
         .collect();
@@ -120,7 +152,7 @@ pub fn measure_phase(opt: &SimpleFirmPhase)
                 for k in (opt.k_start.get()..opt.k_end.get()).step_by(opt.k_step_by.get()){
                     
                     let f_rng = Pcg64::from_rng(&mut rng).unwrap();
-                    let mut firms = FocusFirm::new(k, opt.delta, buffer, f_rng);
+                    let mut firms = FocusFirm::new_const_buf(k, opt.delta, buffer, f_rng);
                     let mut sum = 0.0;
                     let mut sum_sq = 0.0;
 

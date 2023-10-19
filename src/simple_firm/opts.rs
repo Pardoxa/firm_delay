@@ -1,3 +1,4 @@
+use rand::prelude::Distribution;
 use serde_json::Value;
 use super::measure_phase;
 
@@ -157,4 +158,63 @@ impl SimpleFirmPhase{
     {
         measure_phase(self)
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+struct UniformBuffer{
+    mean: f64,
+    half_width: f64
+}
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+struct ExpBuffer{
+    lambda: f64
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum BufferDist{
+    Uniform(UniformBuffer),
+    Exponential(ExpBuffer)
+}
+
+impl BufferDist{
+    pub fn create_uniform_dist(&self) -> impl Distribution<f64>
+    {
+        match self {
+            BufferDist::Uniform(uni) => {
+                let min = uni.mean - uni.half_width;
+                let max = uni.mean + uni.half_width;
+                if min < 0.0 {
+                    panic!("Uniform distribution could have return negative Buffers! Abbort!");
+                }
+                rand::distributions::Uniform::new_inclusive(min, max)
+            },
+            BufferDist::Exponential(_) => {
+                panic!("Trying to get Uniform dist - But Exponential was requested!")
+            }
+        }
+    }
+
+    pub fn create_exp_dist(&self) -> impl Distribution<f64>
+    {
+        match self {
+            BufferDist::Uniform(_) => {
+                panic!("Trying to get Exponential dist - But Uniform was requested!")
+            },
+            BufferDist::Exponential(exp) => {
+                rand_distr::Exp::new(exp.lambda)
+                    .expect("Negative lambda not allowed")
+            }
+        }
+    }
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct SimpleFirmPhaseBufferNoise{
+    pub k_start: NonZeroUsize,
+    pub k_end: NonZeroUsize,
+    pub k_step_by: NonZeroUsize,
+    pub delta: f64,
+    pub buffer_focus: f64,
+    pub iter_limit: NonZeroU64,
+    pub seed: u64,
+    pub buffer_dist: BufferDist
 }
