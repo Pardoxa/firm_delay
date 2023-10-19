@@ -104,8 +104,11 @@ pub fn different_k(option: &SimpleFirmDifferentKOpts)
 pub fn measure_phase(opt: &SimpleFirmPhase)
 {
     let len = opt.buffer.len();
+    let time = opt.iter_limit.get();
+    let t = time as f64;
 
-    (0..len).into_par_iter()
+    (0..len)
+        .into_par_iter()
         .for_each(
             |i|
             {
@@ -113,22 +116,24 @@ pub fn measure_phase(opt: &SimpleFirmPhase)
                 writeln!(buf, "#k lastDelay av av_dt variance variance_dt").unwrap();
                 let mut rng = Pcg64::seed_from_u64(opt.seed);
                 let buffer = opt.buffer[i];
+
                 for k in (opt.k_start.get()..opt.k_end.get()).step_by(opt.k_step_by.get()){
                     
                     let f_rng = Pcg64::from_rng(&mut rng).unwrap();
                     let mut firms = FocusFirm::new(k, opt.delta, buffer, f_rng);
                     let mut sum = 0.0;
                     let mut sum_sq = 0.0;
-                    let time = opt.iter_limit.get();
+
                     for _ in 0..time{
                         firms.iterate();
                         sum += firms.focus.current_delay;
                         sum_sq += firms.focus.current_delay * firms.focus.current_delay;
                     }
-                    let av = sum / (time as f64);
-                    let av_dt = av / (time as f64);
-                    let var = sum_sq/(time as f64) - av*av;
-                    let var_dt = var / (time as f64);
+
+                    let av = sum / t;
+                    let av_dt = av / t;
+                    let var = sum_sq / t - av * av;
+                    let var_dt = var / t;
                     writeln!(buf, "{k} {} {av} {av_dt} {var} {var_dt}", firms.focus.current_delay).unwrap();
                 } 
             }
