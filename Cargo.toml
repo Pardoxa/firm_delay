@@ -1,7 +1,8 @@
 [package]
 name = "firm_delay"
-version = "0.2.0"
+version = "0.3.0-beta"
 edition = "2021"
+authors = ["Yannick Feld"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,5 +13,5 @@ rand_distr = "0.4.3"
 serde={version="^1.0.189", features = ["derive"] }
 serde_json="^1.0.107"
 indicatif="^0.17.7"
-clap = {version = "4.4.6", features=["derive"]}
+clap = {version = "4.4.6", features=["derive", "cargo", "color"]}
 rayon="^1.8.0"

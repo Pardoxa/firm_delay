@@ -124,3 +124,13 @@ impl RequestedTime
         time
     }
 }
+
+pub trait PrintAlternatives{
+    fn print_alternatives(layer: u8);
+}
+
+pub(crate) fn print_spaces(layer: u8){
+    for _ in 0..layer{
+        print!(" ");
+    }
+}

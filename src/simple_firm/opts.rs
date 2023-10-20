@@ -1,4 +1,4 @@
-use rand::prelude::Distribution;
+use crate::any_dist::*;
 use serde_json::Value;
 use super::measure_phase;
 
@@ -20,23 +20,32 @@ pub struct SimpleFirmDifferentKOpts{
     /// Buffer of the firm
     pub buffer: f64,
 
-    pub delta: f64,
-
     /// How many time steps to iterate
     pub iter_limit: NonZeroU64,
 
     /// Seed for the random number generator
-    pub seed: u64
+    pub seed: u64,
+
+    pub delay_dist: AnyDistCreator
+}
+
+impl PrintAlternatives for SimpleFirmDifferentKOpts{
+    fn print_alternatives(layer: u8) {
+        print_spaces(layer);
+        println!("Alternatives for DelayDist:");
+        print_spaces(layer);
+        AnyDistCreator::print_alternatives(layer + 1);
+    }
 }
 
 impl Default for SimpleFirmDifferentKOpts{
     fn default() -> Self {
         Self { 
             k: vec![NonZeroUsize::new(1).unwrap(), NonZeroUsize::new(10).unwrap(), NonZeroUsize::new(100).unwrap()], 
-            buffer: 0.5, 
-            delta: 0.49, 
+            buffer: 0.5,
             iter_limit: NonZeroU64::new(1000).unwrap(),
-            seed: 294
+            seed: 294,
+            delay_dist: AnyDistCreator::default()
         }
     }
 }
@@ -63,9 +72,9 @@ impl SimpleFirmDifferentKOpts{
         };
 
         format!(
-            "K_v{version}_b{}_d{}_k{ks}_it{}.dat",
+            "K_v{version}_b{}_D{}_k{ks}_it{}.dat",
             self.buffer,
-            self.delta,
+            self.delay_dist.get_name(),
             self.iter_limit
         )
     }
@@ -97,10 +106,22 @@ pub struct SimpleFirmPhase
     pub k_start: NonZeroUsize,
     pub k_end: NonZeroUsize,
     pub k_step_by: NonZeroUsize,
-    pub delta: f64,
-    pub buffer: Vec<f64>,
+    pub delay_dist: AnyDist,
+    pub focus_buffer: Vec<f64>,
+    pub buffer_dist: AnyDistCreator,
     pub iter_limit: NonZeroU64,
     pub seed: u64
+}
+
+impl PrintAlternatives for SimpleFirmPhase{
+    fn print_alternatives(layer: u8) {
+        print_spaces(layer);
+        println!("Alternatives for buffer dist:");
+        AnyDistCreator::print_alternatives(layer + 1);
+        print_spaces(layer);
+        println!("Alternatives for delay_dist:");
+        AnyDist::print_alternatives(layer + 1);
+    }
 }
 
 impl Default for SimpleFirmPhase{
@@ -109,10 +130,11 @@ impl Default for SimpleFirmPhase{
             k_start: NonZeroUsize::new(1).unwrap(),
             k_end: NonZeroUsize::new(10000).unwrap(),
             k_step_by: NonZeroUsize::new(20).unwrap(),
-            delta: 0.5,
-            buffer: vec![0.5],
+            focus_buffer: vec![0.5],
             iter_limit: NonZeroU64::new(2000).unwrap(),
-            seed: 2849170
+            seed: 2849170,
+            delay_dist: AnyDist::default(),
+            buffer_dist: AnyDistCreator::default()
         }
     }
 }
@@ -129,12 +151,13 @@ impl SimpleFirmPhase{
                 self.k_end
             );
 
-        let b = self.buffer.get(idx)
+        let b = self.focus_buffer.get(idx)
             .expect("buffer index out of bounds");
 
         format!(
-            "P_v{version}_b{b}_d{}_k{ks}_it{}.dat",
-            self.delta,
+            "P_v{version}_b{b}_B{}_d{}_k{ks}_it{}.dat",
+            self.buffer_dist.get_name(),
+            self.delay_dist.get_name(),
             self.iter_limit
         )
     }
@@ -160,53 +183,6 @@ impl SimpleFirmPhase{
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
-struct UniformBuffer{
-    mean: f64,
-    half_width: f64
-}
-
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
-struct ExpBuffer{
-    lambda: f64
-}
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum BufferDist{
-    Uniform(UniformBuffer),
-    Exponential(ExpBuffer)
-}
-
-impl BufferDist{
-    pub fn create_uniform_dist(&self) -> impl Distribution<f64>
-    {
-        match self {
-            BufferDist::Uniform(uni) => {
-                let min = uni.mean - uni.half_width;
-                let max = uni.mean + uni.half_width;
-                if min < 0.0 {
-                    panic!("Uniform distribution could have return negative Buffers! Abbort!");
-                }
-                rand::distributions::Uniform::new_inclusive(min, max)
-            },
-            BufferDist::Exponential(_) => {
-                panic!("Trying to get Uniform dist - But Exponential was requested!")
-            }
-        }
-    }
-
-    pub fn create_exp_dist(&self) -> impl Distribution<f64>
-    {
-        match self {
-            BufferDist::Uniform(_) => {
-                panic!("Trying to get Exponential dist - But Uniform was requested!")
-            },
-            BufferDist::Exponential(exp) => {
-                rand_distr::Exp::new(exp.lambda)
-                    .expect("Negative lambda not allowed")
-            }
-        }
-    }
-}
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct SimpleFirmPhaseBufferNoise{
     pub k_start: NonZeroUsize,
@@ -216,5 +192,5 @@ struct SimpleFirmPhaseBufferNoise{
     pub buffer_focus: f64,
     pub iter_limit: NonZeroU64,
     pub seed: u64,
-    pub buffer_dist: BufferDist
+    pub buffer_dist: AnyDist
 }
