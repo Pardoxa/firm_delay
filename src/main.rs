@@ -12,10 +12,9 @@ mod any_dist;
 
 fn main() {
     
-   // measure_end()
-    let command = CmdChooser::parse();
+    let option = CmdChooser::parse();
 
-    match command{
+    match option{
         CmdChooser::SimpleFirmDifK(opt) => {
             if opt.print_alternatives{
                 SimpleFirmDifferentKOpts::print_alternatives(0);

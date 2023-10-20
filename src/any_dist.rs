@@ -103,7 +103,7 @@ pub struct ExponentialDist {
 }
 
 impl ExponentialDist{
-    pub fn create_dist(&self) -> impl Distribution<f64>
+    pub fn create_dist(&self) -> impl Distribution<f64> + Copy
     {
         rand_distr::Exp::new(self.lambda)
             .expect("Negative lambda not allowed")
@@ -119,7 +119,8 @@ impl ExponentialDist{
 pub enum AnyDistCreator{
     Uniform(UniformDistCreator),
     Uniform2(UniformDistCreator2),
-    Exponential(ExponentialDist)
+    Exponential(ExponentialDist),
+    Constant(f64)
 }
 
 impl PrintAlternatives for AnyDistCreator{
@@ -127,6 +128,7 @@ impl PrintAlternatives for AnyDistCreator{
         let a = AnyDistCreator::Uniform(UniformDistCreator { min: 0.0, max: 1.0 });
         let b = AnyDistCreator::Uniform2(UniformDistCreator2 { mean: 0.5, half_width: 0.1 });
         let c = AnyDistCreator::Exponential(ExponentialDist { lambda: 1.0 });
+        let d = AnyDistCreator::Constant(1.0);
         let mut stdout = stdout();
         print_spaces(layer);
         println!("a)");
@@ -140,8 +142,13 @@ impl PrintAlternatives for AnyDistCreator{
         println!();
         print_spaces(layer);
         println!("c)");
-        serde_json::to_writer_pretty(stdout, &c)
+        serde_json::to_writer_pretty(&mut stdout, &c)
             .expect("unable to create json c");
+        println!();
+
+        println!("d)");
+        serde_json::to_writer_pretty(stdout, &d)
+            .expect("unable to create json d");
         println!();
     }
 }
@@ -158,23 +165,26 @@ impl AnyDistCreator{
         match self{
             Self::Uniform(uni) => uni.get_name(),
             Self::Exponential(exp) => exp.get_name(),
-            Self::Uniform2(uni2) => uni2.get_name()
+            Self::Uniform2(uni2) => uni2.get_name(),
+            Self::Constant(val) => format!("C{val}")
         }
     }
 }
 
-impl From<AnyDistCreator> for AnyDist{
-    fn from(value: AnyDistCreator) -> Self {
+impl TryFrom<AnyDistCreator> for AnyDist{
+    type Error = &'static str;
+    fn try_from(value: AnyDistCreator) -> Result<Self, Self::Error> {
         match value {
             AnyDistCreator::Uniform(uni) => {
-                AnyDist::Uniform(uni)
+                Ok(AnyDist::Uniform(uni))
             },
             AnyDistCreator::Exponential(exp) => {
-                AnyDist::Exponential(exp)
+                Ok(AnyDist::Exponential(exp))
             },
             AnyDistCreator::Uniform2(uni2) => {
-                AnyDist::Uniform(uni2.into())
-            }
+                Ok(AnyDist::Uniform(uni2.into()))
+            },
+            AnyDistCreator::Constant(_) => Err("Cannot create Distribution from Const")
         }
     }
 }

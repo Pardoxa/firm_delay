@@ -12,6 +12,7 @@ pub struct SimpleOpt{
 
 }
 
+/// Created by Yannick Feld
 /// Program to simulate the delay in firms
 #[derive(Parser)]
 #[command(author, version, about)]
