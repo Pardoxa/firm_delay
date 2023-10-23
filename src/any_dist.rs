@@ -128,11 +128,41 @@ impl BufferConstMin{
     }
 }
 
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BufferConstMinFrac{
+    pub buf_const: f64,
+    pub buf_min: f64,
+    pub min_frac: f64
+}
+
+impl BufferConstMinFrac{
+    pub fn get_name(&self) -> String
+    {
+        format!("C{}M{}f{}", self.buf_const, self.buf_min, self.min_frac)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UniformMax{
+    pub buf_max: f64,
+    pub uniform: UniformDistCreator2
+}
+
+impl UniformMax{
+    pub fn get_name(&self) -> String
+    {
+        format!("{}max{}",self.uniform.get_name(), self.buf_max)
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum AnyBufDist{
     Any(AnyDistCreator),
     Constant(f64),
-    ConstMin(BufferConstMin)
+    ConstMin(BufferConstMin),
+    ConstMinFrac(BufferConstMinFrac),
+    UniformMax(UniformMax)
 }
 
 impl AnyBufDist{
@@ -151,6 +181,12 @@ impl AnyBufDist{
             },
             Self::ConstMin(cm) => {
                 s.push_str(&cm.get_name());
+            },
+            Self::ConstMinFrac(cmf) => {
+                s.push_str(&cmf.get_name()); 
+            },
+            Self::UniformMax(umax) => {
+                s.push_str(&umax.get_name())
             }
         }
         s
@@ -168,6 +204,8 @@ impl PrintAlternatives for AnyBufDist{
         let a = Self::Any(AnyDistCreator::Uniform(UniformDistCreator { min: 0.0, max: 1.0 }));
         let b = Self::Constant(0.7);
         let c = Self::ConstMin(BufferConstMin{buf_const: 0.5, buf_min: 0.2});
+        let d = Self::ConstMinFrac(BufferConstMinFrac { buf_const: 0.5, buf_min: 0.2, min_frac: 0.5 });
+        let e = Self::UniformMax(UniformMax { buf_max: 0.5, uniform: UniformDistCreator2 { mean: 0.5, half_width: 0.1 } });
 
         let mut stdout = stdout();
         let msg = "Serialization issue AnyBufDist";
@@ -183,8 +221,17 @@ impl PrintAlternatives for AnyBufDist{
             .expect(msg);
         print_spaces(layer);
         println!("AnyBufDist c)");
-        serde_json::to_writer_pretty(stdout, &c)
+        serde_json::to_writer_pretty(&mut stdout, &c)
             .expect(msg);
+        print_spaces(layer);
+        println!("AnyBufDist d)");
+        serde_json::to_writer_pretty(&mut stdout, &d)
+            .expect(msg);
+        print_spaces(layer);
+        println!("AnyBufDist e)");
+        serde_json::to_writer_pretty(&mut stdout, &e)
+            .expect(msg);
+
     }
 }
 

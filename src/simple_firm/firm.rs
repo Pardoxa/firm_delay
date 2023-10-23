@@ -11,6 +11,7 @@ use {
 };
 
 
+#[derive(Clone, Copy)]
 struct Firm{
     current_delay: f64,
     buffer: f64
@@ -42,7 +43,17 @@ impl FocusFirmOuter{
 
     pub fn new_const_min_buf(k: usize, focus_buffer: f64, other_buffer: BufferConstMin, delay_dist: AnyDist, rng: Pcg64) -> Self
     {
-        let focus_firm = FocusFirmInner::new_const_min_buf(k, focus_buffer, other_buffer,);
+        let focus_firm = FocusFirmInner::new_const_min_buf(k, focus_buffer, other_buffer);
+        Self{
+            rng,
+            focus_firm,
+            delay_dist
+        }
+    }
+
+    pub fn new_const_min_frac_buf(k: usize, focus_buffer: f64, other_buffer: BufferConstMinFrac, delay_dist: AnyDist, rng: Pcg64) -> Self
+    {
+        let focus_firm = FocusFirmInner::new_const_min_frac_buf(k, focus_buffer, other_buffer);
         Self{
             rng,
             focus_firm,
@@ -54,6 +65,17 @@ impl FocusFirmOuter{
     where D: Distribution<f64>
     {
         let focus_firm = FocusFirmInner::new(k, focus_buffer, buffer_dist, &mut rng);
+        Self{
+            focus_firm,
+            rng,
+            delay_dist
+        }
+    }
+
+    pub fn new_dist_max<D>(k: usize, focus_buffer: f64, delay_dist: AnyDist, mut rng: Pcg64, buffer_dist: D, max_buf: f64) -> Self
+    where D: Distribution<f64>
+    {
+        let focus_firm = FocusFirmInner::new_dist_max(k, focus_buffer, buffer_dist, max_buf, &mut rng);
         Self{
             focus_firm,
             rng,
@@ -95,6 +117,20 @@ impl FocusFirmOuter{
             AnyBufDist::ConstMin(cm) => {
                 let fun = move |k, focus_buffer, rng| {
                     FocusFirmOuter::new_const_min_buf(k, focus_buffer, cm.clone(), delay_dist.clone(), rng)
+                };
+                Box::new(fun)
+            },
+            AnyBufDist::ConstMinFrac(cmf) => {
+                let fun = move |k, focus_buffer, rng| {
+                    FocusFirmOuter::new_const_min_frac_buf(k, focus_buffer, cmf.clone(), delay_dist.clone(), rng)
+                };
+                Box::new(fun)
+            },
+            AnyBufDist::UniformMax(u_max) => {
+                let uniform: UniformDistCreator = u_max.uniform.into();
+                let dist = uniform.create_dist();
+                let fun = move |k, focus_buffer, rng| {
+                    FocusFirmOuter::new_dist_max(k, focus_buffer, delay_dist.clone(), rng, dist, u_max.buf_max)
                 };
                 Box::new(fun)
             }
@@ -168,6 +204,66 @@ impl FocusFirmInner {
                 );
         }
 
+        Self{
+            focus,
+            others,
+            iteration: 0
+        }
+    }
+
+    pub fn new_const_min_frac_buf(k: usize, focus_buffer: f64, other_buffer: BufferConstMinFrac) -> Self
+    {
+        let focus = Firm{
+            current_delay: 0.0,
+            buffer: focus_buffer
+        };
+        let at_min = ((k as f64) * other_buffer.min_frac).floor() as usize;
+        let mut others = if k == 0 {
+            Vec::new()
+        } else {
+            vec![Firm{current_delay: 0.0, buffer: other_buffer.buf_min}; at_min]
+        };
+        if k > 1 {
+            others.extend(
+                (0..k-at_min)
+                    .map(
+                        |_| 
+                        {
+                            Firm{
+                                current_delay: 0.0,
+                                buffer: other_buffer.buf_const
+                            }
+                        }
+                    )
+                );
+        }
+
+        Self{
+            focus,
+            others,
+            iteration: 0
+        }
+    }
+
+    pub fn new_dist_max<D>(k: usize, focus_buffer: f64, buffer_dist: D, max_buf: f64, rng: &mut Pcg64) -> Self
+    where D: Distribution<f64>
+    {
+        let focus = Firm{
+            current_delay: 0.0,
+            buffer: focus_buffer
+        };
+        let others = buffer_dist.sample_iter(rng)
+            .take(k)
+            .map(
+                |buffer|
+                    {
+                        let buf = buffer.min(max_buf);
+                        Firm{
+                            current_delay: 0.0,
+                            buffer: buf
+                        }
+                    }
+            ).collect();
         Self{
             focus,
             others,
