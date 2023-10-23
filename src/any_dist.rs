@@ -49,8 +49,8 @@ impl AnyDist{
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct UniformDistCreator2 {
-    mean: f64,
-    half_width: f64
+    pub mean: f64,
+    pub half_width: f64
 }
 
 impl UniformDistCreator2{
@@ -63,8 +63,8 @@ impl UniformDistCreator2{
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct UniformDistCreator{
-    min: f64,
-    max: f64
+    pub min: f64,
+    pub max: f64
 }
 
 impl From<UniformDistCreator2> for UniformDistCreator

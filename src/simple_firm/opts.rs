@@ -1,6 +1,6 @@
 use crate::any_dist::*;
 use serde_json::Value;
-use super::measure_phase;
+use super::{measure_phase, sample_simple_firm_buffer_hist};
 
 use {
     serde::{Serialize, Deserialize},
@@ -200,4 +200,97 @@ struct SimpleFirmPhaseBufferNoise{
     pub iter_limit: NonZeroU64,
     pub seed: u64,
     pub buffer_dist: AnyDist
+}
+
+
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SimpleFirmBufferHistogram{
+    /// vector containing all k values
+    pub k: usize,
+
+    /// Buffer of the firm
+    pub focus_buffer: f64,
+
+    /// Buffer dist for others
+    pub buf_dist: UniformDistCreator2,
+
+    /// How many time steps to iterate
+    pub iter_limit: NonZeroU64,
+
+    /// Seed for the random number generator
+    pub seed: u64,
+
+    pub delay_dist: AnyDistCreator,
+
+    pub samples: usize,
+
+    pub bins: usize,
+
+    pub threads: usize
+}
+
+impl PrintAlternatives for SimpleFirmBufferHistogram{
+    fn print_alternatives(layer: u8) {
+        print_spaces(layer);
+        println!("Alternatives for DelayDist:");
+        print_spaces(layer);
+        AnyDistCreator::print_alternatives(layer + 1);
+        println!("Alternatives for BufDist:");
+        AnyBufDist::print_alternatives(layer+1);
+    }
+}
+
+impl Default for SimpleFirmBufferHistogram{
+    fn default() -> Self {
+        Self { 
+            k: 1000, 
+            focus_buffer: 0.5,
+            iter_limit: NonZeroU64::new(1000).unwrap(),
+            seed: 294,
+            delay_dist: AnyDistCreator::default(),
+            buf_dist: UniformDistCreator2{mean: 0.5, half_width: 0.1},
+            samples: 10000,
+            bins: 100,
+            threads: 8
+
+        }
+    }
+}
+
+impl SimpleFirmBufferHistogram{
+    pub fn get_name(&self) -> String
+    {
+        let version = crate::misc::VERSION;
+
+        
+        let k = self.k;
+        format!(
+            "H_v{version}_b{}_{}_D{}_k{k}_it{}.dat",
+            self.focus_buffer,
+            self.buf_dist.get_name(),
+            self.delay_dist.get_name(),
+            self.iter_limit
+        )
+    }
+
+    pub fn get_buf(&self) -> BufWriter<File>
+    {
+        let name = self.get_name();
+        let file = File::create(name)
+            .unwrap();
+        let mut buf = BufWriter::new(file);
+        writeln!(buf, "#Version {VERSION}").unwrap();
+        write_commands(&mut buf)
+            .expect("write error");
+        let val: Value = serde_json::to_value(self.clone())
+            .expect("serialization error");
+        write_json(&mut buf, &val);
+        buf
+    }
+
+    pub fn exec(&self) 
+    {
+        sample_simple_firm_buffer_hist(self)
+    }
 }

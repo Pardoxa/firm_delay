@@ -18,5 +18,6 @@ pub struct SimpleOpt{
 #[command(author, version, about)]
 pub enum CmdChooser{
     SimpleFirmDifK(SimpleOpt),
-    SimpleFirmPhase(SimpleOpt)
+    SimpleFirmPhase(SimpleOpt),
+    SimpleFirmBufHist(SimpleOpt)
 }

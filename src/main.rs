@@ -2,7 +2,7 @@ use {
     clap::Parser,
     global_opts::CmdChooser,
     misc::*,
-    simple_firm::{SimpleFirmDifferentKOpts, SimpleFirmPhase}
+    simple_firm::{SimpleFirmDifferentKOpts, SimpleFirmPhase, SimpleFirmBufferHistogram}
 };
 
 pub mod misc;
@@ -30,6 +30,14 @@ fn main() {
                 let o: SimpleFirmPhase = parse(opt.json);
                 o.exec();
             }   
+        },
+        CmdChooser::SimpleFirmBufHist(opt) => {
+            if opt.print_alternatives{
+                SimpleFirmBufferHistogram::print_alternatives(0);
+            } else {
+                let o: SimpleFirmBufferHistogram = parse(opt.json);
+                o.exec();
+            }  
         }
     }
     

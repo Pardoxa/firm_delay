@@ -4,10 +4,15 @@ use {
         SeedableRng,
         distributions::Distribution
     },
-    std::io::Write,
+    std::{
+        io::Write,
+        sync::{Arc, Mutex},
+        ops::DerefMut
+    },
     super::*,
     rayon::prelude::*,
-    crate::any_dist::*
+    crate::any_dist::*,
+    sampling::AtomicHistF64
 };
 
 
@@ -83,7 +88,7 @@ impl FocusFirmOuter{
         }
     }
 
-    // The only reason I programmed this so complicated was: I had fun doing so
+    /// Get Firm builder function according to the correct distributions
     pub fn get_firm_creator(buf_dist: AnyBufDist, delay_dist: AnyDist) -> Box<dyn Fn (usize, f64, Pcg64) -> FocusFirmOuter + std::marker::Sync>
     {
         match buf_dist{
@@ -320,8 +325,7 @@ impl FocusFirmInner {
 
 pub fn different_k(option: &SimpleFirmDifferentKOpts)
 {
-    let dist: AnyDist = option.delay_dist.clone().try_into()
-        .expect("Const Distribution not allowed for this");
+    let dist: AnyDist = option.delay_dist.clone().into();
     let mut buf = option.get_buf();
     write!(buf, "#k=").unwrap();
     for k in option.k.iter()
@@ -352,6 +356,66 @@ pub fn different_k(option: &SimpleFirmDifferentKOpts)
             firm.iterate();
         }
         writeln!(buf).unwrap();
+    }
+
+}
+
+pub fn sample_simple_firm_buffer_hist(option: &SimpleFirmBufferHistogram)
+{
+    let dist: AnyDist = option.delay_dist.clone().into();
+
+    let buf_dist: UniformDistCreator = option.buf_dist.into();
+    let buf_min = buf_dist.min;
+    let buf_max = buf_dist.max;
+    let buf_dist = AnyBufDist::Any(AnyDistCreator::Uniform(buf_dist));
+    let firm_creator = FocusFirmOuter::get_firm_creator(buf_dist, dist);
+
+    let rng = Pcg64::seed_from_u64(option.seed);
+    let rng_arc = Arc::new(Mutex::new(rng));
+
+    let hist = AtomicHistF64::new(buf_min, buf_max, option.bins)
+        .expect("uable to create hist");
+
+    let spt = option.samples / option.threads;
+    let actual_samples = spt * option.threads;
+
+    (0..option.threads)
+        .into_par_iter()
+        .for_each(
+            |_|
+            {
+                let mut thread_rng = rng_arc.lock().unwrap();
+                let mut rng = Pcg64::from_rng(thread_rng.deref_mut())
+                    .unwrap();
+                drop(thread_rng);
+                for _ in 0..spt{
+                    let firm_rng = Pcg64::from_rng(&mut rng)
+                        .unwrap();
+                    let mut firms = firm_creator(option.k, option.focus_buffer, firm_rng);
+                    for _ in 0..option.iter_limit.get(){
+                        firms.iterate();
+                    }
+                    let others = firms.focus_firm.others.as_slice();
+                    let mut max = others[0].current_delay;
+                    let mut buf = others[0].buffer;
+                    for f in &others[1..]
+                    {
+                        if f.current_delay > max {
+                            max = f.current_delay;
+                            buf = f.buffer;
+                        }
+                    }
+                    hist.increment_quiet(buf);
+                }
+            }
+        );
+
+    let mut buf = option.get_buf();
+
+    for ([left, right], bin_hits) in hist.bin_hits_iter()
+    {
+        let hits = bin_hits as f64 / actual_samples as f64;
+        writeln!(buf, "{} {} {}", left, right, hits).unwrap();
     }
 
 }
