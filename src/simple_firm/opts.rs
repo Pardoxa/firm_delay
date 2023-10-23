@@ -15,10 +15,13 @@ use {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SimpleFirmDifferentKOpts{
     /// vector containing all k values
-    pub k: Vec<NonZeroUsize>,
+    pub k: Vec<usize>,
 
     /// Buffer of the firm
-    pub buffer: f64,
+    pub focus_buffer: f64,
+
+    /// Buffer dist for others
+    pub buf_dist: AnyBufDist,
 
     /// How many time steps to iterate
     pub iter_limit: NonZeroU64,
@@ -35,17 +38,20 @@ impl PrintAlternatives for SimpleFirmDifferentKOpts{
         println!("Alternatives for DelayDist:");
         print_spaces(layer);
         AnyDistCreator::print_alternatives(layer + 1);
+        println!("Alternatives for BufDist:");
+        AnyBufDist::print_alternatives(layer+1);
     }
 }
 
 impl Default for SimpleFirmDifferentKOpts{
     fn default() -> Self {
         Self { 
-            k: vec![NonZeroUsize::new(1).unwrap(), NonZeroUsize::new(10).unwrap(), NonZeroUsize::new(100).unwrap()], 
-            buffer: 0.5,
+            k: vec![0, 10, 100], 
+            focus_buffer: 0.5,
             iter_limit: NonZeroU64::new(1000).unwrap(),
             seed: 294,
-            delay_dist: AnyDistCreator::default()
+            delay_dist: AnyDistCreator::default(),
+            buf_dist: AnyBufDist::default()
         }
     }
 }
@@ -72,8 +78,9 @@ impl SimpleFirmDifferentKOpts{
         };
 
         format!(
-            "K_v{version}_b{}_D{}_k{ks}_it{}.dat",
-            self.buffer,
+            "K_v{version}_b{}_{}_D{}_k{ks}_it{}.dat",
+            self.focus_buffer,
+            self.buf_dist.get_name(),
             self.delay_dist.get_name(),
             self.iter_limit
         )
@@ -108,7 +115,7 @@ pub struct SimpleFirmPhase
     pub k_step_by: NonZeroUsize,
     pub delay_dist: AnyDist,
     pub focus_buffer: Vec<f64>,
-    pub buffer_dist: AnyDistCreator,
+    pub buffer_dist: AnyBufDist,
     pub iter_limit: NonZeroU64,
     pub seed: u64
 }
@@ -134,7 +141,7 @@ impl Default for SimpleFirmPhase{
             iter_limit: NonZeroU64::new(2000).unwrap(),
             seed: 2849170,
             delay_dist: AnyDist::default(),
-            buffer_dist: AnyDistCreator::default()
+            buffer_dist: AnyBufDist::default()
         }
     }
 }

@@ -40,6 +40,16 @@ impl FocusFirmOuter{
         }
     }
 
+    pub fn new_const_min_buf(k: usize, focus_buffer: f64, other_buffer: BufferConstMin, delay_dist: AnyDist, rng: Pcg64) -> Self
+    {
+        let focus_firm = FocusFirmInner::new_const_min_buf(k, focus_buffer, other_buffer,);
+        Self{
+            rng,
+            focus_firm,
+            delay_dist
+        }
+    }
+
     pub fn new<D>(k: usize, focus_buffer: f64, delay_dist: AnyDist, mut rng: Pcg64, buffer_dist: D) -> Self
     where D: Distribution<f64>
     {
@@ -48,6 +58,46 @@ impl FocusFirmOuter{
             focus_firm,
             rng,
             delay_dist
+        }
+    }
+
+    // The only reason I programmed this so complicated was: I had fun doing so
+    pub fn get_firm_creator(buf_dist: AnyBufDist, delay_dist: AnyDist) -> Box<dyn Fn (usize, f64, Pcg64) -> FocusFirmOuter + std::marker::Sync>
+    {
+        match buf_dist{
+            AnyBufDist::Constant(val) => {
+                let fun = move |k, focus_buffer, rng| {
+                    FocusFirmOuter::new_const_buf(k, focus_buffer, val, delay_dist.clone(), rng)
+                };
+
+                Box::new(fun)
+            },
+            AnyBufDist::Any(any) => {
+                let dist: AnyDist = any.into();
+
+                match dist{
+                    AnyDist::Exponential(exp) => {
+                        let fun = move |k, focus_buffer, rng| {
+                            let buffer_dist = exp.create_dist();
+                            FocusFirmOuter::new(k, focus_buffer, delay_dist.clone(), rng, buffer_dist)
+                        };
+                        Box::new(fun)
+                    },
+                    AnyDist::Uniform(uni) => {
+                        let uniform = uni.create_dist();
+                        let fun = move |k, focus_buffer, rng| {
+                            FocusFirmOuter::new(k, focus_buffer, delay_dist.clone(), rng, uniform)
+                        };
+                        Box::new(fun)
+                    }
+                }
+            },
+            AnyBufDist::ConstMin(cm) => {
+                let fun = move |k, focus_buffer, rng| {
+                    FocusFirmOuter::new_const_min_buf(k, focus_buffer, cm.clone(), delay_dist.clone(), rng)
+                };
+                Box::new(fun)
+            }
         }
     }
 
@@ -75,7 +125,7 @@ impl FocusFirmInner {
             current_delay: 0.0,
             buffer: focus_buffer
         };
-        let others = (0..k-1)
+        let others = (0..k)
             .map(
                 |_| 
                 {
@@ -92,6 +142,39 @@ impl FocusFirmInner {
         }
     }
 
+    pub fn new_const_min_buf(k: usize, focus_buffer: f64, other_buffer: BufferConstMin) -> Self
+    {
+        let focus = Firm{
+            current_delay: 0.0,
+            buffer: focus_buffer
+        };
+        let mut others = if k == 0 {
+            Vec::new()
+        } else {
+            vec![Firm{current_delay: 0.0, buffer: other_buffer.buf_min}]
+        };
+        if k > 1 {
+            others.extend(
+                (0..k-1)
+                    .map(
+                        |_| 
+                        {
+                            Firm{
+                                current_delay: 0.0,
+                                buffer: other_buffer.buf_const
+                            }
+                        }
+                    )
+                );
+        }
+
+        Self{
+            focus,
+            others,
+            iteration: 0
+        }
+    }
+
     pub fn new<D>(k: usize, focus_buffer: f64, buffer_dist: D, rng: &mut Pcg64) -> Self
     where D: Distribution<f64>
     {
@@ -100,7 +183,7 @@ impl FocusFirmInner {
             buffer: focus_buffer
         };
         let others = buffer_dist.sample_iter(rng)
-            .take(k-1)
+            .take(k)
             .map(
                 |buffer|
                     {
@@ -152,12 +235,15 @@ pub fn different_k(option: &SimpleFirmDifferentKOpts)
     writeln!(buf).unwrap();
     let mut rng = Pcg64::seed_from_u64(option.seed);
 
+    let buf_dist = option.buf_dist.clone();
+    let firm_creator = FocusFirmOuter::get_firm_creator(buf_dist, dist);
+
     let mut firms: Vec<_> = option.k.iter()
         .map(
-            |k| 
+            |&k| 
             {
                 let f_rng = Pcg64::from_rng(&mut rng).unwrap();
-                FocusFirmOuter::new_const_buf(k.get(), option.buffer, option.buffer, dist.clone(), f_rng)
+                firm_creator(k, option.focus_buffer, f_rng)
             }
         )
         .collect();
@@ -174,6 +260,7 @@ pub fn different_k(option: &SimpleFirmDifferentKOpts)
 
 }
 
+
 pub fn measure_phase(opt: &SimpleFirmPhase)
 {
     let len = opt.focus_buffer.len();
@@ -181,40 +268,10 @@ pub fn measure_phase(opt: &SimpleFirmPhase)
     let t = time as f64;
 
     let delay_dist = opt.delay_dist.clone();
+    let buf_dist = opt.buffer_dist.clone();
 
-    // The only reason I programmed this so complicated was: I had fun doing so
-    let new_firms: Box<dyn Fn (usize, f64, Pcg64) -> FocusFirmOuter + std::marker::Sync>  = match opt.buffer_dist{
-        AnyDistCreator::Constant(val) => {
-            let fun = move |k, focus_buffer, rng| {
-                FocusFirmOuter::new_const_buf(k, focus_buffer, val, delay_dist.clone(), rng)
-            };
-
-            Box::new(fun)
-        },
-        _ => {
-            let dist: AnyDist = opt.buffer_dist.clone().try_into()
-                .expect("Did I add another AnyDist?");
-
-            match dist{
-                AnyDist::Exponential(exp) => {
-                    let fun = move |k, focus_buffer, rng| {
-                        let buffer_dist = exp.create_dist();
-                        FocusFirmOuter::new(k, focus_buffer, delay_dist.clone(), rng, buffer_dist)
-                    };
-                    Box::new(fun)
-                },
-                AnyDist::Uniform(uni) => {
-                    let uniform = uni.create_dist();
-                    let fun = move |k, focus_buffer, rng| {
-                        FocusFirmOuter::new(k, focus_buffer, delay_dist.clone(), rng, uniform)
-                    };
-                    Box::new(fun)
-                }
-            }
-
-            
-        }
-    };
+    
+    let new_firms = FocusFirmOuter::get_firm_creator(buf_dist, delay_dist);
 
 
     (0..len)
