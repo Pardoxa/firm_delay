@@ -2,7 +2,7 @@ use {
     clap::Parser,
     global_opts::CmdChooser,
     misc::*,
-    simple_firm::{SimpleFirmDifferentKOpts, SimpleFirmPhase, SimpleFirmBufferHistogram}
+    simple_firm::{SimpleFirmDifferentKOpts, SimpleFirmPhase, SimpleFirmBufferHistogram, SimpleFirmAverageAfter}
 };
 
 pub mod misc;
@@ -45,6 +45,22 @@ fn main() {
             } else {
                 let o: SimpleFirmDifferentKOpts = parse(opt.json);
                 simple_firm::different_k_with_max(&o);
+            }
+        },
+        CmdChooser::SimpleFirmAverage(opt) => {
+            if opt.print_alternatives{
+                SimpleFirmAverageAfter::print_alternatives(0);
+            } else {
+                let o: SimpleFirmAverageAfter = parse(opt.json);
+                simple_firm::average_delay_measurement(&o);
+            }
+        },
+        CmdChooser::SimpleFirmAverageOrder(opt) => {
+            if opt.print_alternatives{
+                SimpleFirmAverageAfter::print_alternatives(0);
+            } else {
+                let o: SimpleFirmAverageAfter = parse(opt.json);
+                simple_firm::average_delay_order_measurement(&o);
             }
         }
     }

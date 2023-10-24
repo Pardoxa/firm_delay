@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+use indicatif::*;
 use {
     rand_pcg::Pcg64,
     rand::{
@@ -6,7 +8,7 @@ use {
     },
     std::{
         io::Write,
-        sync::{Arc, Mutex},
+        sync::Mutex,
         ops::DerefMut
     },
     super::*,
@@ -154,6 +156,26 @@ impl FocusFirmOuter{
                 let dist = uni.create_dist();
                 let iter = dist.sample_iter(&mut self.rng);
                 self.focus_firm.iterate(iter);
+            }
+        }
+    }
+
+    pub fn iterate_multiple_steps(&mut self, steps: NonZeroU64)
+    {
+        match self.delay_dist {
+            AnyDist::Exponential(exp) => {
+                let dist = exp.create_dist();
+                let mut iter = dist.sample_iter(&mut self.rng);
+                for _ in 0..steps.get(){
+                    self.focus_firm.iterate(&mut iter);
+                }
+            },
+            AnyDist::Uniform(uni) => {
+                let dist = uni.create_dist();
+                let mut iter = dist.sample_iter(&mut self.rng);
+                for _ in 0..steps.get(){
+                    self.focus_firm.iterate(&mut iter);
+                }
             }
         }
     }
@@ -423,6 +445,129 @@ pub fn different_k_with_max(option: &SimpleFirmDifferentKOpts)
 
 }
 
+pub fn average_delay_measurement(option: &SimpleFirmAverageAfter)
+{
+    let dist: AnyDist = option.delay_dist.clone().into();
+    let mut buf = option.get_buf();
+    
+    let rng = Pcg64::seed_from_u64(option.seed);
+    let rng = Mutex::new(rng);
+
+    let delta = (option.other_buffer_max-option.other_buffer_min)/(option.other_buffer_steps-1) as f64;
+
+    let samples_per_thread = option.average_samples / option.threads;
+    let actual_samples = samples_per_thread * option.threads;
+
+    let bar = crate::misc::indication_bar(option.other_buffer_steps as u64);
+
+    for i in (0..option.other_buffer_steps).progress_with(bar){
+        let buffer = option.other_buffer_min + delta * i as f64;
+        let global_sum = Mutex::new(0.0);
+        (0..samples_per_thread)
+            .into_par_iter()
+            .for_each(
+                |_|
+                {
+                    let mut guard = rng.lock().unwrap();
+                    let mut thread_rng = Pcg64::from_rng(guard.deref_mut()).unwrap();
+                    drop(guard);
+                    let mut sum = 0.0;
+                    for _ in 0..samples_per_thread{
+                        let f_rng = Pcg64::from_rng(&mut thread_rng).unwrap();
+                        let mut firms = FocusFirmOuter::new_const_buf(
+                            option.k, 
+                            option.focus_buffer, 
+                            buffer, 
+                            dist.clone(), 
+                            f_rng
+                        );
+
+                        firms.iterate_multiple_steps(option.time);
+
+                        sum += firms.focus_firm.focus.current_delay;
+                    }
+                    let mut guard = global_sum.lock().unwrap();
+                    *(guard.deref_mut()) += sum;
+                    drop(guard);
+                }
+            );
+        let sum = global_sum.into_inner().unwrap();
+        let average = sum / actual_samples as f64;
+        writeln!(buf, "{} {}", buffer, average).unwrap();
+    }
+    
+
+}
+
+pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
+{
+    let dist: AnyDist = option.delay_dist.clone().into();
+    let mut buf = option.get_buf();
+    
+    let rng = Pcg64::seed_from_u64(option.seed);
+    let rng = Mutex::new(rng);
+
+    let delta = (option.other_buffer_max-option.other_buffer_min)/(option.other_buffer_steps-1) as f64;
+
+    let samples_per_thread = option.average_samples / option.threads;
+    let actual_samples = samples_per_thread * option.threads;
+
+    let bar = crate::misc::indication_bar(option.other_buffer_steps as u64);
+
+    let time_half = NonZeroU64::new(option.time.get() / 2).unwrap();
+
+    for i in (0..option.other_buffer_steps).progress_with(bar){
+        let buffer = option.other_buffer_min + delta * i as f64;
+        let global_sum_mid = Mutex::new(0.0);
+        let global_sum_end = Mutex::new(0.0);
+        (0..samples_per_thread)
+            .into_par_iter()
+            .for_each(
+                |_|
+                {
+                    let mut guard = rng.lock().unwrap();
+                    let mut thread_rng = Pcg64::from_rng(guard.deref_mut()).unwrap();
+                    drop(guard);
+                    let mut sum_mid = 0.0;
+                    let mut sum_end = 0.0;
+                    for _ in 0..samples_per_thread{
+                        let f_rng = Pcg64::from_rng(&mut thread_rng).unwrap();
+                        let mut firms = FocusFirmOuter::new_const_buf(
+                            option.k, 
+                            option.focus_buffer, 
+                            buffer, 
+                            dist.clone(), 
+                            f_rng
+                        );
+
+                        firms.iterate_multiple_steps(time_half);
+                        sum_mid += firms.focus_firm.focus.current_delay;
+                        firms.iterate_multiple_steps(time_half);
+                        sum_end += firms.focus_firm.focus.current_delay;
+                    }
+                    let mut guard = global_sum_mid.lock().unwrap();
+                    *(guard.deref_mut()) += sum_mid;
+                    drop(guard);
+
+                    let mut guard: std::sync::MutexGuard<'_, f64> = global_sum_end.lock().unwrap();
+                    *(guard.deref_mut()) += sum_end;
+                    drop(guard);
+                }
+            );
+        let sum_mid = global_sum_mid.into_inner().unwrap();
+        let average_mid = sum_mid / actual_samples as f64;
+
+        let sum_end = global_sum_end.into_inner().unwrap();
+        let average_end = sum_end / actual_samples as f64;
+
+        let slope = sum_end/sum_mid;
+
+        writeln!(buf, "{} {} {} {}", buffer, average_mid, average_end, slope).unwrap();
+    }
+    
+
+}
+
 pub fn sample_simple_firm_buffer_hist(option: &SimpleFirmBufferHistogram)
 {
     let dist: AnyDist = option.delay_dist.clone().into();
@@ -434,7 +579,7 @@ pub fn sample_simple_firm_buffer_hist(option: &SimpleFirmBufferHistogram)
     let firm_creator = FocusFirmOuter::get_firm_creator(buf_dist, dist);
 
     let rng = Pcg64::seed_from_u64(option.seed);
-    let rng_arc = Arc::new(Mutex::new(rng));
+    let rng_arc = Mutex::new(rng);
 
     let hist = AtomicHistF64::new(buf_min, buf_max, option.bins)
         .expect("uable to create hist");

@@ -312,3 +312,92 @@ impl SimpleFirmBufferHistogram{
         sample_simple_firm_buffer_hist(self)
     }
 }
+
+
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SimpleFirmAverageAfter{
+
+    pub k: usize,
+
+    /// Buffer of the firm
+    pub focus_buffer: f64,
+
+
+    pub other_buffer_max: f64,
+
+    pub other_buffer_min: f64,
+
+    pub other_buffer_steps: usize,
+
+    /// How many time steps to iterate
+    pub time: NonZeroU64,
+
+    /// Seed for the random number generator
+    pub seed: u64,
+
+    pub delay_dist: AnyDistCreator,
+
+    pub average_samples: usize,
+
+    pub threads: usize
+}
+
+impl PrintAlternatives for SimpleFirmAverageAfter{
+    fn print_alternatives(layer: u8) {
+        print_spaces(layer);
+        println!("Alternatives for DelayDist:");
+        AnyDistCreator::print_alternatives(layer + 1);
+    }
+}
+
+impl Default for SimpleFirmAverageAfter{
+    fn default() -> Self {
+        Self { 
+            k: 1, 
+            focus_buffer: 1.0,
+            time: NonZeroU64::new(1000).unwrap(),
+            seed: 294,
+            delay_dist: AnyDistCreator::default(),
+            other_buffer_max: 1.0,
+            other_buffer_min: 0.0,
+            other_buffer_steps: 100,
+            average_samples: 1000,
+            threads: 8
+        }
+    }
+}
+
+impl SimpleFirmAverageAfter{
+    pub fn get_name(&self) -> String
+    {
+        let version = crate::misc::VERSION;
+
+        format!(
+            "A_v{version}_b{}_B{}-{}_{}_D{}_k{}_T{}.dat",
+            self.focus_buffer,
+            self.other_buffer_min,
+            self.other_buffer_max,
+            self.other_buffer_steps,
+            self.delay_dist.get_name(),
+            self.k,
+            self.time
+        )
+    }
+
+    pub fn get_buf(&self) -> BufWriter<File>
+    {
+        let name = self.get_name();
+        let file = File::create(name)
+            .unwrap();
+        let mut buf = BufWriter::new(file);
+        writeln!(buf, "#Version {VERSION}").unwrap();
+        write_commands(&mut buf)
+            .expect("write error");
+        let val: Value = serde_json::to_value(self.clone())
+            .expect("serialization error");
+        write_json(&mut buf, &val);
+        buf
+    }
+
+}

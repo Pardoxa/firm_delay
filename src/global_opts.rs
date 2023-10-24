@@ -20,5 +20,7 @@ pub enum CmdChooser{
     SimpleFirmDifK(SimpleOpt),
     SimpleOtherFirmDifK(SimpleOpt),
     SimpleFirmPhase(SimpleOpt),
-    SimpleFirmBufHist(SimpleOpt)
+    SimpleFirmBufHist(SimpleOpt),
+    SimpleFirmAverage(SimpleOpt),
+    SimpleFirmAverageOrder(SimpleOpt),
 }
