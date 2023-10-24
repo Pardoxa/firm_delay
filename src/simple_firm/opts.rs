@@ -29,7 +29,9 @@ pub struct SimpleFirmDifferentKOpts{
     /// Seed for the random number generator
     pub seed: u64,
 
-    pub delay_dist: AnyDistCreator
+    pub delay_dist: AnyDistCreator,
+
+    pub write_every: Option<u64>
 }
 
 impl PrintAlternatives for SimpleFirmDifferentKOpts{
@@ -51,7 +53,8 @@ impl Default for SimpleFirmDifferentKOpts{
             iter_limit: NonZeroU64::new(1000).unwrap(),
             seed: 294,
             delay_dist: AnyDistCreator::default(),
-            buf_dist: AnyBufDist::default()
+            buf_dist: AnyBufDist::default(),
+            write_every: Some(1)
         }
     }
 }
@@ -89,6 +92,21 @@ impl SimpleFirmDifferentKOpts{
     pub fn get_buf(&self) -> BufWriter<File>
     {
         let name = self.get_name();
+        let file = File::create(name)
+            .unwrap();
+        let mut buf = BufWriter::new(file);
+        writeln!(buf, "#Version {VERSION}").unwrap();
+        write_commands(&mut buf)
+            .expect("write error");
+        let val: Value = serde_json::to_value(self.clone())
+            .expect("serialization error");
+        write_json(&mut buf, &val);
+        buf
+    }
+
+    pub fn get_buf2(&self) -> BufWriter<File>
+    {
+        let name = format!("{}2", self.get_name());
         let file = File::create(name)
             .unwrap();
         let mut buf = BufWriter::new(file);

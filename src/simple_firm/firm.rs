@@ -360,6 +360,69 @@ pub fn different_k(option: &SimpleFirmDifferentKOpts)
 
 }
 
+pub fn different_k_with_max(option: &SimpleFirmDifferentKOpts)
+{
+    let dist: AnyDist = option.delay_dist.clone().into();
+    let mut buf = option.get_buf();
+    let mut buf2 = option.get_buf2();
+    write!(buf, "#k=").unwrap();
+    write!(buf2, "#k=").unwrap();
+    for k in option.k.iter()
+    {
+        write!(buf, "{k} ").unwrap();
+        write!(buf2, "{k} ").unwrap();
+    }
+    writeln!(buf).unwrap();
+    writeln!(buf2).unwrap();
+    let mut rng = Pcg64::seed_from_u64(option.seed);
+
+    let buf_dist = option.buf_dist.clone();
+    let firm_creator = FocusFirmOuter::get_firm_creator(buf_dist, dist);
+
+    let mut firms: Vec<_> = option.k.iter()
+        .map(
+            |&k| 
+            {
+                let f_rng = Pcg64::from_rng(&mut rng).unwrap();
+                firm_creator(k, option.focus_buffer, f_rng)
+            }
+        )
+        .collect();
+    
+    let every = option.write_every.unwrap_or(1);
+    for i in 0..option.iter_limit.get()
+    {
+        let w = (i % every) == 0;
+        if w{
+            write!(buf, "{i}").unwrap();
+            write!(buf2, "{i}").unwrap();
+        }
+        for firm in firms.iter_mut(){
+            if w {
+                write!(buf, " {}", firm.focus_firm.focus.current_delay).unwrap();
+            }
+            let mut max = f64::NEG_INFINITY;
+            let mut buffer = 0.0;
+            for f in firm.focus_firm.others.iter()
+            {
+                if f.current_delay > max {
+                    max = f.current_delay;
+                    buffer = f.buffer;
+                }
+            }
+            if w{
+                write!(buf2, " {max} {buffer}").unwrap();
+            }
+            firm.iterate();
+        }
+        if w{
+            writeln!(buf).unwrap();
+            writeln!(buf2).unwrap();
+        }
+    }
+
+}
+
 pub fn sample_simple_firm_buffer_hist(option: &SimpleFirmBufferHistogram)
 {
     let dist: AnyDist = option.delay_dist.clone().into();

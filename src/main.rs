@@ -38,6 +38,14 @@ fn main() {
                 let o: SimpleFirmBufferHistogram = parse(opt.json);
                 o.exec();
             }  
+        },
+        CmdChooser::SimpleOtherFirmDifK(opt) => {
+            if opt.print_alternatives{
+                SimpleFirmDifferentKOpts::print_alternatives(0);
+            } else {
+                let o: SimpleFirmDifferentKOpts = parse(opt.json);
+                simple_firm::different_k_with_max(&o);
+            }
         }
     }
     
