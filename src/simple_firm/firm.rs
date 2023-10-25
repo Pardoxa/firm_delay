@@ -519,11 +519,33 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
 
     let time_half = NonZeroU64::new(option.time.get() / 2).unwrap();
 
+    let scan_buf_dist = option.get_scan_buf_dist();
+
     for i in (0..option.other_buffer_steps).progress_with(bar){
         let buffer = option.other_buffer_min + delta * i as f64;
         let global_sum_mid = Mutex::new(0.0);
         let global_sum_end = Mutex::new(0.0);
         let glob_time_above = AtomicU64::new(0);
+
+        let bd = match scan_buf_dist{
+            ScanBufDist::Const => {
+                AnyBufDist::Constant(buffer)
+            },
+            ScanBufDist::Uniform(hw) => {
+                let any_uniform = UniformDistCreator2{mean: buffer, half_width: hw.half_width};
+                if !any_uniform.is_valid(){
+                    continue;
+                }
+                let uniform = any_uniform.into();
+                AnyBufDist::Any(AnyDistCreator::Uniform(uniform))
+            },
+            ScanBufDist::MinScan(ms) => {
+                let c = ms.other_consts;
+                AnyBufDist::ConstMin(BufferConstMin { buf_const: c, buf_min: buffer })
+            }
+        };
+        let firm_creator = FocusFirmOuter::get_firm_creator(bd, dist.clone());
+
         (0..option.threads)
             .into_par_iter()
             .for_each(
@@ -537,13 +559,8 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
                     let mut time_above = 0;
                     for _ in 0..samples_per_thread{
                         let f_rng = Pcg64::from_rng(&mut thread_rng).unwrap();
-                        let mut firms = FocusFirmOuter::new_const_buf(
-                            option.k, 
-                            option.focus_buffer, 
-                            buffer, 
-                            dist.clone(), 
-                            f_rng
-                        );
+                        let mut firms = firm_creator(option.k, option.focus_buffer, f_rng);
+                        
                         for _ in 0..time_half.get(){
                             firms.iterate();
                             if firms.focus_firm.focus.current_delay > firms.focus_firm.focus.buffer {

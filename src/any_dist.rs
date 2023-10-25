@@ -58,6 +58,11 @@ impl UniformDistCreator2{
     {
         format!("UM{}_{}", self.mean, self.half_width)
     }
+
+    pub fn is_valid(&self) -> bool
+    {
+        (self.mean - self.half_width) >= 0.0
+    }
 }
 
 

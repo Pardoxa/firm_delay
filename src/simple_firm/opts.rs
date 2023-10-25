@@ -1,3 +1,5 @@
+use std::io::stdout;
+
 use crate::any_dist::*;
 use serde_json::Value;
 use super::{measure_phase, sample_simple_firm_buffer_hist};
@@ -323,12 +325,13 @@ pub struct SimpleFirmAverageAfter{
     /// Buffer of the firm
     pub focus_buffer: f64,
 
-
     pub other_buffer_max: f64,
 
     pub other_buffer_min: f64,
 
     pub other_buffer_steps: usize,
+
+    pub scan_buf_dist: Option<ScanBufDist>,
 
     /// How many time steps to iterate
     pub time: NonZeroU64,
@@ -348,6 +351,28 @@ impl PrintAlternatives for SimpleFirmAverageAfter{
         print_spaces(layer);
         println!("Alternatives for DelayDist:");
         AnyDistCreator::print_alternatives(layer + 1);
+
+        let a = ScanBufDist::Const;
+        let b = ScanBufDist::Uniform(HalfWidth { half_width: 0.1 });
+        let c = ScanBufDist::MinScan(MinScan { other_consts: 1.0 });
+        print_spaces(layer);
+        println!("Alternatives for scan_buf_dist");
+        print_spaces(layer);
+        println!("a)");
+        let mut stdout = stdout();
+        serde_json::to_writer_pretty(&mut stdout, &a)
+            .unwrap();
+        println!();
+        print_spaces(layer);
+        println!("b)");
+        serde_json::to_writer_pretty(&mut stdout, &b)
+            .unwrap();
+        println!();
+        print_spaces(layer);
+        println!("c)");
+        serde_json::to_writer_pretty(&mut stdout, &c)
+            .unwrap();
+        
     }
 }
 
@@ -363,7 +388,8 @@ impl Default for SimpleFirmAverageAfter{
             other_buffer_min: 0.0,
             other_buffer_steps: 100,
             average_samples: 1000,
-            threads: 8
+            threads: 8,
+            scan_buf_dist: Some(ScanBufDist::Const)
         }
     }
 }
@@ -374,15 +400,21 @@ impl SimpleFirmAverageAfter{
         let version = crate::misc::VERSION;
 
         format!(
-            "A_v{version}_b{}_B{}-{}_{}_D{}_k{}_T{}.dat",
+            "A_v{version}_b{}_B{}-{}_{}{}_D{}_k{}_T{}.dat",
             self.focus_buffer,
             self.other_buffer_min,
             self.other_buffer_max,
             self.other_buffer_steps,
+            self.scan_buf_dist.unwrap_or(ScanBufDist::Const).get_name(),
             self.delay_dist.get_name(),
             self.k,
             self.time
         )
+    }
+
+    pub fn get_scan_buf_dist(&self) -> ScanBufDist
+    {
+        self.scan_buf_dist.unwrap_or(ScanBufDist::Const)
     }
 
     pub fn get_buf(&self) -> BufWriter<File>
@@ -400,4 +432,34 @@ impl SimpleFirmAverageAfter{
         buf
     }
 
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct HalfWidth{
+    pub half_width: f64
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct MinScan{
+    pub other_consts: f64
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum ScanBufDist{
+    Const,
+    Uniform(HalfWidth),
+    MinScan(MinScan)
+}
+
+impl ScanBufDist{
+    pub fn get_name(&self) -> String
+    {
+        match self{
+            Self::Const => {
+                "C".to_owned()
+            },
+            Self::Uniform(_) =>  "U".to_owned(),
+            Self::MinScan(_) =>  "M".to_owned()
+        }
+    }
 }
