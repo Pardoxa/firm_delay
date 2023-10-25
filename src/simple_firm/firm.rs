@@ -327,7 +327,7 @@ impl FocusFirmInner {
     pub fn iterate<I>(&mut self, mut delta_iter: I)
     where I: Iterator<Item=f64>
     {
-        let mut maximum = 0.0;
+        let mut maximum = self.focus.current_delay;
         for firm in self.others.iter_mut()
         {
             maximum = firm.current_delay.max(maximum);
@@ -338,7 +338,7 @@ impl FocusFirmInner {
         }
 
         self.focus.current_delay =
-            (self.focus.current_delay - self.focus.buffer + maximum)
+            (maximum - self.focus.buffer)
                 .max(0.0)
             + unsafe{delta_iter.next().unwrap_unchecked()};
         self.iteration += 1;
@@ -463,7 +463,7 @@ pub fn average_delay_measurement(option: &SimpleFirmAverageAfter)
     for i in (0..option.other_buffer_steps).progress_with(bar){
         let buffer = option.other_buffer_min + delta * i as f64;
         let global_sum = Mutex::new(0.0);
-        (0..samples_per_thread)
+        (0..option.threads)
             .into_par_iter()
             .for_each(
                 |_|
@@ -501,9 +501,10 @@ pub fn average_delay_measurement(option: &SimpleFirmAverageAfter)
 
 pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
 {
+    rayon::ThreadPoolBuilder::new().num_threads(option.threads).build_global().unwrap();
     let dist: AnyDist = option.delay_dist.clone().into();
     let mut buf = option.get_buf();
-    
+    writeln!(buf, "#B average_mid average_end order").unwrap();
     let rng = Pcg64::seed_from_u64(option.seed);
     let rng = Mutex::new(rng);
 
@@ -511,6 +512,8 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
 
     let samples_per_thread = option.average_samples / option.threads;
     let actual_samples = samples_per_thread * option.threads;
+    dbg!(actual_samples);
+    dbg!(samples_per_thread);
 
     let bar = crate::misc::indication_bar(option.other_buffer_steps as u64);
 
@@ -520,7 +523,7 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
         let buffer = option.other_buffer_min + delta * i as f64;
         let global_sum_mid = Mutex::new(0.0);
         let global_sum_end = Mutex::new(0.0);
-        (0..samples_per_thread)
+        (0..option.threads)
             .into_par_iter()
             .for_each(
                 |_|
@@ -545,6 +548,7 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
                         firms.iterate_multiple_steps(time_half);
                         sum_end += firms.focus_firm.focus.current_delay;
                     }
+                    
                     let mut guard = global_sum_mid.lock().unwrap();
                     *(guard.deref_mut()) += sum_mid;
                     drop(guard);
@@ -554,7 +558,8 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
                     drop(guard);
                 }
             );
-        let sum_mid = global_sum_mid.into_inner().unwrap();
+        let sum_mid: f64 = global_sum_mid.into_inner().unwrap();
+        
         let average_mid = sum_mid / actual_samples as f64;
 
         let sum_end = global_sum_end.into_inner().unwrap();
