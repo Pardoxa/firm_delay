@@ -1,4 +1,4 @@
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, sync::atomic::AtomicU64};
 use indicatif::*;
 use {
     rand_pcg::Pcg64,
@@ -504,7 +504,7 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
     rayon::ThreadPoolBuilder::new().num_threads(option.threads).build_global().unwrap();
     let dist: AnyDist = option.delay_dist.clone().into();
     let mut buf = option.get_buf();
-    writeln!(buf, "#B average_mid average_end order").unwrap();
+    writeln!(buf, "#B average_mid average_end order av_time_above").unwrap();
     let rng = Pcg64::seed_from_u64(option.seed);
     let rng = Mutex::new(rng);
 
@@ -523,6 +523,7 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
         let buffer = option.other_buffer_min + delta * i as f64;
         let global_sum_mid = Mutex::new(0.0);
         let global_sum_end = Mutex::new(0.0);
+        let glob_time_above = AtomicU64::new(0);
         (0..option.threads)
             .into_par_iter()
             .for_each(
@@ -533,6 +534,7 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
                     drop(guard);
                     let mut sum_mid = 0.0;
                     let mut sum_end = 0.0;
+                    let mut time_above = 0;
                     for _ in 0..samples_per_thread{
                         let f_rng = Pcg64::from_rng(&mut thread_rng).unwrap();
                         let mut firms = FocusFirmOuter::new_const_buf(
@@ -542,12 +544,23 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
                             dist.clone(), 
                             f_rng
                         );
-
-                        firms.iterate_multiple_steps(time_half);
+                        for _ in 0..time_half.get(){
+                            firms.iterate();
+                            if firms.focus_firm.focus.current_delay > firms.focus_firm.focus.buffer {
+                                time_above += 1;
+                            }
+                        }
                         sum_mid += firms.focus_firm.focus.current_delay;
-                        firms.iterate_multiple_steps(time_half);
+                        for _ in 0..time_half.get(){
+                            firms.iterate();
+                            if firms.focus_firm.focus.current_delay > firms.focus_firm.focus.buffer {
+                                time_above += 1;
+                            }
+                        }
                         sum_end += firms.focus_firm.focus.current_delay;
                     }
+
+                    glob_time_above.fetch_add(time_above, std::sync::atomic::Ordering::Relaxed);
                     
                     let mut guard = global_sum_mid.lock().unwrap();
                     *(guard.deref_mut()) += sum_mid;
@@ -567,7 +580,10 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
 
         let slope = sum_end/sum_mid;
 
-        writeln!(buf, "{} {} {} {}", buffer, average_mid, average_end, slope).unwrap();
+        let av_time_above = (glob_time_above.into_inner() as f64 / actual_samples as f64) 
+            / (time_half.get() * 2) as f64;
+
+        writeln!(buf, "{} {} {} {} {av_time_above}", buffer, average_mid, average_end, slope).unwrap();
     }
     
 
