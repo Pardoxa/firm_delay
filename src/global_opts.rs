@@ -23,4 +23,5 @@ pub enum CmdChooser{
     SimpleFirmBufHist(SimpleOpt),
     SimpleFirmAverage(SimpleOpt),
     SimpleFirmAverageOrder(SimpleOpt),
+    SimpleFirmAverageOrderMoron(SimpleOpt),
 }

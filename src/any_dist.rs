@@ -1,5 +1,5 @@
 use serde::{Serialize, Deserialize};
-use rand::distributions::{Uniform, Distribution};
+use rand::distributions::Uniform;
 use std::io::stdout;
 
 use crate::misc::{PrintAlternatives, print_spaces};
@@ -108,7 +108,7 @@ pub struct ExponentialDist {
 }
 
 impl ExponentialDist{
-    pub fn create_dist(&self) -> impl Distribution<f64> + Copy
+    pub fn create_dist(&self) -> rand_distr::Exp<f64>
     {
         rand_distr::Exp::new(self.lambda)
             .expect("Negative lambda not allowed")

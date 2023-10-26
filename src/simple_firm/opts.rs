@@ -417,9 +417,12 @@ impl SimpleFirmAverageAfter{
         self.scan_buf_dist.unwrap_or(ScanBufDist::Const)
     }
 
-    pub fn get_buf(&self) -> BufWriter<File>
+    pub fn get_buf(&self, moron: bool) -> BufWriter<File>
     {
-        let name = self.get_name();
+        let mut name = self.get_name();
+        if moron{
+            name.push('m');
+        }
         let file = File::create(name)
             .unwrap();
         let mut buf = BufWriter::new(file);

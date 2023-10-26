@@ -62,6 +62,14 @@ fn main() {
                 let o: SimpleFirmAverageAfter = parse(opt.json);
                 simple_firm::average_delay_order_measurement(&o);
             }
+        },
+        CmdChooser::SimpleFirmAverageOrderMoron(opt) => {
+            if opt.print_alternatives{
+                SimpleFirmAverageAfter::print_alternatives(0);
+            } else {
+                let o: SimpleFirmAverageAfter = parse(opt.json);
+                simple_firm::recreate_moron(&o);
+            }
         }
     }
     
