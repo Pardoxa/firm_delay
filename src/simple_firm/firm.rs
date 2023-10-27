@@ -10,7 +10,7 @@ use {
         sync::Mutex,
         ops::DerefMut,
         num::NonZeroU64,
-        sync::atomic::AtomicU64
+        sync::atomic::{AtomicU64, Ordering::Relaxed}
     },
     super::*,
     rayon::prelude::*,
@@ -780,6 +780,146 @@ pub fn recreate_moran(option: &SimpleFirmAverageAfter)
             / (time_half.get() * 2) as f64;
 
         writeln!(buf, "{} {} {} {} {av_time_above} {slope}", buffer, average_mid, average_end, order).unwrap();
+    }
+    
+
+}
+
+pub fn recreate_moran_avalanch(option: &SimpleFirmAverageAfter)
+{
+    rayon::ThreadPoolBuilder::new().num_threads(option.threads).build_global().unwrap();
+    let dist: AnyDist = option.delay_dist.clone().into();
+    let mut buf = option.get_buf(true);
+    writeln!(buf, "#B average_mid average_end order av_time_mean_above slope average_avalanch_length average_avalanch_count").unwrap();
+    let rng = Pcg64::seed_from_u64(option.seed);
+    let rng = Mutex::new(rng);
+
+    let delta = (option.other_buffer_max-option.other_buffer_min)/(option.other_buffer_steps-1) as f64;
+
+    let samples_per_thread = option.average_samples / option.threads;
+    let actual_samples = samples_per_thread * option.threads;
+    dbg!(actual_samples);
+    dbg!(samples_per_thread);
+
+    let bar = crate::misc::indication_bar(option.other_buffer_steps as u64);
+
+    let time_half = NonZeroU64::new(option.time.get() / 2).unwrap();
+
+    let scan_buf_dist = option.get_scan_buf_dist();
+
+    for i in (0..option.other_buffer_steps).progress_with(bar){
+        let buffer = option.other_buffer_min + delta * i as f64;
+        let global_sum_mid = Mutex::new(0.0);
+        let global_sum_end = Mutex::new(0.0);
+        let glob_time_above = AtomicU64::new(0);
+        let glob_avalanch_len_sum = AtomicU64::new(0);
+        let glob_avalanch_counter = AtomicU64::new(0);
+
+        let bd = match scan_buf_dist{
+            ScanBufDist::Const => {
+                AnyBufDist::Constant(buffer)
+            },
+            ScanBufDist::Uniform(hw) => {
+                let any_uniform = UniformDistCreator2{mean: buffer, half_width: hw.half_width};
+                if !any_uniform.is_valid(){
+                    continue;
+                }
+                let uniform = any_uniform.into();
+                AnyBufDist::Any(AnyDistCreator::Uniform(uniform))
+            },
+            ScanBufDist::MinScan(ms) => {
+                let c = ms.other_consts;
+                AnyBufDist::ConstMin(BufferConstMin { buf_const: c, buf_min: buffer })
+            }
+        };
+        let firm_creator = FocusFirmOuter::get_firm_creator(bd, dist.clone());
+
+        (0..option.threads)
+            .into_par_iter()
+            .for_each(
+                |_|
+                {
+                    let mut guard = rng.lock().unwrap();
+                    let mut thread_rng = Pcg64::from_rng(guard.deref_mut()).unwrap();
+                    drop(guard);
+                    let mut sum_mid = 0.0;
+                    let mut sum_end = 0.0;
+                    
+                    let mut time_above = 0;
+
+                    let mut ids: Vec<_> = (0..option.k).collect();
+                    let mut scratch = Vec::new();
+                    let mut tmp = vec![0.0; ids.len()];
+                    let mut avalanch_counter = 0_u64;
+                    let mut avalanch_len_sum = 0_u64;
+                    let mut avalanch_len = 0;
+                    for _ in 0..samples_per_thread{
+                        let f_rng = Pcg64::from_rng(&mut thread_rng).unwrap();
+                        let mut firms = firm_creator(option.k, option.focus_buffer, f_rng);
+                        
+                        for _ in 0..time_half.get(){
+                            firms.iterate_moron(&mut tmp, 5, &mut ids, &mut scratch);
+                            let delay = firms.average_other_delay();
+                            if delay > buffer {
+                                time_above += 1;
+                                avalanch_len += 1;
+                            } else if avalanch_len > 0 {
+                                avalanch_len_sum += avalanch_len;
+                                avalanch_len = 0;
+                                avalanch_counter += 1;
+                            }
+                        }
+                        sum_mid += firms.average_other_delay();
+                        for _ in 0..time_half.get(){
+                            firms.iterate_moron(&mut tmp, 5, &mut ids, &mut scratch);
+                            let delay = firms.average_other_delay();
+                            if delay > buffer {
+                                time_above += 1;
+                                avalanch_len += 1;
+                            } else if avalanch_len > 0 {
+                                avalanch_len_sum += avalanch_len;
+                                avalanch_len = 0;
+                                avalanch_counter += 1;
+                            }
+                        }
+                        avalanch_len = 0;
+                        sum_end += firms.average_other_delay();
+                    }
+
+                    glob_avalanch_counter.fetch_add(avalanch_counter, Relaxed);
+                    glob_avalanch_len_sum.fetch_add(avalanch_len_sum, Relaxed);
+                    glob_time_above.fetch_add(time_above, Relaxed);
+                    
+                    let mut guard = global_sum_mid.lock().unwrap();
+                    *(guard.deref_mut()) += sum_mid;
+                    drop(guard);
+
+                    let mut guard: std::sync::MutexGuard<'_, f64> = global_sum_end.lock().unwrap();
+                    *(guard.deref_mut()) += sum_end;
+                    drop(guard);
+                }
+            );
+        let sum_mid: f64 = global_sum_mid.into_inner().unwrap();
+        
+        let average_mid = sum_mid / actual_samples as f64;
+
+        let sum_end = global_sum_end.into_inner().unwrap();
+        let average_end = sum_end / actual_samples as f64;
+
+        let avalanch_count = glob_avalanch_counter.into_inner() as f64;
+        let avalanch_len_sum = glob_avalanch_len_sum.into_inner();
+        let average_avalanch_len = avalanch_len_sum as f64 / avalanch_count;
+        let average_avalanch_count = avalanch_count / actual_samples as f64;
+
+
+        let slope = (average_end-average_mid)/ (time_half.get() as f64);
+
+        let order = sum_end/sum_mid;
+
+        let av_time_above = (glob_time_above.into_inner() as f64 / actual_samples as f64) 
+            / (time_half.get() * 2) as f64;
+
+        writeln!(buf, "{} {} {} {} {av_time_above} {slope} {average_avalanch_len} {average_avalanch_count}", buffer, average_mid, average_end, order).unwrap();
     }
     
 

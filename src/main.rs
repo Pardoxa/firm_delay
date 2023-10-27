@@ -63,14 +63,23 @@ fn main() {
                 simple_firm::average_delay_order_measurement(&o);
             }
         },
-        CmdChooser::SimpleFirmAverageOrderMoron(opt) => {
+        CmdChooser::SimpleFirmAverageOrderMoran(opt) => {
             if opt.print_alternatives{
                 SimpleFirmAverageAfter::print_alternatives(0);
             } else {
                 let o: SimpleFirmAverageAfter = parse(opt.json);
                 simple_firm::recreate_moran(&o);
             }
+        },
+        CmdChooser::SimpleFirmAverageOrderMoranAvalanch(opt) => {
+            if opt.print_alternatives{
+                SimpleFirmAverageAfter::print_alternatives(0);
+            } else {
+                let o: SimpleFirmAverageAfter = parse(opt.json);
+                simple_firm::recreate_moran_avalanch(&o);
+            }
         }
+
     }
     
 }
