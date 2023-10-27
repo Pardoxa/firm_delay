@@ -466,3 +466,54 @@ impl ScanBufDist{
         }
     }
 }
+
+#[derive(Clone, Serialize, Debug, Deserialize)]
+pub struct AvalanchSizeHistogramMoran
+{
+    pub k: usize,
+
+    pub other_buffer: AnyBufDist,
+
+    /// How many time steps to iterate
+    pub time: NonZeroU64,
+
+    /// Seed for the random number generator
+    pub seed: u64,
+
+    pub delay_dist: AnyDistCreator,
+
+    pub samples_per_thread: usize,
+
+    pub threads: usize
+}
+
+impl PrintAlternatives for AvalanchSizeHistogramMoran{
+    fn print_alternatives(layer: u8) {
+        print_spaces(layer);
+        println!("Alternatives other_buffer");
+        AnyBufDist::print_alternatives(layer+1);
+
+        print_spaces(layer);
+        println!("Alternatives for delay_dist");
+        AnyDistCreator::print_alternatives(layer);
+    }
+}
+
+
+impl AvalanchSizeHistogramMoran{
+    pub fn get_name(&self) -> String
+    {
+        let version = crate::misc::VERSION;
+
+        format!(
+            "AvalanchHist_v{version}_k{}_time{}_Buf{}_d{}_Spt{}_t{}_Seed{}.dat",
+            self.k,
+            self.time,
+            self.other_buffer.get_name(),
+            self.delay_dist.get_name(),
+            self.samples_per_thread,
+            self.threads,
+            self.seed
+        )
+    }
+}
