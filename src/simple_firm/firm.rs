@@ -170,7 +170,7 @@ impl FocusFirmOuter{
         }
     }
 
-    pub fn iterate_moron(&mut self, tmp: &mut [f64], n: usize, ids: &mut Vec<usize>, scratch: &mut Vec<usize>)
+    pub fn iterate_moran(&mut self, tmp: &mut [f64], n: usize, ids: &mut Vec<usize>, scratch: &mut Vec<usize>)
     {
         match self.delay_dist {
             AnyDist::Exponential(exp) => {
@@ -736,7 +736,7 @@ pub fn recreate_moran(option: &SimpleFirmAverageAfter)
                         let mut firms = firm_creator(option.k, option.focus_buffer, f_rng);
                         
                         for _ in 0..time_half.get(){
-                            firms.iterate_moron(&mut tmp, 5, &mut ids, &mut scratch);
+                            firms.iterate_moran(&mut tmp, 5, &mut ids, &mut scratch);
                             let delay = firms.average_other_delay();
                             if delay > buffer {
                                 time_above += 1;
@@ -744,7 +744,7 @@ pub fn recreate_moran(option: &SimpleFirmAverageAfter)
                         }
                         sum_mid += firms.average_other_delay();
                         for _ in 0..time_half.get(){
-                            firms.iterate_moron(&mut tmp, 5, &mut ids, &mut scratch);
+                            firms.iterate_moran(&mut tmp, 5, &mut ids, &mut scratch);
                             let delay = firms.average_other_delay();
                             if delay > buffer {
                                 time_above += 1;
@@ -790,7 +790,7 @@ pub fn recreate_moran_avalanch(option: &SimpleFirmAverageAfter)
     rayon::ThreadPoolBuilder::new().num_threads(option.threads).build_global().unwrap();
     let dist: AnyDist = option.delay_dist.clone().into();
     let mut buf = option.get_buf(true);
-    writeln!(buf, "#B average_mid average_end order av_time_mean_above slope average_avalanch_length average_avalanch_count").unwrap();
+    writeln!(buf, "#B average_mid average_end order av_time_mean_above slope average_avalanch_duration average_avalanch_count average_avalanch_size").unwrap();
     let rng = Pcg64::seed_from_u64(option.seed);
     let rng = Mutex::new(rng);
 
@@ -814,6 +814,7 @@ pub fn recreate_moran_avalanch(option: &SimpleFirmAverageAfter)
         let glob_time_above = AtomicU64::new(0);
         let glob_avalanch_len_sum = AtomicU64::new(0);
         let glob_avalanch_counter = AtomicU64::new(0);
+        let glob_avalanch_size_sum = Mutex::new(0.0);
 
         let bd = match scan_buf_dist{
             ScanBufDist::Const => {
@@ -853,36 +854,50 @@ pub fn recreate_moran_avalanch(option: &SimpleFirmAverageAfter)
                     let mut avalanch_counter = 0_u64;
                     let mut avalanch_len_sum = 0_u64;
                     let mut avalanch_len = 0;
+                    let mut avalanch_size = 0.0;
+                    let mut avalanch_size_sum = 0.0;
                     for _ in 0..samples_per_thread{
                         let f_rng = Pcg64::from_rng(&mut thread_rng).unwrap();
                         let mut firms = firm_creator(option.k, option.focus_buffer, f_rng);
                         
                         for _ in 0..time_half.get(){
-                            firms.iterate_moron(&mut tmp, 5, &mut ids, &mut scratch);
+                            firms.iterate_moran(&mut tmp, 5, &mut ids, &mut scratch);
                             let delay = firms.average_other_delay();
                             if delay > buffer {
                                 time_above += 1;
                                 avalanch_len += 1;
+                                avalanch_size += delay - buffer;
                             } else if avalanch_len > 0 {
                                 avalanch_len_sum += avalanch_len;
                                 avalanch_len = 0;
                                 avalanch_counter += 1;
+                                avalanch_size_sum += avalanch_size;
+                                avalanch_size = 0.0;
                             }
                         }
                         sum_mid += firms.average_other_delay();
                         for _ in 0..time_half.get(){
-                            firms.iterate_moron(&mut tmp, 5, &mut ids, &mut scratch);
+                            firms.iterate_moran(&mut tmp, 5, &mut ids, &mut scratch);
                             let delay = firms.average_other_delay();
                             if delay > buffer {
                                 time_above += 1;
                                 avalanch_len += 1;
+                                avalanch_size += delay - buffer;
                             } else if avalanch_len > 0 {
                                 avalanch_len_sum += avalanch_len;
                                 avalanch_len = 0;
                                 avalanch_counter += 1;
+                                avalanch_size_sum += avalanch_size;
+                                avalanch_size = 0.0
                             }
                         }
+                        if avalanch_len > 0 {
+                            avalanch_len_sum += avalanch_len;
+                            avalanch_counter += 1;
+                            avalanch_size_sum += avalanch_size;
+                        }
                         avalanch_len = 0;
+                        avalanch_size = 0.0;
                         sum_end += firms.average_other_delay();
                     }
 
@@ -894,8 +909,12 @@ pub fn recreate_moran_avalanch(option: &SimpleFirmAverageAfter)
                     *(guard.deref_mut()) += sum_mid;
                     drop(guard);
 
-                    let mut guard: std::sync::MutexGuard<'_, f64> = global_sum_end.lock().unwrap();
+                    let mut guard = global_sum_end.lock().unwrap();
                     *(guard.deref_mut()) += sum_end;
+                    drop(guard);
+
+                    let mut guard = glob_avalanch_size_sum.lock().unwrap();
+                    *(guard.deref_mut()) += avalanch_size_sum;
                     drop(guard);
                 }
             );
@@ -919,7 +938,9 @@ pub fn recreate_moran_avalanch(option: &SimpleFirmAverageAfter)
         let av_time_above = (glob_time_above.into_inner() as f64 / actual_samples as f64) 
             / (time_half.get() * 2) as f64;
 
-        writeln!(buf, "{} {} {} {} {av_time_above} {slope} {average_avalanch_len} {average_avalanch_count}", buffer, average_mid, average_end, order).unwrap();
+        let average_avalanch_size = glob_avalanch_size_sum.into_inner().unwrap() / actual_samples as f64;
+
+        writeln!(buf, "{buffer} {average_mid} {average_end} {order} {av_time_above} {slope} {average_avalanch_len} {average_avalanch_count} {average_avalanch_size}").unwrap();
     }
     
 
