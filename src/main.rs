@@ -68,7 +68,7 @@ fn main() {
                 SimpleFirmAverageAfter::print_alternatives(0);
             } else {
                 let o: SimpleFirmAverageAfter = parse(opt.json);
-                simple_firm::recreate_moron(&o);
+                simple_firm::recreate_moran(&o);
             }
         }
     }

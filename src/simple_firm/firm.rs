@@ -668,12 +668,12 @@ pub fn average_delay_order_measurement(option: &SimpleFirmAverageAfter)
 
 }
 
-pub fn recreate_moron(option: &SimpleFirmAverageAfter)
+pub fn recreate_moran(option: &SimpleFirmAverageAfter)
 {
     rayon::ThreadPoolBuilder::new().num_threads(option.threads).build_global().unwrap();
     let dist: AnyDist = option.delay_dist.clone().into();
     let mut buf = option.get_buf(true);
-    writeln!(buf, "#B average_mid average_end order av_time_above slope").unwrap();
+    writeln!(buf, "#B average_mid average_end order av_time_mean_above slope").unwrap();
     let rng = Pcg64::seed_from_u64(option.seed);
     let rng = Mutex::new(rng);
 
@@ -737,18 +737,18 @@ pub fn recreate_moron(option: &SimpleFirmAverageAfter)
                         
                         for _ in 0..time_half.get(){
                             firms.iterate_moron(&mut tmp, 5, &mut ids, &mut scratch);
-                            /*let delay = firms.average_other_delay();
+                            let delay = firms.average_other_delay();
                             if delay > buffer {
                                 time_above += 1;
-                            }*/
+                            }
                         }
                         sum_mid += firms.average_other_delay();
                         for _ in 0..time_half.get(){
                             firms.iterate_moron(&mut tmp, 5, &mut ids, &mut scratch);
-                            /*let delay = firms.average_other_delay();
+                            let delay = firms.average_other_delay();
                             if delay > buffer {
                                 time_above += 1;
-                            }*/
+                            }
                         }
                         sum_end += firms.average_other_delay();
                     }
