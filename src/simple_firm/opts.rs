@@ -501,6 +501,7 @@ impl PrintAlternatives for AvalanchSizeHistogramMoran{
 
 
 impl AvalanchSizeHistogramMoran{
+    #[allow(dead_code)]
     pub fn get_name(&self) -> String
     {
         let version = crate::misc::VERSION;

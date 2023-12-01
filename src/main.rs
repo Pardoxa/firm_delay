@@ -4,8 +4,9 @@ use {
     misc::*,
     simple_firm::{SimpleFirmDifferentKOpts, SimpleFirmPhase, SimpleFirmBufferHistogram, SimpleFirmAverageAfter}
 };
-
+pub mod complexer_firms;
 pub mod misc;
+pub mod index_sampler;
 mod global_opts;
 mod simple_firm;
 mod any_dist;
