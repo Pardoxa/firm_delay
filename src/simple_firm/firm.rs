@@ -21,7 +21,7 @@ use {
 
 
 #[derive(Clone, Copy)]
-struct Firm{
+pub struct Firm{
     current_delay: f64,
     buffer: f64
 }

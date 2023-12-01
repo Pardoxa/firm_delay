@@ -1,3 +1,5 @@
+use complexer_firms::SubstitutionVelocitySampleOpts;
+
 use {
     clap::Parser,
     global_opts::CmdChooser,
@@ -79,6 +81,11 @@ fn main() {
                 let o: SimpleFirmAverageAfter = parse(opt.json);
                 simple_firm::recreate_moran_avalanch(&o);
             }
+        },
+        CmdChooser::Test(opt) =>
+        {
+            let o: SubstitutionVelocitySampleOpts = parse(opt.json);
+            complexer_firms::sample_velocity(&o);
         }
 
     }

@@ -11,7 +11,7 @@ pub struct IndexSampler
     pub len: usize,
     pub amount: usize,
     pub indices: Vec<u32>,
-    pub cash: BTreeSet<u32>,
+    pub cash: HashSet<u32>,
     pub how: SampleType
 }
 
@@ -57,11 +57,9 @@ impl IndexSampler
         // comparing median to see what's better
         if samples_inplace[7] < samples_reject[7]
         {
-            drop(reject);
             println!("Choosing inplace method!");
             inplace
         } else {
-            drop(inplace);
             println!("Choosing reject method!");
             reject
         }
@@ -91,7 +89,7 @@ impl IndexSampler
             how: SampleType::Inplace,
             len,
             amount,
-            cash: BTreeSet::new(),
+            cash: HashSet::new(),
             indices
         }
         
@@ -116,7 +114,7 @@ impl IndexSampler
             how: SampleType::Reject,
             len,
             amount,
-            cash: BTreeSet::new(),
+            cash: HashSet::new(),
             indices: Vec::with_capacity(amount)
         }
         
@@ -159,7 +157,7 @@ impl IndexSampler
         let distr = Uniform::new(0, self.len as u32);
         self.cash.clear();
         self.indices.clear();
-
+        
         self.indices
             .extend(
                 (0..self.amount)
