@@ -12,6 +12,22 @@ pub struct SimpleOpt{
 
 }
 
+#[derive(Parser, Debug)]
+pub struct SubstitutingMeanFieldOpt{
+    #[arg(short, long, requires("out_stub"))]
+    /// path to json file
+    pub json: Option<String>,
+
+    #[arg(short, long)]
+    /// output stub
+    pub out_stub: Option<String>,
+
+
+    /// desired framerate in Hz
+    #[arg(short, long, default_value_t=25)]
+    pub framerate: u8
+}
+
 /// Created by Yannick Feld
 /// Program to simulate the delay in firms
 #[derive(Parser)]
@@ -25,5 +41,6 @@ pub enum CmdChooser{
     SimpleFirmAverageOrder(SimpleOpt),
     SimpleFirmAverageOrderMoran(SimpleOpt),
     SimpleFirmAverageOrderMoranAvalanch(SimpleOpt),
-    Test(SimpleOpt)
+    SubMean(SubstitutingMeanFieldOpt),
+    SubMeanVideo(SubstitutingMeanFieldOpt)
 }

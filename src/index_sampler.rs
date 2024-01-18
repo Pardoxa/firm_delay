@@ -28,7 +28,7 @@ impl IndexSampler
     pub fn measure_which<R>(len: usize, amount: usize, rng: &mut R) -> Self
     where R:  Rng + ?Sized
     {
-        println!("WHICH index sample method to use? len {len} amount {amount}");
+        //println!("WHICH index sample method to use? len {len} amount {amount}");
         let mut inplace = Self::new_inplace(len, amount);
 
         let mut samples_inplace = Vec::new();
@@ -49,18 +49,18 @@ impl IndexSampler
         samples_inplace.sort_unstable();
         samples_reject.sort_unstable();
         
-        for (i, r) in samples_inplace.iter().zip(samples_reject.iter())
-        {
-            println!("INPLACE {}; Reject {}", humantime::format_duration(*i), humantime::format_duration(*r))
-        }
+        //for (i, r) in samples_inplace.iter().zip(samples_reject.iter())
+        //{
+        //    println!("INPLACE {}; Reject {}", humantime::format_duration(*i), humantime::format_duration(*r))
+        //}
 
         // comparing median to see what's better
         if samples_inplace[7] < samples_reject[7]
         {
-            println!("Choosing inplace method!");
+            //println!("Choosing inplace method!");
             inplace
         } else {
-            println!("Choosing reject method!");
+            //println!("Choosing reject method!");
             reject
         }
     

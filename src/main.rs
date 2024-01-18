@@ -1,5 +1,7 @@
 use complexer_firms::SubstitutionVelocitySampleOpts;
 
+use crate::complexer_firms::SubstitutionVelocityVideoOpts;
+
 use {
     clap::Parser,
     global_opts::CmdChooser,
@@ -82,10 +84,16 @@ fn main() {
                 simple_firm::recreate_moran_avalanch(&o);
             }
         },
-        CmdChooser::Test(opt) =>
+        CmdChooser::SubMean(opt) =>
         {
             let o: SubstitutionVelocitySampleOpts = parse(opt.json);
-            complexer_firms::sample_velocity(&o);
+            let out = opt.out_stub.as_deref().unwrap();
+            complexer_firms::sample_velocity(&o, out);
+        },
+        CmdChooser::SubMeanVideo(opt) => {
+            let o: SubstitutionVelocityVideoOpts = parse(opt.json);
+            let out = opt.out_stub.as_deref().unwrap();
+            complexer_firms::sample_velocity_video(&o, out, opt.framerate)
         }
 
     }

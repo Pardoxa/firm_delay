@@ -1,7 +1,7 @@
 use {
     std::{
         io::{Write, BufReader, BufWriter},
-        process::exit,
+        process::{exit, Command},
         fs::File,
         path::Path,
         num::*,
@@ -75,6 +75,48 @@ where W: std::io::Write,
         write!(w, " {s}_{i}")?;
     }
     writeln!(w)
+}
+
+pub fn create_gnuplot_buf<P>(path: P) -> BufWriter<File>
+where P: AsRef<Path>
+{
+    let mut buf = create_buf_with_command_and_version(path);
+    writeln!(buf, "reset session").unwrap();
+    buf
+}
+
+pub fn  call_gnuplot(gp_file_name: &str)
+{
+    let cmd = Command::new("gnuplot")
+        .arg(gp_file_name)
+        .output()
+        .unwrap();
+    assert!(cmd.status.success());
+}
+
+pub fn create_video(glob: &str, out_stub: &str, framerate: u8)
+{
+    let out = format!("{out_stub}.mp4");
+
+    let _ = std::fs::remove_file(&out);
+
+    let video_out = Command::new("ffmpeg")
+        .arg("-f")
+        .arg("image2")
+        .arg("-r")
+        .arg(framerate.to_string())
+        .arg("-pattern_type")
+        .arg("glob")
+        .arg("-i")
+        .arg(glob)
+        .arg("-vcodec")
+        .arg("libx264")
+        .arg("-crf")
+        .arg("22")
+        .arg(out)
+        .output()
+        .unwrap();
+    assert!(video_out.status.success());
 }
 
 pub fn parse<P, T>(file: Option<P>) -> T

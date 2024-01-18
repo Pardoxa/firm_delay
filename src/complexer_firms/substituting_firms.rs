@@ -1,10 +1,13 @@
+use indicatif::{ProgressIterator, ParallelProgressIterator};
 use rand_distr::{Exp, Distribution};
 use rand_pcg::Pcg64;
 use rand::{Rng, SeedableRng};
+use rayon::iter::{IntoParallelRefIterator, IndexedParallelIterator, ParallelIterator};
 use serde::{Serialize, Deserialize};
 use crate::index_sampler::IndexSampler;
 use crate::misc::*;
 use std::io::Write;
+use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub enum SelfLinks{
@@ -19,6 +22,29 @@ impl SelfLinks{
         match self{
             Self::AllowSelfLinks => SubstitutingMeanField::step_with_self_links,
             Self::NoSelfLinks => SubstitutingMeanField::step_without_self_links
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SubstitutionVelocityVideoOpts{
+    pub buffer: SampleRangeF64,
+    pub substitution_prob: SampleRangeF64,
+    pub opts: SubstitutingMeanFieldOpts,
+    pub time_steps: usize,
+    pub self_links: SelfLinks,
+    pub yrange: Option<(f32, f32)>
+}
+
+impl Default for SubstitutionVelocityVideoOpts{
+    fn default() -> Self {
+        Self { 
+            buffer: SampleRangeF64::default(), 
+            substitution_prob: SampleRangeF64::default(), 
+            opts: SubstitutingMeanFieldOpts::default(), 
+            time_steps: 1000, 
+            self_links: SelfLinks::default(), 
+            yrange: Some((0.0,3.5)) 
         }
     }
 }
@@ -158,8 +184,9 @@ impl SubstitutingMeanField{
     }
 }
 
-pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts){
-    let mut writer = create_buf_with_command_and_version("test.dat");
+pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts, out_stub: &str){
+    let name = format!("{out_stub}.dat");
+    let mut writer = create_buf_with_command_and_version(name);
     let header = ["B", "Velocity"];
     write_slice_head(&mut writer, header).unwrap();
 
@@ -167,7 +194,9 @@ pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts){
 
     let fun = opt.self_links.get_step_fun();
 
-    for b in opt.buffer.get_iter(){
+    let bar = crate::misc::indication_bar(opt.buffer.samples as u64);
+
+    for b in opt.buffer.get_iter().progress_with(bar){
         model.change_buffer_to_const(b);
         model.reset_delays();
         for _ in 0..opt.time_steps{
@@ -176,4 +205,106 @@ pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts){
         let velocity = model.average_delay() / opt.time_steps as f64;
         writeln!(writer, "{b} {velocity}").unwrap();
     }
+}
+
+#[derive(Default)]
+pub struct Cleaner{
+    list: Mutex<Vec<String>>
+}
+
+impl Cleaner{
+    pub fn new() -> Self{
+        Self::default()
+    }
+
+    pub fn add(&self, s: String)
+    {
+        let mut lock = self.list.lock().unwrap();
+        lock.push(s);
+        drop(lock);
+    }
+
+    pub fn add_multi<I>(&self, iter: I)
+    where I: IntoIterator<Item = String>
+    {
+        let mut lock = self.list.lock().unwrap();
+        lock.extend(iter);
+        drop(lock);
+    }
+
+    pub fn clean(self){
+        let list = self.list
+            .into_inner()
+            .unwrap();
+        for s in list{
+            let _ = std::fs::remove_file(&s);
+        }
+    }
+}
+
+pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8)
+{
+    let fun = opt.self_links.get_step_fun();
+
+    let all_sub_probs: Vec<_> = opt.substitution_prob
+        .get_iter()
+        .collect();
+
+    let zeros = "000000000";
+
+    let cleaner = Cleaner::new();
+
+    let bar = crate::misc::indication_bar(all_sub_probs.len() as u64);
+
+    all_sub_probs.par_iter()
+        .enumerate()
+        .progress_with(bar)
+        .for_each(
+            |(index, &sub_prob)|
+            {
+                let mut model_opt = opt.opts.clone();
+                model_opt.substitution_prob = sub_prob;
+                model_opt.seed = index as u64;
+
+                let mut model = SubstitutingMeanField::new(&model_opt);
+
+                let i_name = index.to_string();
+                let start = i_name.len();
+                let zeros = &zeros[start..];
+                let stub = format!("TMP_{zeros}{i_name}{out_stub}");
+                let w_name = format!("{stub}.dat");
+                let mut writer = create_buf(&w_name);
+
+                for b in opt.buffer.get_iter(){
+                    model.change_buffer_to_const(b);
+                    model.reset_delays();
+                    for _ in 0..opt.time_steps{
+                        fun(&mut model);
+                    }
+                    let velocity = model.average_delay() / opt.time_steps as f64;
+                    writeln!(writer, "{b} {velocity}").unwrap();
+                }
+                drop(writer);
+                let gp_name = format!("{stub}.gp");
+                let mut gp_writer = create_gnuplot_buf(&gp_name);
+                let png = format!("{stub}.png");
+                writeln!(gp_writer, "set t pngcairo").unwrap();
+                writeln!(gp_writer, "set output '{png}'").unwrap();
+                writeln!(gp_writer, "set ylabel 'v'").unwrap();
+                writeln!(gp_writer, "set xlabel 'B'").unwrap();
+                writeln!(gp_writer, "set label 'p={sub_prob}' at screen 0.4,0.9").unwrap();
+                if let Some((min, max)) = &opt.yrange{
+                    writeln!(gp_writer, "set yrange [{min}:{max}]").unwrap();
+                }
+                writeln!(gp_writer, "p '{w_name}' t ''").unwrap();
+                writeln!(gp_writer, "set output").unwrap();
+                drop(gp_writer);
+                call_gnuplot(&gp_name);
+                
+                cleaner.add_multi([w_name, gp_name, png])
+                
+            }
+        );
+    create_video("TMP_*.png", out_stub, frametime);
+    cleaner.clean();
 }
