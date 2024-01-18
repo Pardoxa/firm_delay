@@ -33,7 +33,8 @@ pub struct SubstitutionVelocityVideoOpts{
     pub opts: SubstitutingMeanFieldOpts,
     pub time_steps: usize,
     pub self_links: SelfLinks,
-    pub yrange: Option<(f32, f32)>
+    pub yrange: Option<(f32, f32)>,
+    pub reset_fraction: Option<f64>
 }
 
 impl Default for SubstitutionVelocityVideoOpts{
@@ -44,7 +45,8 @@ impl Default for SubstitutionVelocityVideoOpts{
             opts: SubstitutingMeanFieldOpts::default(), 
             time_steps: 1000, 
             self_links: SelfLinks::default(), 
-            yrange: Some((0.0,3.5)) 
+            yrange: Some((0.0,3.5)),
+            reset_fraction: None
         }
     }
 }
@@ -59,12 +61,12 @@ pub struct SubstitutionVelocitySampleOpts{
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct SubstitutingMeanFieldOpts{
-    buffer: f64,
-    substitution_prob: f64,
-    seed: u64,
-    k: usize,
-    n: usize,
-    lambda: f64
+    pub buffer: f64,
+    pub substitution_prob: f64,
+    pub seed: u64,
+    pub k: usize,
+    pub n: usize,
+    pub lambda: f64
 }
 
 impl SubstitutingMeanFieldOpts{
@@ -91,6 +93,23 @@ pub struct SubstitutingMeanField{
 }
 
 impl SubstitutingMeanField{
+
+    pub fn seed_quenched_sub_prob(&mut self, sub_prob: f64, fraction: f64)
+    {
+        let mut amount = (self.substitution_prob.len() as f64 * fraction)
+            .round() as usize;
+        amount = amount.min(self.substitution_prob.len());
+        let to_set = self.index_sampler.sample_inplace_amount(&mut self.rng, amount);
+        for &i in to_set{
+            let index = i as usize;
+            self.substitution_prob[index] = sub_prob;
+        }
+        let to_zero = &self.index_sampler.indices[amount..];
+        for &i in to_zero{
+            let index = i as usize;
+            self.substitution_prob[index] = 0.0;
+        }
+    }
 
     pub fn reset_delays(&mut self)
     {
@@ -278,6 +297,9 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
 
                 for b in opt.buffer.get_iter(){
                     model.change_buffer_to_const(b);
+                    if let Some(f) = opt.reset_fraction{
+                        model.seed_quenched_sub_prob(sub_prob, f);
+                    }
                     model.reset_delays();
                     for _ in 0..opt.time_steps{
                         fun(&mut model);
@@ -334,7 +356,7 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
     let mut gp = create_gnuplot_buf(&crit_gp);
     writeln!(gp, "set t pdfcairo").unwrap();
     writeln!(gp, "set output '{crit_stub}.pdf'").unwrap();
-    writeln!(gp, "set xlabel 'sub prob'").unwrap();
+    
     let mut min = f64::INFINITY;
     let mut max = f64::NEG_INFINITY;
     for &val in criticals[0].iter().skip(1){
@@ -348,10 +370,24 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
     writeln!(gp, "set yrange[{min}:{max}]").unwrap();
     writeln!(gp, "f(x)= a*x+b+k*x**l").unwrap();
     writeln!(gp, "g(x)= c*x+d").unwrap();
-    writeln!(gp, "fit f(x) '{crit_name}' via a,b,k,l").unwrap();
-    writeln!(gp, "fit g(x) '{crit_name}' u 1:3 via c,d").unwrap();
+
+    let using = if let Some(f) = opt.reset_fraction{
+        writeln!(gp, "set xlabel 'p_s f'").unwrap();
+        
+        format!("($1*{f})")
+    } else {
+        writeln!(gp, "set xlabel 'p_s'").unwrap();
+        
+        "1".to_owned()
+    };
+    writeln!(gp, "fit f(x) '{crit_name}' u {using}:2 via a,b,k,l").unwrap();
+    writeln!(gp, "fit g(x) '{crit_name}' u {using}:3 via c,d").unwrap();
     writeln!(gp, "h(x)=-g(x)/f(x)").unwrap();
-    writeln!(gp, "p '{crit_name}' t 'a', '' u 1:3 t 'b', '' u 1:4 t 'Crit B', f(x) t 'fit a', g(x) t 'fit b', h(x) t 'approx'").unwrap();
+    
+    writeln!(
+        gp, 
+        "p '{crit_name}' u {using}:2 t 'a', '' u {using}:3 t 'b', '' u {using}:4 t 'Crit B', f(x) t 'fit a', g(x) t 'fit b', h(x) t 'approx'"
+    ).unwrap();
     writeln!(gp, "set output").unwrap();
     drop(gp);
     call_gnuplot(&crit_gp);
