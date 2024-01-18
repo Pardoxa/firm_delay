@@ -7,6 +7,7 @@ use serde::{Serialize, Deserialize};
 use crate::index_sampler::IndexSampler;
 use crate::misc::*;
 use std::io::Write;
+use std::num::NonZeroU32;
 use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -34,7 +35,8 @@ pub struct SubstitutionVelocityVideoOpts{
     pub time_steps: usize,
     pub self_links: SelfLinks,
     pub yrange: Option<(f32, f32)>,
-    pub reset_fraction: Option<f64>
+    pub reset_fraction: Option<f64>,
+    pub samples_per_point: NonZeroU32
 }
 
 impl Default for SubstitutionVelocityVideoOpts{
@@ -46,7 +48,8 @@ impl Default for SubstitutionVelocityVideoOpts{
             time_steps: 1000, 
             self_links: SelfLinks::default(), 
             yrange: Some((0.0,3.5)),
-            reset_fraction: None
+            reset_fraction: None,
+            samples_per_point: NonZeroU32::new(1).unwrap()
         }
     }
 }
@@ -296,16 +299,26 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
                 let mut writer = create_buf(&w_name);
 
                 for b in opt.buffer.get_iter(){
-                    model.change_buffer_to_const(b);
-                    if let Some(f) = opt.reset_fraction{
-                        model.seed_quenched_sub_prob(sub_prob, f);
-                    }
-                    model.reset_delays();
-                    for _ in 0..opt.time_steps{
-                        fun(&mut model);
-                    }
-                    let velocity = model.average_delay() / opt.time_steps as f64;
-                    writeln!(writer, "{b} {velocity}").unwrap();
+                    let mut velocity_sum = 0.0;
+                    (0..opt.samples_per_point.get())
+                        .for_each(
+                            |_|
+                            {
+                                model.change_buffer_to_const(b);
+                                if let Some(f) = opt.reset_fraction{
+                                    model.seed_quenched_sub_prob(sub_prob, f);
+                                }
+                                model.reset_delays();
+                                for _ in 0..opt.time_steps{
+                                    fun(&mut model);
+                                }
+                                let velocity = model.average_delay() / opt.time_steps as f64;
+                                velocity_sum += velocity;
+                            }
+                        );
+                    let average_velocity = velocity_sum / opt.samples_per_point.get() as f64;
+                    
+                    writeln!(writer, "{b} {average_velocity}").unwrap();
                 }
                 drop(writer);
                 let gp_name = format!("{stub}.gp");
@@ -368,6 +381,7 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
         }
     }
     writeln!(gp, "set yrange[{min}:{max}]").unwrap();
+    writeln!(gp, "set ylabel 'B'").unwrap();
     writeln!(gp, "f(x)= a*x+b+k*x**l").unwrap();
     writeln!(gp, "g(x)= c*x+d").unwrap();
 
