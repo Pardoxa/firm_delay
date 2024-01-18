@@ -1,3 +1,5 @@
+use std::process::Output;
+
 use {
     std::{
         io::{Write, BufReader, BufWriter},
@@ -85,13 +87,14 @@ where P: AsRef<Path>
     buf
 }
 
-pub fn  call_gnuplot(gp_file_name: &str)
+pub fn  call_gnuplot(gp_file_name: &str) -> Output
 {
-    let cmd = Command::new("gnuplot")
+    let out = Command::new("gnuplot")
         .arg(gp_file_name)
         .output()
         .unwrap();
-    assert!(cmd.status.success());
+    assert!(out.status.success());
+    out
 }
 
 pub fn create_video(glob: &str, out_stub: &str, framerate: u8)

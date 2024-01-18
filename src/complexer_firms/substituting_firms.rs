@@ -256,10 +256,11 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
 
     let bar = crate::misc::indication_bar(all_sub_probs.len() as u64);
 
-    all_sub_probs.par_iter()
+    let criticals: Vec<_> = all_sub_probs
+        .par_iter()
         .enumerate()
         .progress_with(bar)
-        .for_each(
+        .map(
             |(index, &sub_prob)|
             {
                 let mut model_opt = opt.opts.clone();
@@ -292,19 +293,69 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
                 writeln!(gp_writer, "set output '{png}'").unwrap();
                 writeln!(gp_writer, "set ylabel 'v'").unwrap();
                 writeln!(gp_writer, "set xlabel 'B'").unwrap();
+                writeln!(gp_writer, "set fit quiet").unwrap();
+                writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
+                writeln!(gp_writer, "f(x)=a*x+b").unwrap();
+                writeln!(gp_writer, "fit f(x) '{w_name}' u 1:2:(t($2)) yerr via a,b").unwrap();
                 writeln!(gp_writer, "set label 'p={sub_prob}' at screen 0.4,0.9").unwrap();
                 if let Some((min, max)) = &opt.yrange{
                     writeln!(gp_writer, "set yrange [{min}:{max}]").unwrap();
                 }
-                writeln!(gp_writer, "p '{w_name}' t ''").unwrap();
+                writeln!(gp_writer, "p '{w_name}' t '', f(x)").unwrap();
+                writeln!(gp_writer, "print(b)").unwrap();
+                writeln!(gp_writer, "print(a)").unwrap();
                 writeln!(gp_writer, "set output").unwrap();
                 drop(gp_writer);
-                call_gnuplot(&gp_name);
+                let out = call_gnuplot(&gp_name);
+                let s = String::from_utf8(out.stderr)
+                    .unwrap();
                 
-                cleaner.add_multi([w_name, gp_name, png])
+                let mut iter = s.lines();
+
+                let b: f64 = iter.next().unwrap().parse().unwrap();
+                let a: f64 = iter.next().unwrap().parse().unwrap();
+                let crit = -b/a;
                 
+                cleaner.add_multi([w_name, gp_name, png]);
+                [sub_prob, a, b, crit]
             }
-        );
+        ).collect();
+
+    let crit_stub = format!("{out_stub}_crit");
+    let crit_name = format!("{crit_stub}.dat");
+    let mut buf = create_buf_with_command_and_version(&crit_name);
+    let header = ["sub_prob", "a", "b", "critical"];
+    write_slice_head(&mut buf, header).unwrap();
+    for s in criticals.iter(){
+        writeln!(buf, "{} {} {} {}", s[0], s[1], s[2], s[3]).unwrap();
+    }
+    drop(buf);
+    let crit_gp = format!("{crit_stub}.gp");
+    let mut gp = create_gnuplot_buf(&crit_gp);
+    writeln!(gp, "set t pdfcairo").unwrap();
+    writeln!(gp, "set output '{crit_stub}.pdf'").unwrap();
+    writeln!(gp, "set xlabel 'sub prob'").unwrap();
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    for &val in criticals[0].iter().skip(1){
+        if val > max{
+            max = val;
+        } 
+        if val < min {
+            min = val;
+        }
+    }
+    writeln!(gp, "set yrange[{min}:{max}]").unwrap();
+    writeln!(gp, "f(x)= a*x+b+k*x**l").unwrap();
+    writeln!(gp, "g(x)= c*x+d").unwrap();
+    writeln!(gp, "fit f(x) '{crit_name}' via a,b,k,l").unwrap();
+    writeln!(gp, "fit g(x) '{crit_name}' u 1:3 via c,d").unwrap();
+    writeln!(gp, "h(x)=-g(x)/f(x)").unwrap();
+    writeln!(gp, "p '{crit_name}' t 'a', '' u 1:3 t 'b', '' u 1:4 t 'Crit B', f(x) t 'fit a', g(x) t 'fit b', h(x) t 'approx'").unwrap();
+    writeln!(gp, "set output").unwrap();
+    drop(gp);
+    call_gnuplot(&crit_gp);
+
     create_video("TMP_*.png", out_stub, frametime);
     cleaner.clean();
 }
