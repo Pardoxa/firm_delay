@@ -7,10 +7,28 @@ use crate::misc::*;
 use std::io::Write;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
+pub enum SelfLinks{
+    #[default]
+    AllowSelfLinks,
+    NoSelfLinks
+}
+
+impl SelfLinks{
+    pub fn get_step_fun(&self) -> fn (&mut SubstitutingMeanField)
+    {
+        match self{
+            Self::AllowSelfLinks => SubstitutingMeanField::step_with_self_links,
+            Self::NoSelfLinks => SubstitutingMeanField::step_without_self_links
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct SubstitutionVelocitySampleOpts{
     pub buffer: SampleRangeF64,
     pub opts: SubstitutingMeanFieldOpts,
-    pub time_steps: usize
+    pub time_steps: usize,
+    pub self_links: SelfLinks
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -87,7 +105,7 @@ impl SubstitutingMeanField{
         }
     }
 
-    pub fn step(&mut self)
+    pub fn step_without_self_links(&mut self)
     {
         self.next_delays.iter_mut()
             .enumerate()
@@ -98,8 +116,31 @@ impl SubstitutingMeanField{
                         *n_delay = self.dist.sample(&mut self.rng);
                     } else {
                         let mut current = 0.0_f64;
-                        todo!("NOTE: Marc is allowiung self liks, so maybe use sample_indices instead of without?");
                         for i in self.index_sampler.sample_indices_without(&mut self.rng, index as u32){
+                            let i = *i as usize;
+                            current = current.max(self.current_delays[i]);
+                        }
+                        *n_delay = (current - self.buffers[index]).max(0.0) 
+                            + self.dist.sample(&mut self.rng);
+                    }
+                    
+                }
+            );
+        std::mem::swap(&mut self.current_delays, &mut self.next_delays);
+    }
+
+    pub fn step_with_self_links(&mut self)
+    {
+        self.next_delays.iter_mut()
+            .enumerate()
+            .for_each(
+                |(index, n_delay)|
+                {
+                    if self.rng.gen::<f64>() < self.substitution_prob[index]{
+                        *n_delay = self.dist.sample(&mut self.rng);
+                    } else {
+                        let mut current = 0.0_f64;
+                        for i in self.index_sampler.sample_indices(&mut self.rng){
                             let i = *i as usize;
                             current = current.max(self.current_delays[i]);
                         }
@@ -124,11 +165,13 @@ pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts){
 
     let mut model = SubstitutingMeanField::new(&opt.opts);
 
+    let fun = opt.self_links.get_step_fun();
+
     for b in opt.buffer.get_iter(){
         model.change_buffer_to_const(b);
         model.reset_delays();
         for _ in 0..opt.time_steps{
-            model.step();
+            fun(&mut model);
         }
         let velocity = model.average_delay() / opt.time_steps as f64;
         writeln!(writer, "{b} {velocity}").unwrap();
