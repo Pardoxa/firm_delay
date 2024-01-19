@@ -1,4 +1,4 @@
-use clap::{Parser, ValueEnum};
+use clap::{Parser, ValueEnum, Subcommand};
 
 #[derive(Parser, Debug)]
 pub struct SimpleOpt{
@@ -39,11 +39,8 @@ pub struct SubstitutingMeanFieldOpt{
     pub randomness: RandomState
 }
 
-/// Created by Yannick Feld
-/// Program to simulate the delay in firms
-#[derive(Parser)]
-#[command(author, version, about)]
-pub enum CmdChooser{
+#[derive(Subcommand, Debug)]
+pub enum SimpleCommand{
     SimpleFirmDifK(SimpleOpt),
     SimpleOtherFirmDifK(SimpleOpt),
     SimpleFirmPhase(SimpleOpt),
@@ -52,6 +49,25 @@ pub enum CmdChooser{
     SimpleFirmAverageOrder(SimpleOpt),
     SimpleFirmAverageOrderMoran(SimpleOpt),
     SimpleFirmAverageOrderMoranAvalanch(SimpleOpt),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SubstitutingCommand{
     SubMean(SubstitutingMeanFieldOpt),
+    /// Create video and measure critical B over substitution probability
     SubMeanVideo(SubstitutingMeanFieldOpt)
+}
+
+/// Created by Yannick Feld
+/// Program to simulate the delay in firms
+#[derive(Parser)]
+#[command(author, version, about)]
+pub enum CmdChooser{
+    #[command(subcommand)]
+    /// Contains single firm subcommands
+    Single(SimpleCommand),
+
+    #[command(subcommand)]
+    /// Contains subcommands of substituting firms
+    Sub(SubstitutingCommand),
 }

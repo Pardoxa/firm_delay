@@ -125,6 +125,33 @@ impl SubstitutingMeanField{
             .for_each(|v| *v = const_val)
     }
 
+    pub fn change_buffer_dist_min_max<D>(
+        &mut self,
+        buffer_dist: D, 
+        min_buf: f64, 
+        max_buf: f64
+    )
+    where D: Distribution<f64>
+    {
+        self.buffers
+            .iter_mut()
+            .zip(buffer_dist.sample_iter(&mut self.rng))
+            .for_each(
+                |(buffer, rand_val)|
+                {
+                    *buffer = rand_val;
+                    // interestingly two ifs are faster than if - else
+                    // because we do not need any jumps in assembly
+                    if *buffer > max_buf{
+                        *buffer = max_buf;
+                    }
+                    if *buffer < min_buf {
+                        *buffer = min_buf
+                    }
+                }
+            );
+    }
+
     pub fn get_k(&self) -> usize {
         self.k
     }

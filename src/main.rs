@@ -1,4 +1,5 @@
 use complexer_firms::SubstitutionVelocitySampleOpts;
+use global_opts::{SimpleCommand, SubstitutingCommand};
 
 use crate::complexer_firms::SubstitutionVelocityVideoOpts;
 
@@ -21,12 +22,10 @@ mod global_opts;
 mod simple_firm;
 mod any_dist;
 
-fn main() {
-    
-    let option = CmdChooser::parse();
-
-    match option{
-        CmdChooser::SimpleFirmDifK(opt) => {
+fn simple_chooser(opt: SimpleCommand)
+{
+    match opt{
+        SimpleCommand::SimpleFirmDifK(opt) => {
             if opt.print_alternatives{
                 SimpleFirmDifferentKOpts::print_alternatives(0);
             } else {
@@ -34,7 +33,7 @@ fn main() {
                 o.exec();
             }
         },
-        CmdChooser::SimpleFirmPhase(opt) => {
+        SimpleCommand::SimpleFirmPhase(opt) => {
             if opt.print_alternatives{
                 SimpleFirmPhase::print_alternatives(0);
             } else {
@@ -42,7 +41,7 @@ fn main() {
                 o.exec();
             }   
         },
-        CmdChooser::SimpleFirmBufHist(opt) => {
+        SimpleCommand::SimpleFirmBufHist(opt) => {
             if opt.print_alternatives{
                 SimpleFirmBufferHistogram::print_alternatives(0);
             } else {
@@ -50,7 +49,7 @@ fn main() {
                 o.exec();
             }  
         },
-        CmdChooser::SimpleOtherFirmDifK(opt) => {
+        SimpleCommand::SimpleOtherFirmDifK(opt) => {
             if opt.print_alternatives{
                 SimpleFirmDifferentKOpts::print_alternatives(0);
             } else {
@@ -58,7 +57,7 @@ fn main() {
                 simple_firm::different_k_with_max(&o);
             }
         },
-        CmdChooser::SimpleFirmAverage(opt) => {
+        SimpleCommand::SimpleFirmAverage(opt) => {
             if opt.print_alternatives{
                 SimpleFirmAverageAfter::print_alternatives(0);
             } else {
@@ -66,7 +65,7 @@ fn main() {
                 simple_firm::average_delay_measurement(&o);
             }
         },
-        CmdChooser::SimpleFirmAverageOrder(opt) => {
+        SimpleCommand::SimpleFirmAverageOrder(opt) => {
             if opt.print_alternatives{
                 SimpleFirmAverageAfter::print_alternatives(0);
             } else {
@@ -74,7 +73,7 @@ fn main() {
                 simple_firm::average_delay_order_measurement(&o);
             }
         },
-        CmdChooser::SimpleFirmAverageOrderMoran(opt) => {
+        SimpleCommand::SimpleFirmAverageOrderMoran(opt) => {
             if opt.print_alternatives{
                 SimpleFirmAverageAfter::print_alternatives(0);
             } else {
@@ -82,7 +81,7 @@ fn main() {
                 simple_firm::recreate_moran(&o);
             }
         },
-        CmdChooser::SimpleFirmAverageOrderMoranAvalanch(opt) => {
+        SimpleCommand::SimpleFirmAverageOrderMoranAvalanch(opt) => {
             if opt.print_alternatives{
                 SimpleFirmAverageAfter::print_alternatives(0);
             } else {
@@ -90,13 +89,19 @@ fn main() {
                 simple_firm::recreate_moran_avalanch(&o);
             }
         },
-        CmdChooser::SubMean(opt) =>
+    }
+}
+
+fn sub_chooser(opt: SubstitutingCommand)
+{
+    match opt{
+        SubstitutingCommand::SubMean(opt) =>
         {
             let o: SubstitutionVelocitySampleOpts = parse(opt.json);
             let out = opt.out_stub.as_deref().unwrap();
             complexer_firms::sample_velocity(&o, out);
         },
-        CmdChooser::SubMeanVideo(opt) => {
+        SubstitutingCommand::SubMeanVideo(opt) => {
             let o: SubstitutionVelocityVideoOpts = parse(opt.json);
             let out = opt.out_stub.as_deref().unwrap();
             match opt.randomness{
@@ -115,7 +120,21 @@ fn main() {
                     )
                 }
             }
-            
+        }
+    }
+}
+
+fn main() {
+    
+    let option = CmdChooser::parse();
+
+    match option{
+        CmdChooser::Single(simple_command) =>
+        {
+            simple_chooser(simple_command)
+        },
+        CmdChooser::Sub(opt) => {
+            sub_chooser(opt)
         }
 
     }
