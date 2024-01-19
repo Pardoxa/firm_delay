@@ -55,7 +55,7 @@ pub enum SimpleCommand{
 pub enum SubstitutingCommand{
     SubMean(SubstitutingMeanFieldOpt),
     /// Create video and measure critical B over substitution probability
-    SubMeanVideo(SubstitutingMeanFieldOpt)
+    CritBVideo(SubstitutingMeanFieldOpt)
 }
 
 /// Created by Yannick Feld
@@ -68,6 +68,7 @@ pub enum CmdChooser{
     Single(SimpleCommand),
 
     #[command(subcommand)]
+    #[clap(visible_alias="substituting")]
     /// Contains subcommands of substituting firms
     Sub(SubstitutingCommand),
 }

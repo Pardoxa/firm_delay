@@ -101,7 +101,7 @@ fn sub_chooser(opt: SubstitutingCommand)
             let out = opt.out_stub.as_deref().unwrap();
             complexer_firms::sample_velocity(&o, out);
         },
-        SubstitutingCommand::SubMeanVideo(opt) => {
+        SubstitutingCommand::CritBVideo(opt) => {
             let o: SubstitutionVelocityVideoOpts = parse(opt.json);
             let out = opt.out_stub.as_deref().unwrap();
             match opt.randomness{
