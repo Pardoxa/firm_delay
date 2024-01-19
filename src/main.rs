@@ -133,7 +133,7 @@ fn main() {
         {
             simple_chooser(simple_command)
         },
-        CmdChooser::Sub(opt) => {
+        CmdChooser::Substituting(opt) => {
             sub_chooser(opt)
         }
 

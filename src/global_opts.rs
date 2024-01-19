@@ -68,7 +68,7 @@ pub enum CmdChooser{
     Single(SimpleCommand),
 
     #[command(subcommand)]
-    #[clap(visible_alias="substituting")]
+    #[clap(visible_alias="sub")]
     /// Contains subcommands of substituting firms
-    Sub(SubstitutingCommand),
+    Substituting(SubstitutingCommand),
 }
