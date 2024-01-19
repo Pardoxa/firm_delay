@@ -1,3 +1,5 @@
+use std::process::exit;
+
 use complexer_firms::SubstitutionVelocitySampleOpts;
 use global_opts::{SimpleCommand, SubstitutingCommand};
 
@@ -29,7 +31,7 @@ fn simple_chooser(opt: SimpleCommand)
             if opt.print_alternatives{
                 SimpleFirmDifferentKOpts::print_alternatives(0);
             } else {
-                let o: SimpleFirmDifferentKOpts = parse(opt.json);
+                let o: SimpleFirmDifferentKOpts = parse_and_add_to_global(opt.json);
                 o.exec();
             }
         },
@@ -37,7 +39,7 @@ fn simple_chooser(opt: SimpleCommand)
             if opt.print_alternatives{
                 SimpleFirmPhase::print_alternatives(0);
             } else {
-                let o: SimpleFirmPhase = parse(opt.json);
+                let o: SimpleFirmPhase = parse_and_add_to_global(opt.json);
                 o.exec();
             }   
         },
@@ -45,7 +47,7 @@ fn simple_chooser(opt: SimpleCommand)
             if opt.print_alternatives{
                 SimpleFirmBufferHistogram::print_alternatives(0);
             } else {
-                let o: SimpleFirmBufferHistogram = parse(opt.json);
+                let o: SimpleFirmBufferHistogram = parse_and_add_to_global(opt.json);
                 o.exec();
             }  
         },
@@ -53,7 +55,7 @@ fn simple_chooser(opt: SimpleCommand)
             if opt.print_alternatives{
                 SimpleFirmDifferentKOpts::print_alternatives(0);
             } else {
-                let o: SimpleFirmDifferentKOpts = parse(opt.json);
+                let o: SimpleFirmDifferentKOpts = parse_and_add_to_global(opt.json);
                 simple_firm::different_k_with_max(&o);
             }
         },
@@ -61,7 +63,7 @@ fn simple_chooser(opt: SimpleCommand)
             if opt.print_alternatives{
                 SimpleFirmAverageAfter::print_alternatives(0);
             } else {
-                let o: SimpleFirmAverageAfter = parse(opt.json);
+                let o: SimpleFirmAverageAfter = parse_and_add_to_global(opt.json);
                 simple_firm::average_delay_measurement(&o);
             }
         },
@@ -69,7 +71,7 @@ fn simple_chooser(opt: SimpleCommand)
             if opt.print_alternatives{
                 SimpleFirmAverageAfter::print_alternatives(0);
             } else {
-                let o: SimpleFirmAverageAfter = parse(opt.json);
+                let o: SimpleFirmAverageAfter = parse_and_add_to_global(opt.json);
                 simple_firm::average_delay_order_measurement(&o);
             }
         },
@@ -77,7 +79,7 @@ fn simple_chooser(opt: SimpleCommand)
             if opt.print_alternatives{
                 SimpleFirmAverageAfter::print_alternatives(0);
             } else {
-                let o: SimpleFirmAverageAfter = parse(opt.json);
+                let o: SimpleFirmAverageAfter = parse_and_add_to_global(opt.json);
                 simple_firm::recreate_moran(&o);
             }
         },
@@ -85,7 +87,7 @@ fn simple_chooser(opt: SimpleCommand)
             if opt.print_alternatives{
                 SimpleFirmAverageAfter::print_alternatives(0);
             } else {
-                let o: SimpleFirmAverageAfter = parse(opt.json);
+                let o: SimpleFirmAverageAfter = parse_and_add_to_global(opt.json);
                 simple_firm::recreate_moran_avalanch(&o);
             }
         },
@@ -97,12 +99,16 @@ fn sub_chooser(opt: SubstitutingCommand)
     match opt{
         SubstitutingCommand::SubMean(opt) =>
         {
-            let o: SubstitutionVelocitySampleOpts = parse(opt.json);
+            let o: SubstitutionVelocitySampleOpts = parse_and_add_to_global(opt.json);
             let out = opt.out_stub.as_deref().unwrap();
             complexer_firms::sample_velocity(&o, out);
         },
         SubstitutingCommand::CritBVideo(opt) => {
-            let o: SubstitutionVelocityVideoOpts = parse(opt.json);
+            if opt.print_alternatives{
+                SubstitutionVelocityVideoOpts::print_alternatives(0);
+                exit(0);
+            }
+            let o: SubstitutionVelocityVideoOpts = parse_and_add_to_global(opt.json);
             let out = opt.out_stub.as_deref().unwrap();
             match opt.randomness{
                 RandomState::Dynamic => {

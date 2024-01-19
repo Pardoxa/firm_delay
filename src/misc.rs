@@ -1,20 +1,19 @@
-use std::process::Output;
-
 use {
     std::{
         io::{Write, BufReader, BufWriter},
-        process::{exit, Command},
+        process::{exit, Command, Output},
         fs::File,
         path::Path,
         num::*,
-        fmt::Display
+        fmt::Display,
+        sync::RwLock
     },
     serde_json::Value,
     serde::{Serialize, Deserialize, de::DeserializeOwned},
     indicatif::{ProgressBar, ProgressStyle},
 };
 
-
+pub static GLOBAL_ADDITIONS: RwLock<Option<String>> = RwLock::new(None);
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn write_json<W: Write>(mut writer: W, json: &Value)
@@ -55,6 +54,12 @@ pub fn write_commands<W: Write>(mut w: W) -> std::io::Result<()>
 pub fn write_commands_and_version<W: Write>(mut w: W) -> std::io::Result<()>
 {
     writeln!(w, "# {VERSION}")?;
+    writeln!(w, "# Git Hash: {} Compile-time: {}", env!("GIT_HASH"), env!("BUILD_TIME_CHRONO"))?;
+    let l = GLOBAL_ADDITIONS.read().unwrap();
+    if let Some(add) = l.as_deref(){
+        writeln!(w, "# {add}")?;
+    }
+    drop(l);
     write_commands(w)
 }
 
@@ -125,7 +130,7 @@ pub fn create_video(glob: &str, out_stub: &str, framerate: u8)
     assert!(video_out.status.success());
 }
 
-pub fn parse<P, T>(file: Option<P>) -> T
+pub fn parse_and_add_to_global<P, T>(file: Option<P>) -> T
 where P: AsRef<Path>,
     T: Default + Serialize + DeserializeOwned
 {
@@ -163,6 +168,10 @@ where P: AsRef<Path>,
                     exit(1);
                 }
             };
+            let s = serde_json::to_string(&opt).unwrap();
+            let mut w = GLOBAL_ADDITIONS.write().unwrap();
+            *w = Some(s);
+            drop(w);
 
             opt  
         }
@@ -237,5 +246,53 @@ impl SampleRangeF64{
                     self.start + delta * i as f64
                 }
             ).chain(std::iter::once(self.end))
+    }
+}
+
+
+#[derive(Clone, Copy, Debug)]
+pub struct Stats{
+    pub average: f64,
+    pub variance: f64,
+    pub min: f64,
+    pub max: f64,
+}
+
+impl Stats{
+    pub fn get_std_dev(&self) -> f64
+    {
+        self.variance.sqrt()
+    }
+
+    pub fn get_cv(&self) -> f64
+    {
+        self.get_std_dev() / self.average
+    }
+
+    pub fn from_ref_iter<'a, T: IntoIterator<Item = &'a f64>>(iter: T) -> Self {
+        let mut sum = 0.0;
+        let mut sum_sq = 0.0;
+        let mut counter = 0_u64;
+        let mut min = f64::INFINITY;
+        let mut max = f64::NEG_INFINITY;
+
+        iter.into_iter()
+            .for_each(
+                |v| 
+                {
+                    sum += v;
+                    sum_sq = v.mul_add(*v, sum_sq);
+                    counter += 1;
+                    min = min.min(*v);
+                    max = max.max(*v);
+                }
+            );
+
+
+
+        let factor = (counter as f64).recip();
+        let average = sum * factor;
+        let variance = sum_sq * factor - average * average;
+        Self { average, variance, min, max }
     }
 }

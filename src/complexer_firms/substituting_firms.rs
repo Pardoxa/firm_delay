@@ -1,12 +1,12 @@
 use indicatif::{ProgressIterator, ParallelProgressIterator};
-use rand_distr::{Exp, Distribution};
+use rand_distr::{Exp, Distribution, Uniform};
 use rand_pcg::Pcg64;
 use rand::{Rng, SeedableRng};
 use rayon::iter::{IntoParallelRefIterator, IndexedParallelIterator, ParallelIterator};
 use serde::{Serialize, Deserialize};
 use crate::index_sampler::IndexSampler;
 use crate::misc::*;
-use std::io::Write;
+use std::io::{Write, stdout};
 use std::num::NonZeroU32;
 use std::sync::Mutex;
 
@@ -36,7 +36,28 @@ pub struct SubstitutionVelocityVideoOpts{
     pub self_links: SelfLinks,
     pub yrange: Option<(f32, f32)>,
     pub reset_fraction: Option<f64>,
-    pub samples_per_point: NonZeroU32
+    pub samples_per_point: NonZeroU32,
+    pub buffer_dist: BufferDist
+}
+
+impl PrintAlternatives for SubstitutionVelocityVideoOpts{
+    fn print_alternatives(layer: u8) {
+        let this = Self::default();
+        let mut stdout = stdout();
+        let msg = "Serialization issue SubstitutionVelocityVideoOpts";
+        print_spaces(layer);
+        println!("SubstitutionVelocityVideoOpts:");
+        serde_json::to_writer_pretty(&mut stdout, &this)
+            .expect(msg);
+        println!();
+        print_spaces(layer);
+        println!("Note: yrange is allowed to be null");
+        print_spaces(layer);
+        println!("Note: reset_fraction is allowed to be null");
+        print_spaces(layer);
+        println!("Alternatives for buffer_dist:");
+        BufferDist::print_alternatives(layer + 1);
+    }
 }
 
 impl Default for SubstitutionVelocityVideoOpts{
@@ -49,7 +70,8 @@ impl Default for SubstitutionVelocityVideoOpts{
             self_links: SelfLinks::default(), 
             yrange: Some((0.0,3.5)),
             reset_fraction: None,
-            samples_per_point: NonZeroU32::new(1).unwrap()
+            samples_per_point: NonZeroU32::new(1).unwrap(),
+            buffer_dist: BufferDist::default()
         }
     }
 }
@@ -197,6 +219,7 @@ impl SubstitutingMeanField{
                         }
                         *n_delay = (current - self.buffers[index]).max(0.0) 
                             + self.dist.sample(&mut self.rng);
+                        
                     }
                     
                 }
@@ -222,7 +245,6 @@ impl SubstitutingMeanField{
                         *n_delay = (current - self.buffers[index]).max(0.0) 
                             + self.dist.sample(&mut self.rng);
                     }
-                    
                 }
             );
         std::mem::swap(&mut self.current_delays, &mut self.next_delays);
@@ -291,6 +313,129 @@ impl Cleaner{
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct UniformAround{
+    interval_length_half: f64
+}
+
+impl UniformAround{
+    fn get_uniform(&self, mid: f64) -> Uniform<f64>
+    {
+        let left = mid - self.interval_length_half;
+        let right = mid + self.interval_length_half;
+        Uniform::new_inclusive(left, right)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub enum PossibleDists{
+    #[default]
+    Const,
+    Exp,
+    UniformAround(UniformAround)
+}
+
+impl PrintAlternatives for PossibleDists{
+    fn print_alternatives(layer: u8) {
+        let a = Self::Const;
+        let b = Self::Exp;
+        let c = Self::UniformAround(UniformAround { interval_length_half: 0.2 });
+
+        let mut stdout = stdout();
+        let msg = "Serialization issue PossibleDists";
+
+        print_spaces(layer);
+        println!("PossibleDists a)");
+        serde_json::to_writer_pretty(&mut stdout, &a)
+            .expect(msg);
+        println!();
+        print_spaces(layer);
+        println!("PossibleDists b)");
+        serde_json::to_writer_pretty(&mut stdout, &b)
+            .expect(msg);
+        println!();
+        print_spaces(layer);
+        println!("PossibleDists c)");
+        serde_json::to_writer_pretty(&mut stdout, &c)
+            .expect(msg);
+        println!();
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct BufferDist{
+    pub min: f64,
+    pub max: f64,
+    pub dist: PossibleDists
+}
+
+impl PrintAlternatives for BufferDist {
+    fn print_alternatives(layer: u8) {
+        let mut stdout = stdout();
+        let msg = "Serialization issue BufferDist";
+        let this = Self::default();
+        print_spaces(layer);
+        println!("BufferDist:");
+        serde_json::to_writer_pretty(&mut stdout, &this)
+            .expect(msg);
+        print_spaces(layer);
+        println!();
+        println!("Alternatives PossibleDists:");
+        PossibleDists::print_alternatives(layer + 1);
+    }
+}
+
+
+impl BufferDist{
+
+    fn assert_unequal(&self)
+    {
+        assert_ne!(
+            self.min, 
+            self.max, 
+            "Equal buffer thresholds do not make sense in this context"
+        ); 
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn change_buffers_fun<'a>(&'a self) -> Box<dyn Fn(&mut SubstitutingMeanField, f64) + 'a + Sync>
+    {
+        match self.dist{
+            PossibleDists::Const =>
+            {
+                Box::new(SubstitutingMeanField::change_buffer_to_const)
+            },
+            PossibleDists::Exp => {
+                self.assert_unequal();
+                let fun = |model: &mut SubstitutingMeanField, lambda: f64|
+                {
+                    let dist = Exp::new(lambda).unwrap();
+                    model.change_buffer_dist_min_max(
+                        dist,
+                        self.min, 
+                        self.max
+                    );
+                };
+                Box::new(fun)
+            }
+            PossibleDists::UniformAround(uni) => {
+                self.assert_unequal();
+                let fun = move |model: &mut SubstitutingMeanField, mid: f64|
+                {
+                    let dist = uni.get_uniform(mid);
+                    model.change_buffer_dist_min_max(
+                        dist,
+                        self.min, 
+                        self.max
+                    );
+                };
+                Box::new(fun)
+            }
+        }
+    }
+}
+
 pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8)
 {
     let fun = opt.self_links.get_step_fun();
@@ -304,6 +449,8 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
     let cleaner = Cleaner::new();
 
     let bar = crate::misc::indication_bar(all_sub_probs.len() as u64);
+
+    let change_buffers_fun = opt.buffer_dist.change_buffers_fun();
 
     let criticals: Vec<_> = all_sub_probs
         .par_iter()
@@ -330,11 +477,12 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
                         .for_each(
                             |_|
                             {
-                                model.change_buffer_to_const(b);
+                                change_buffers_fun(&mut model, b);
                                 if let Some(f) = opt.reset_fraction{
                                     model.seed_quenched_sub_prob(sub_prob, f);
                                 }
                                 model.reset_delays();
+                                
                                 for _ in 0..opt.time_steps{
                                     fun(&mut model);
                                 }

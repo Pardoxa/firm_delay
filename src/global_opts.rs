@@ -36,7 +36,11 @@ pub struct SubstitutingMeanFieldOpt{
 
     /// Quenched or not?
     #[arg(short, long, value_enum, default_value_t)]
-    pub randomness: RandomState
+    pub randomness: RandomState,
+
+    /// print alternatives for json creation
+    #[arg(long, short)]
+    pub print_alternatives: bool
 }
 
 #[derive(Subcommand, Debug)]
