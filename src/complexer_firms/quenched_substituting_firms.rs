@@ -1,90 +1,20 @@
-use indicatif::{ProgressIterator, ParallelProgressIterator};
+use indicatif::ParallelProgressIterator;
 use rand_distr::{Exp, Distribution};
 use rand_pcg::Pcg64;
 use rand::{Rng, SeedableRng};
 use rayon::iter::{IntoParallelRefIterator, IndexedParallelIterator, ParallelIterator};
-use serde::{Serialize, Deserialize};
 use crate::index_sampler::IndexSampler;
 use crate::misc::*;
 use std::io::Write;
-use std::num::NonZeroU32;
-use std::sync::Mutex;
+use super::{
+    SelfLinks, 
+    SubstitutionVelocityVideoOpts, 
+    SubstitutingMeanFieldOpts,
+    Cleaner
+};
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone, Copy)]
-pub enum SelfLinks{
-    #[default]
-    AllowSelfLinks,
-    NoSelfLinks
-}
 
-impl SelfLinks{
-    pub fn get_step_fun(&self) -> fn (&mut SubstitutingMeanField)
-    {
-        match self{
-            Self::AllowSelfLinks => SubstitutingMeanField::step_with_self_links,
-            Self::NoSelfLinks => SubstitutingMeanField::step_without_self_links
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SubstitutionVelocityVideoOpts{
-    pub buffer: SampleRangeF64,
-    pub substitution_prob: SampleRangeF64,
-    pub opts: SubstitutingMeanFieldOpts,
-    pub time_steps: usize,
-    pub self_links: SelfLinks,
-    pub yrange: Option<(f32, f32)>,
-    pub reset_fraction: Option<f64>,
-    pub samples_per_point: NonZeroU32
-}
-
-impl Default for SubstitutionVelocityVideoOpts{
-    fn default() -> Self {
-        Self { 
-            buffer: SampleRangeF64::default(), 
-            substitution_prob: SampleRangeF64::default(), 
-            opts: SubstitutingMeanFieldOpts::default(), 
-            time_steps: 1000, 
-            self_links: SelfLinks::default(), 
-            yrange: Some((0.0,3.5)),
-            reset_fraction: None,
-            samples_per_point: NonZeroU32::new(1).unwrap()
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct SubstitutionVelocitySampleOpts{
-    pub buffer: SampleRangeF64,
-    pub opts: SubstitutingMeanFieldOpts,
-    pub time_steps: usize,
-    pub self_links: SelfLinks
-}
-
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-pub struct SubstitutingMeanFieldOpts{
-    pub buffer: f64,
-    pub substitution_prob: f64,
-    pub seed: u64,
-    pub k: usize,
-    pub n: usize,
-    pub lambda: f64
-}
-
-impl SubstitutingMeanFieldOpts{
-    pub fn get_buffers(&self) -> Vec<f64>
-    {
-        vec![self.buffer; self.n]
-    }
-
-    pub fn get_substitution_prob(&self) -> Vec<f64>
-    {
-        vec![self.substitution_prob; self.n]
-    }
-}
-
-pub struct SubstitutingMeanField{
+pub struct SubstitutingQuenchedMeanField{
     current_delays: Vec<f64>,
     buffers: Vec<f64>,
     substitution_prob: Vec<f64>,
@@ -92,12 +22,54 @@ pub struct SubstitutingMeanField{
     k: usize,
     rng: Pcg64,
     index_sampler: IndexSampler,
-    dist: Exp<f64>
+    dist: Exp<f64>,
+    links: Vec<Vec<usize>>
 }
 
-impl SubstitutingMeanField{
+impl SubstitutingQuenchedMeanField{
+    fn choose_links(&mut self, self_links: SelfLinks)
+    {
+        match self_links{
+            SelfLinks::AllowSelfLinks => {
+                self.links
+                    .iter_mut()
+                    .for_each(
+                        |vec|
+                        {
+                            vec.clear();
+                            let iter = self.index_sampler
+                                .sample_inplace_amount(&mut self.rng, self.k)
+                                .iter().map(|val| *val as usize);
+                            vec.extend(iter);
+                        }
+                    );
+            },
+            SelfLinks::NoSelfLinks =>
+            {
+                self.links
+                    .iter_mut()
+                    .zip(0..)
+                    .for_each(
+                        |(vec, index)|
+                        {
+                            vec.clear();
+                            let iter = self.index_sampler
+                                .sample_inplace_amount_without(&mut self.rng, index, self.k)
+                                .iter().map(|val| *val as usize);
+                            vec.extend(iter);
+                        }
+                    );
+            }
+        }
+        
+    }
 
-    pub fn seed_quenched_sub_prob(&mut self, sub_prob: f64, fraction: f64)
+    pub fn reseed_quenched_sub_prob(
+        &mut self, 
+        sub_prob: f64, 
+        fraction: f64, 
+        self_links: SelfLinks
+    )
     {
         let mut amount = (self.substitution_prob.len() as f64 * fraction)
             .round() as usize;
@@ -112,6 +84,7 @@ impl SubstitutingMeanField{
             let index = i as usize;
             self.substitution_prob[index] = 0.0;
         }
+        self.choose_links(self_links);
     }
 
     pub fn reset_delays(&mut self)
@@ -129,7 +102,7 @@ impl SubstitutingMeanField{
         self.k
     }
 
-    pub fn new(opt: &SubstitutingMeanFieldOpts) -> Self
+    pub fn new(opt: &SubstitutingMeanFieldOpts, self_links: SelfLinks) -> Self
     {
         let current_delays = vec![0.0; opt.n];
         let next_delays = vec![0.0; opt.n];
@@ -141,7 +114,7 @@ impl SubstitutingMeanField{
         );
         let exp = Exp::new(opt.lambda)
             .unwrap();
-        Self{
+        let mut s = Self{
             current_delays,
             next_delays,
             buffers: opt.get_buffers(),
@@ -149,13 +122,18 @@ impl SubstitutingMeanField{
             index_sampler,
             substitution_prob: opt.get_substitution_prob(),
             rng,
-            dist: exp
-        }
+            dist: exp,
+            links: vec![Vec::new(); opt.n]
+        };
+        s.choose_links(self_links);
+        s
     }
 
-    pub fn step_without_self_links(&mut self)
+
+    pub fn step(&mut self)
     {
-        self.next_delays.iter_mut()
+        self.next_delays
+            .iter_mut()
             .enumerate()
             .for_each(
                 |(index, n_delay)|
@@ -164,32 +142,7 @@ impl SubstitutingMeanField{
                         *n_delay = self.dist.sample(&mut self.rng);
                     } else {
                         let mut current = 0.0_f64;
-                        for i in self.index_sampler.sample_indices_without(&mut self.rng, index as u32){
-                            let i = *i as usize;
-                            current = current.max(self.current_delays[i]);
-                        }
-                        *n_delay = (current - self.buffers[index]).max(0.0) 
-                            + self.dist.sample(&mut self.rng);
-                    }
-                    
-                }
-            );
-        std::mem::swap(&mut self.current_delays, &mut self.next_delays);
-    }
-
-    pub fn step_with_self_links(&mut self)
-    {
-        self.next_delays.iter_mut()
-            .enumerate()
-            .for_each(
-                |(index, n_delay)|
-                {
-                    if self.rng.gen::<f64>() < self.substitution_prob[index]{
-                        *n_delay = self.dist.sample(&mut self.rng);
-                    } else {
-                        let mut current = 0.0_f64;
-                        for i in self.index_sampler.sample_indices(&mut self.rng){
-                            let i = *i as usize;
+                        for &i in self.links[index].iter(){
                             current = current.max(self.current_delays[i]);
                         }
                         *n_delay = (current - self.buffers[index]).max(0.0) 
@@ -206,68 +159,8 @@ impl SubstitutingMeanField{
     }
 }
 
-pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts, out_stub: &str){
-    let name = format!("{out_stub}.dat");
-    let mut writer = create_buf_with_command_and_version(name);
-    let header = ["B", "Velocity"];
-    write_slice_head(&mut writer, header).unwrap();
-
-    let mut model = SubstitutingMeanField::new(&opt.opts);
-
-    let fun = opt.self_links.get_step_fun();
-
-    let bar = crate::misc::indication_bar(opt.buffer.samples as u64);
-
-    for b in opt.buffer.get_iter().progress_with(bar){
-        model.change_buffer_to_const(b);
-        model.reset_delays();
-        for _ in 0..opt.time_steps{
-            fun(&mut model);
-        }
-        let velocity = model.average_delay() / opt.time_steps as f64;
-        writeln!(writer, "{b} {velocity}").unwrap();
-    }
-}
-
-#[derive(Default)]
-pub struct Cleaner{
-    list: Mutex<Vec<String>>
-}
-
-impl Cleaner{
-    pub fn new() -> Self{
-        Self::default()
-    }
-
-    pub fn add(&self, s: String)
-    {
-        let mut lock = self.list.lock().unwrap();
-        lock.push(s);
-        drop(lock);
-    }
-
-    pub fn add_multi<I>(&self, iter: I)
-    where I: IntoIterator<Item = String>
-    {
-        let mut lock = self.list.lock().unwrap();
-        lock.extend(iter);
-        drop(lock);
-    }
-
-    pub fn clean(self){
-        let list = self.list
-            .into_inner()
-            .unwrap();
-        for s in list{
-            let _ = std::fs::remove_file(&s);
-        }
-    }
-}
-
 pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8)
 {
-    let fun = opt.self_links.get_step_fun();
-
     let all_sub_probs: Vec<_> = opt.substitution_prob
         .get_iter()
         .collect();
@@ -288,7 +181,10 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
                 model_opt.substitution_prob = sub_prob;
                 model_opt.seed = index as u64;
 
-                let mut model = SubstitutingMeanField::new(&model_opt);
+                let mut model = SubstitutingQuenchedMeanField::new(
+                    &model_opt, 
+                    opt.self_links
+                );
 
                 let i_name = index.to_string();
                 let start = i_name.len();
@@ -305,11 +201,15 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
                             {
                                 model.change_buffer_to_const(b);
                                 if let Some(f) = opt.reset_fraction{
-                                    model.seed_quenched_sub_prob(sub_prob, f);
+                                    model.reseed_quenched_sub_prob(
+                                        sub_prob, 
+                                        f,
+                                        opt.self_links
+                                    );
                                 }
                                 model.reset_delays();
                                 for _ in 0..opt.time_steps{
-                                    fun(&mut model);
+                                    model.step();
                                 }
                                 let velocity = model.average_delay() / opt.time_steps as f64;
                                 velocity_sum += velocity;

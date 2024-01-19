@@ -6,7 +6,13 @@ use {
     clap::Parser,
     global_opts::CmdChooser,
     misc::*,
-    simple_firm::{SimpleFirmDifferentKOpts, SimpleFirmPhase, SimpleFirmBufferHistogram, SimpleFirmAverageAfter}
+    simple_firm::{
+        SimpleFirmDifferentKOpts, 
+        SimpleFirmPhase, 
+        SimpleFirmBufferHistogram,
+        SimpleFirmAverageAfter
+    },
+    crate::global_opts::RandomState
 };
 pub mod complexer_firms;
 pub mod misc;
@@ -93,7 +99,23 @@ fn main() {
         CmdChooser::SubMeanVideo(opt) => {
             let o: SubstitutionVelocityVideoOpts = parse(opt.json);
             let out = opt.out_stub.as_deref().unwrap();
-            complexer_firms::sample_velocity_video(&o, out, opt.framerate)
+            match opt.randomness{
+                RandomState::Dynamic => {
+                    complexer_firms::sample_velocity_video(
+                        &o, 
+                        out, 
+                        opt.framerate
+                    )
+                },
+                RandomState::Quenched => {
+                    complexer_firms::quenched_substituting_firms::sample_velocity_video(
+                        &o, 
+                        out, 
+                        opt.framerate
+                    )
+                }
+            }
+            
         }
 
     }

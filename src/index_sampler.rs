@@ -283,4 +283,40 @@ impl IndexSampler
         
         &self.indices[0..self.amount]
     }
+
+        /// Randomly sample exactly `amount` indices from `0..length`, using an inplace
+    /// partial Fisher-Yates method.
+    /// Sample an amount of indices using an inplace partial fisher yates method.
+    ///
+    /// This  randomizes only the first `amount`.
+    /// It returns the corresponding slice
+    ///
+    /// This method is not appropriate for large `length` and potentially uses a lot
+    /// of memory; because of this we only implement for `u32` index (which improves
+    /// performance in all cases).
+    ///
+    /// shuffling is `O(amount)` time.
+    pub fn sample_inplace_amount_without<'a, R>(
+        &'a mut self, 
+        rng: &mut R, 
+        to_ignore: u32, 
+        amount: usize
+    ) -> &'a [u32]
+    where R: Rng + ?Sized {
+        
+        let len = self.len as u32;
+        for i in 0..amount as u32 {
+            let j: u32 = rng.gen_range(i..len);
+            self.indices.swap(i as usize, j as usize);
+        }
+        for i in 0..amount{
+            if self.indices[i] == to_ignore {
+                let j = rng.gen_range(amount..self.indices.len());
+                self.indices.swap(i, j);
+                break;
+            }
+        }
+        
+        &self.indices[0..amount]
+    }
 }

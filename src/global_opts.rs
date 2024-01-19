@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 #[derive(Parser, Debug)]
 pub struct SimpleOpt{
@@ -10,6 +10,13 @@ pub struct SimpleOpt{
     /// print alternative json options
     pub print_alternatives: bool
 
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum RandomState{
+    Quenched,
+    #[default]
+    Dynamic
 }
 
 #[derive(Parser, Debug)]
@@ -25,7 +32,11 @@ pub struct SubstitutingMeanFieldOpt{
 
     /// desired framerate in Hz
     #[arg(short, long, default_value_t=25)]
-    pub framerate: u8
+    pub framerate: u8,
+
+    /// Quenched or not?
+    #[arg(short, long, value_enum, default_value_t)]
+    pub randomness: RandomState
 }
 
 /// Created by Yannick Feld
