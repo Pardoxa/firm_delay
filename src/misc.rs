@@ -93,7 +93,10 @@ pub fn  call_gnuplot(gp_file_name: &str) -> Output
         .arg(gp_file_name)
         .output()
         .unwrap();
-    assert!(out.status.success());
+    if !out.status.success(){
+        eprintln!("FAILED: {gp_file_name}!");
+        dbg!(&out);
+    }
     out
 }
 

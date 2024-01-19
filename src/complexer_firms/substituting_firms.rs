@@ -281,8 +281,7 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
     let criticals: Vec<_> = all_sub_probs
         .par_iter()
         .enumerate()
-        .progress_with(bar)
-        .map(
+        .filter_map(
             |(index, &sub_prob)|
             {
                 let mut model_opt = opt.opts.clone();
@@ -342,19 +341,25 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
                 writeln!(gp_writer, "set output").unwrap();
                 drop(gp_writer);
                 let out = call_gnuplot(&gp_name);
-                let s = String::from_utf8(out.stderr)
-                    .unwrap();
+                if out.status.success(){
+                    let s = String::from_utf8(out.stderr)
+                        .unwrap();
                 
-                let mut iter = s.lines();
+                    let mut iter = s.lines();
 
-                let b: f64 = iter.next().unwrap().parse().unwrap();
-                let a: f64 = iter.next().unwrap().parse().unwrap();
-                let crit = -b/a;
+                    let b: f64 = iter.next().unwrap().parse().unwrap();
+                    let a: f64 = iter.next().unwrap().parse().unwrap();
+                    let crit = -b/a;
+                    
+                    cleaner.add_multi([w_name, gp_name, png]);
+                    Some([sub_prob, a, b, crit])
+                } else {
+                    None
+                }
                 
-                cleaner.add_multi([w_name, gp_name, png]);
-                [sub_prob, a, b, crit]
             }
-        ).collect();
+        ).progress_with(bar)
+        .collect();
 
     let crit_stub = format!("{out_stub}_crit");
     let crit_name = format!("{crit_stub}.dat");
@@ -365,46 +370,83 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
         writeln!(buf, "{} {} {} {}", s[0], s[1], s[2], s[3]).unwrap();
     }
     drop(buf);
-    let crit_gp = format!("{crit_stub}.gp");
-    let mut gp = create_gnuplot_buf(&crit_gp);
-    writeln!(gp, "set t pdfcairo").unwrap();
-    writeln!(gp, "set output '{crit_stub}.pdf'").unwrap();
+    enum How{
+        Linear,
+        Complex
+    }
+
+    let crit_gp_write = |how: How|
+    {
+        let crit_gp = format!("{crit_stub}.gp");
+        let mut gp = create_gnuplot_buf(&crit_gp);
+        writeln!(gp, "set t pdfcairo").unwrap();
+        writeln!(gp, "set output '{crit_stub}.pdf'").unwrap();
+        
+        let mut min = f64::INFINITY;
+        let mut max = f64::NEG_INFINITY;
+        for &val in criticals[0].iter().skip(1){
+            if val > max{
+                max = val;
+            } 
+            if val < min {
+                min = val;
+            }
+        }
+        writeln!(gp, "set yrange[{min}:{max}]").unwrap();
+        writeln!(gp, "set ylabel 'B'").unwrap();
+        match how{
+            How::Complex => {
+                writeln!(gp, "f(x)= a*x+b+k*x**l")
+            },
+            How::Linear => {
+                writeln!(gp, "f(x)= a*x+b")
+            }
+        }.unwrap();
+        
+        writeln!(gp, "g(x)= c*x+d").unwrap();
     
-    let mut min = f64::INFINITY;
-    let mut max = f64::NEG_INFINITY;
-    for &val in criticals[0].iter().skip(1){
-        if val > max{
-            max = val;
-        } 
-        if val < min {
-            min = val;
+        let using = if let Some(f) = opt.reset_fraction{
+            writeln!(gp, "set xlabel 'p_s f'").unwrap();
+            
+            format!("($1*{f})")
+        } else {
+            writeln!(gp, "set xlabel 'p_s'").unwrap();
+            
+            "1".to_owned()
+        };
+        match how{
+            How::Complex => {
+                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2 via a,b,k,l")
+            },
+            How::Linear => {
+                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2 via a,b")
+            }
+        }.unwrap();
+        
+        writeln!(gp, "fit g(x) '{crit_name}' u {using}:3 via c,d").unwrap();
+        writeln!(gp, "h(x)=-g(x)/f(x)").unwrap();
+        
+        writeln!(
+            gp, 
+            "p '{crit_name}' u {using}:2 t 'a', '' u {using}:3 t 'b', '' u {using}:4 t 'Crit B', f(x) t 'fit a', g(x) t 'fit b', h(x) t 'approx'"
+        ).unwrap();
+        writeln!(gp, "set output").unwrap();
+        drop(gp);
+        crit_gp
+    };
+
+    let crit_gp = crit_gp_write(How::Complex);
+    let out = call_gnuplot(&crit_gp);
+    if !out.status.success(){
+        eprintln!("CRIT GNUPLOT ERROR! Trying to recover by using linear function instead!");
+        let crit_gp = crit_gp_write(How::Linear);
+        let out = call_gnuplot(&crit_gp);
+        if !out.status.success(){
+            eprintln!("RECOVERY also failed :(");
+        } else {
+            eprintln!("RECOVERY SUCCESS!");
         }
     }
-    writeln!(gp, "set yrange[{min}:{max}]").unwrap();
-    writeln!(gp, "set ylabel 'B'").unwrap();
-    writeln!(gp, "f(x)= a*x+b+k*x**l").unwrap();
-    writeln!(gp, "g(x)= c*x+d").unwrap();
-
-    let using = if let Some(f) = opt.reset_fraction{
-        writeln!(gp, "set xlabel 'p_s f'").unwrap();
-        
-        format!("($1*{f})")
-    } else {
-        writeln!(gp, "set xlabel 'p_s'").unwrap();
-        
-        "1".to_owned()
-    };
-    writeln!(gp, "fit f(x) '{crit_name}' u {using}:2 via a,b,k,l").unwrap();
-    writeln!(gp, "fit g(x) '{crit_name}' u {using}:3 via c,d").unwrap();
-    writeln!(gp, "h(x)=-g(x)/f(x)").unwrap();
-    
-    writeln!(
-        gp, 
-        "p '{crit_name}' u {using}:2 t 'a', '' u {using}:3 t 'b', '' u {using}:4 t 'Crit B', f(x) t 'fit a', g(x) t 'fit b', h(x) t 'approx'"
-    ).unwrap();
-    writeln!(gp, "set output").unwrap();
-    drop(gp);
-    call_gnuplot(&crit_gp);
 
     create_video("TMP_*.png", out_stub, frametime);
     cleaner.clean();
