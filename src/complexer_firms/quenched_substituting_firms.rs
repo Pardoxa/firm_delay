@@ -60,6 +60,10 @@ impl SubstitutingQuenchedMeanField{
                             vec.extend(iter);
                         }
                     );
+            },
+            SelfLinks::AlwaysSelfLink =>
+            {
+                unimplemented!()
             }
         }
         

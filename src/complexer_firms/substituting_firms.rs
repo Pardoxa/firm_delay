@@ -14,7 +14,8 @@ use std::sync::Mutex;
 pub enum SelfLinks{
     #[default]
     AllowSelfLinks,
-    NoSelfLinks
+    NoSelfLinks,
+    AlwaysSelfLink
 }
 
 impl SelfLinks{
@@ -22,7 +23,8 @@ impl SelfLinks{
     {
         match self{
             Self::AllowSelfLinks => SubstitutingMeanField::step_with_self_links,
-            Self::NoSelfLinks => SubstitutingMeanField::step_without_self_links
+            Self::NoSelfLinks => SubstitutingMeanField::step_without_self_links,
+            Self::AlwaysSelfLink => SubstitutingMeanField::step_always_self_links
         }
     }
 }
@@ -255,6 +257,36 @@ impl SubstitutingMeanField{
         std::mem::swap(&mut self.current_delays, &mut self.next_delays);
     }
 
+    pub fn step_always_self_links(&mut self)
+    {
+        self.next_delays.iter_mut()
+            .enumerate()
+            .for_each(
+                |(index, n_delay)|
+                {
+                    if self.rng.gen::<f64>() < self.substitution_prob[index]{
+                        *n_delay = self.dist.sample(&mut self.rng);
+                    } else {
+                        let mut current = 0.0_f64;
+                        for i in self.index_sampler
+                            .sample_indices_without(&mut self.rng, index as u32)
+                            .iter()
+                            .copied()
+                            .chain(std::iter::once(index as u32))
+                        {
+                            let i = i as usize;
+                            current = current.max(self.current_delays[i]);
+                        }
+                        *n_delay = (current - self.buffers[index]).max(0.0) 
+                            + self.dist.sample(&mut self.rng);
+                        
+                    }
+                    
+                }
+            );
+        std::mem::swap(&mut self.current_delays, &mut self.next_delays);
+    }
+
     pub fn step_with_self_links(&mut self)
     {
         self.next_delays.iter_mut()
@@ -382,6 +414,7 @@ impl PossibleDists{
         matches!(self, Self::Const)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn get_sub_fun<'a>(&'a self) -> Box<dyn Fn (&mut SubstitutingMeanField, f64) + Sync + 'a>
     {
         match self{
