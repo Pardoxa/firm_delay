@@ -271,6 +271,7 @@ impl SubstitutingMeanField{
                         for i in self.index_sampler
                             .sample_indices_without(&mut self.rng, index as u32)
                             .iter()
+                            .skip(1)
                             .copied()
                             .chain(std::iter::once(index as u32))
                         {
