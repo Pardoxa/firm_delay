@@ -119,18 +119,18 @@ pub struct SubstitutingMeanField{
 
 impl SubstitutingMeanField{
 
-    pub fn seed_quenched_sub_prob(&mut self, sub_prob: f64, fraction: f64)
+    pub fn reseed_sub_prob(&mut self, sub_prob: f64, fraction: f64)
     {
         let mut amount = (self.substitution_prob.len() as f64 * fraction)
             .round() as usize;
         amount = amount.min(self.substitution_prob.len());
-        let to_set = self.index_sampler.sample_inplace_amount(&mut self.rng, amount);
+        let (to_set, rest) = self.index_sampler
+            .sample_inplace_amount_rest(&mut self.rng, amount);
         for &i in to_set{
             let index = i as usize;
             self.substitution_prob[index] = sub_prob;
         }
-        let to_zero = &self.index_sampler.indices[amount..];
-        for &i in to_zero{
+        for &i in rest{
             let index = i as usize;
             self.substitution_prob[index] = 0.0;
         }
@@ -479,7 +479,7 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
                             {
                                 change_buffers_fun(&mut model, b);
                                 if let Some(f) = opt.reset_fraction{
-                                    model.seed_quenched_sub_prob(sub_prob, f);
+                                    model.reseed_sub_prob(sub_prob, f);
                                 }
                                 model.reset_delays();
                                 

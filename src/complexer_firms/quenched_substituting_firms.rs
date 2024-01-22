@@ -65,27 +65,26 @@ impl SubstitutingQuenchedMeanField{
         
     }
 
-    pub fn reseed_quenched_sub_prob(
+    pub fn reseed_sub_prob(
         &mut self, 
         sub_prob: f64, 
-        fraction: f64, 
-        self_links: SelfLinks
+        fraction: f64
     )
     {
         let mut amount = (self.substitution_prob.len() as f64 * fraction)
             .round() as usize;
         amount = amount.min(self.substitution_prob.len());
-        let to_set = self.index_sampler.sample_inplace_amount(&mut self.rng, amount);
+        let (to_set, rest) = self.index_sampler
+            .sample_inplace_amount_rest(&mut self.rng, amount);
         for &i in to_set{
             let index = i as usize;
             self.substitution_prob[index] = sub_prob;
         }
-        let to_zero = &self.index_sampler.indices[amount..];
-        for &i in to_zero{
+        for &i in rest{
             let index = i as usize;
             self.substitution_prob[index] = 0.0;
         }
-        self.choose_links(self_links);
+
     }
 
     pub fn reset_delays(&mut self)
@@ -210,11 +209,11 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
                             |_|
                             {
                                 model.change_buffer_to_const(b);
+                                model.choose_links(opt.self_links);
                                 if let Some(f) = opt.reset_fraction{
-                                    model.reseed_quenched_sub_prob(
+                                    model.reseed_sub_prob(
                                         sub_prob, 
-                                        f,
-                                        opt.self_links
+                                        f
                                     );
                                 }
                                 model.reset_delays();
