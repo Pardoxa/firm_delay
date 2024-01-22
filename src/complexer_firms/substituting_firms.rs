@@ -37,7 +37,8 @@ pub struct SubstitutionVelocityVideoOpts{
     pub yrange: Option<(f32, f32)>,
     pub reset_fraction: Option<f64>,
     pub samples_per_point: NonZeroU32,
-    pub buffer_dist: BufferDist
+    pub buffer_dist: BufferDist,
+    pub sub_dist: PossibleDists
 }
 
 impl PrintAlternatives for SubstitutionVelocityVideoOpts{
@@ -57,6 +58,9 @@ impl PrintAlternatives for SubstitutionVelocityVideoOpts{
         print_spaces(layer);
         println!("Alternatives for buffer_dist:");
         BufferDist::print_alternatives(layer + 1);
+        print_spaces(layer);
+        println!("Alternatives for sub_dist:");
+        PossibleDists::print_alternatives(layer + 1);
     }
 }
 
@@ -71,7 +75,8 @@ impl Default for SubstitutionVelocityVideoOpts{
             yrange: Some((0.0,3.5)),
             reset_fraction: None,
             samples_per_point: NonZeroU32::new(1).unwrap(),
-            buffer_dist: BufferDist::default()
+            buffer_dist: BufferDist::default(),
+            sub_dist: PossibleDists::default()
         }
     }
 }
@@ -145,6 +150,29 @@ impl SubstitutingMeanField{
     {
         self.buffers.iter_mut()
             .for_each(|v| *v = const_val)
+    }
+
+    pub fn change_substitution_prob<D>(
+        &mut self, 
+        sub_dist: D
+    )
+    where D: Distribution<f64>
+    {
+        self.substitution_prob
+            .iter_mut()
+            .zip(sub_dist.sample_iter(&mut self.rng))
+            .for_each(
+                |(sub, rand_val)|
+                {
+                    *sub = rand_val;
+                    if *sub < 0.0 {
+                        *sub = 0.0;
+                    }
+                    if *sub > 1.0 {
+                        *sub = 1.0;
+                    }
+                }
+            )
     }
 
     pub fn change_buffer_dist_min_max<D>(
@@ -348,6 +376,53 @@ pub enum PossibleDists{
     Gauss(Gauss)
 }
 
+impl PossibleDists{
+    pub fn is_const(&self) -> bool
+    {
+        matches!(self, Self::Const)
+    }
+
+    pub fn get_sub_fun<'a>(&'a self) -> Box<dyn Fn (&mut SubstitutingMeanField, f64) + Sync + 'a>
+    {
+        match self{
+            Self::Const =>
+            {
+                Box::new(|_,_|{})
+            },
+            Self::Exp => {
+                let fun = |model: &mut SubstitutingMeanField, lambda: f64|
+                {
+                    let dist = Exp::new(lambda).unwrap();
+                    model.change_substitution_prob(
+                        dist
+                    );
+                };
+                Box::new(fun)
+            },
+            PossibleDists::UniformAround(uni) => {
+                let fun = move |model: &mut SubstitutingMeanField, mid: f64|
+                {
+                    let dist = uni.get_uniform(mid);
+                    model.change_substitution_prob(
+                        dist
+                    );
+                };
+                Box::new(fun)
+            },
+            PossibleDists::Gauss(gauss) => {
+                let fun = move |model: &mut SubstitutingMeanField, mean: f64|
+                {
+                    let dist = gauss.get_gauss(mean);
+                    model.change_substitution_prob(
+                        dist
+                    );
+                };
+                Box::new(fun)
+            }
+        }
+    }
+}
+
 impl PrintAlternatives for PossibleDists{
     fn print_alternatives(layer: u8) {
         let a = Self::Const;
@@ -417,6 +492,8 @@ impl BufferDist{
         ); 
     }
 
+
+
     #[allow(clippy::type_complexity)]
     pub fn change_buffers_fun<'a>(&'a self) -> Box<dyn Fn(&mut SubstitutingMeanField, f64) + 'a + Sync>
     {
@@ -437,7 +514,7 @@ impl BufferDist{
                     );
                 };
                 Box::new(fun)
-            }
+            },
             PossibleDists::UniformAround(uni) => {
                 self.assert_unequal();
                 let fun = move |model: &mut SubstitutingMeanField, mid: f64|
@@ -472,7 +549,13 @@ impl BufferDist{
 pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8)
 {
     let fun = opt.self_links.get_step_fun();
-
+    if !opt.sub_dist.is_const(){
+        assert!(
+            opt.reset_fraction.is_none(),
+            "Reset fraction not implemented with sub dists"
+        );
+    }
+    let sub_fun = opt.sub_dist.get_sub_fun();
     let all_sub_probs: Vec<_> = opt.substitution_prob
         .get_iter()
         .collect();
@@ -511,8 +594,12 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
                             |_|
                             {
                                 change_buffers_fun(&mut model, b);
+                                
                                 if let Some(f) = opt.reset_fraction{
                                     model.reseed_sub_prob(sub_prob, f);
+                                } else {
+                                    // Sub fun currently not compatible with reset_fraction
+                                    sub_fun(&mut model, sub_prob);
                                 }
                                 model.reset_delays();
                                 
