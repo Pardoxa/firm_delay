@@ -1,5 +1,5 @@
 use indicatif::{ProgressIterator, ParallelProgressIterator};
-use rand_distr::{Exp, Distribution, Uniform};
+use rand_distr::{Exp, Distribution, Uniform, Normal};
 use rand_pcg::Pcg64;
 use rand::{Rng, SeedableRng};
 use rayon::iter::{IntoParallelRefIterator, IndexedParallelIterator, ParallelIterator};
@@ -327,12 +327,25 @@ impl UniformAround{
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Gauss{
+    pub std_dev: f64,
+}
+
+impl Gauss{
+    pub fn get_gauss(&self, mean: f64) -> Normal<f64>
+    {
+        Normal::new(mean, self.std_dev).unwrap()
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub enum PossibleDists{
     #[default]
     Const,
     Exp,
-    UniformAround(UniformAround)
+    UniformAround(UniformAround),
+    Gauss(Gauss)
 }
 
 impl PrintAlternatives for PossibleDists{
@@ -340,6 +353,7 @@ impl PrintAlternatives for PossibleDists{
         let a = Self::Const;
         let b = Self::Exp;
         let c = Self::UniformAround(UniformAround { interval_length_half: 0.2 });
+        let d = Self::Gauss(Gauss { std_dev: 0.2 });
 
         let mut stdout = stdout();
         let msg = "Serialization issue PossibleDists";
@@ -357,6 +371,11 @@ impl PrintAlternatives for PossibleDists{
         print_spaces(layer);
         println!("PossibleDists c)");
         serde_json::to_writer_pretty(&mut stdout, &c)
+            .expect(msg);
+        println!();
+        print_spaces(layer);
+        println!("PossibleDists d)");
+        serde_json::to_writer_pretty(&mut stdout, &d)
             .expect(msg);
         println!();
     }
@@ -431,7 +450,21 @@ impl BufferDist{
                     );
                 };
                 Box::new(fun)
+            },
+            PossibleDists::Gauss(gauss) => {
+                self.assert_unequal();
+                let fun = move |model: &mut SubstitutingMeanField, mean: f64|
+                {
+                    let dist = gauss.get_gauss(mean);
+                    model.change_buffer_dist_min_max(
+                        dist,
+                        self.min, 
+                        self.max
+                    );
+                };
+                Box::new(fun)
             }
+            
         }
     }
 }
