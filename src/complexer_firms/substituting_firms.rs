@@ -408,7 +408,7 @@ pub enum PossibleDists{
     UniformAround(UniformAround),
     Gauss(Gauss),
     Beta,
-    PowNeg
+    Pow
 }
 
 impl PossibleDists{
@@ -421,7 +421,7 @@ impl PossibleDists{
     pub fn gnuplot_x_axis_name(self) -> &'static str
     {
         match self {
-            Self::Beta | Self::PowNeg => "α",
+            Self::Beta | Self::Pow => "α",
             _ => "<p_s>"
         }
     }
@@ -482,12 +482,13 @@ impl PossibleDists{
                 };
                 Box::new(fun)
             },
-            Self::PowNeg =>
+            Self::Pow =>
             {
+                // alpha to p_s:
+                // f(alpha)=(alpha+1.0)/(alpha+2.0)
                 let uni: Uniform<f64> = Uniform::new_inclusive(0.0, 1.0);
                 let fun = move |model: &mut SubstitutingMeanField, alpha: f64|
                 {
-                    assert!(alpha < 0.0, "Only valid for negative alpha!");
                     assert!(
                         alpha > -1.0, 
                         "Integral does not converge for x^a for a <= 1.0, So it is not a valid probability distribution. Thus: ERROR!"
@@ -616,7 +617,7 @@ impl BufferDist{
                 };
                 Box::new(fun)
             },
-            PossibleDists::Beta | PossibleDists::PowNeg => unimplemented!()
+            PossibleDists::Beta | PossibleDists::Pow => unimplemented!()
             
         }
     }
