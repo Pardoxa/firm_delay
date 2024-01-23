@@ -406,10 +406,26 @@ pub enum PossibleDists{
     Const,
     Exp,
     UniformAround(UniformAround),
-    Gauss(Gauss)
+    Gauss(Gauss),
+    Beta,
+    PowNeg
 }
 
 impl PossibleDists{
+
+    pub fn is_reset_fraction_allowed(self) -> bool
+    {
+        !matches!(self, Self::Beta)
+    }
+
+    pub fn gnuplot_x_axis_name(self) -> &'static str
+    {
+        match self {
+            Self::Beta | Self::PowNeg => "α",
+            _ => "<p_s>"
+        }
+    }
+   
     pub fn is_const(&self) -> bool
     {
         matches!(self, Self::Const)
@@ -452,6 +468,40 @@ impl PossibleDists{
                     );
                 };
                 Box::new(fun)
+            },
+            Self::Beta => {
+                // \frac{x^{\left(l-1\right)}\left(1-x\right)^{\left(1-l\right)}}{-(-1+l)\pi\csc(l\pi)}
+                let fun = |model: &mut SubstitutingMeanField, alpha: f64|
+                {
+                    let beta = 2.0 - alpha;
+                    let dist = rand_distr::Beta::new(alpha, beta)
+                        .unwrap();
+                    model.change_substitution_prob(
+                        dist
+                    );
+                };
+                Box::new(fun)
+            },
+            Self::PowNeg =>
+            {
+                let uni: Uniform<f64> = Uniform::new_inclusive(0.0, 1.0);
+                let fun = move |model: &mut SubstitutingMeanField, alpha: f64|
+                {
+                    assert!(alpha < 0.0, "Only valid for negative alpha!");
+                    assert!(
+                        alpha > -1.0, 
+                        "Integral does not converge for x^a for a <= 1.0, So it is not a valid probability distribution. Thus: ERROR!"
+                    );
+                    let exponent = 1.0 /(1.0 + alpha);
+                    let dist = uni.map(
+                        |val|
+                        val.powf(exponent)
+                    );
+                    model.change_substitution_prob(
+                        dist
+                    );
+                };
+                Box::new(fun)
             }
         }
     }
@@ -463,30 +513,21 @@ impl PrintAlternatives for PossibleDists{
         let b = Self::Exp;
         let c = Self::UniformAround(UniformAround { interval_length_half: 0.2 });
         let d = Self::Gauss(Gauss { std_dev: 0.2 });
+        let e = Self::Beta;
+
+        let all = [a, b, c, d, e];
 
         let mut stdout = stdout();
         let msg = "Serialization issue PossibleDists";
 
-        print_spaces(layer);
-        println!("PossibleDists a)");
-        serde_json::to_writer_pretty(&mut stdout, &a)
-            .expect(msg);
-        println!();
-        print_spaces(layer);
-        println!("PossibleDists b)");
-        serde_json::to_writer_pretty(&mut stdout, &b)
-            .expect(msg);
-        println!();
-        print_spaces(layer);
-        println!("PossibleDists c)");
-        serde_json::to_writer_pretty(&mut stdout, &c)
-            .expect(msg);
-        println!();
-        print_spaces(layer);
-        println!("PossibleDists d)");
-        serde_json::to_writer_pretty(&mut stdout, &d)
-            .expect(msg);
-        println!();
+        for (idx, dist) in all.iter().enumerate(){
+            print_spaces(layer);
+            println!("PossibleDists {idx})");
+            serde_json::to_writer_pretty(&mut stdout, dist)
+                .expect(msg);
+            println!();
+        }
+        
     }
 }
 
@@ -574,7 +615,8 @@ impl BufferDist{
                     );
                 };
                 Box::new(fun)
-            }
+            },
+            PossibleDists::Beta | PossibleDists::PowNeg => unimplemented!()
             
         }
     }
@@ -582,6 +624,9 @@ impl BufferDist{
 
 pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8)
 {
+    if opt.reset_fraction.is_some(){
+        assert!(opt.sub_dist.is_reset_fraction_allowed());
+    }
     let fun = opt.self_links.get_step_fun();
     if !opt.sub_dist.is_const(){
         assert!(
@@ -696,12 +741,27 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
     let header = ["sub_prob", "a", "b", "critical"];
     write_slice_head(&mut buf, header).unwrap();
     for s in criticals.iter(){
-        writeln!(buf, "{} {} {} {}", s[0], s[1], s[2], s[3]).unwrap();
+        writeln!(
+            buf, 
+            "{} {} {} {}", 
+            s[0], 
+            s[1], 
+            s[2], 
+            s[3]
+        ).unwrap();
     }
     drop(buf);
     enum How{
         Linear,
-        Complex
+        Complex,
+        NoFit
+    }
+
+    impl How {
+        fn is_no_fit(&self) -> bool
+        {
+            matches!(self, How::NoFit)
+        }
     }
 
     let crit_gp_write = |how: How|
@@ -725,40 +785,51 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
         writeln!(gp, "set ylabel 'B'").unwrap();
         match how{
             How::Complex => {
-                writeln!(gp, "f(x)= a*x+b+k*x**l")
+                writeln!(gp, "f(x)= a*x+b+k*x**l").unwrap();
             },
             How::Linear => {
-                writeln!(gp, "f(x)= a*x+b")
-            }
-        }.unwrap();
+                writeln!(gp, "f(x)= a*x+b").unwrap();
+            },
+            How::NoFit => ()
+        }
         
-        writeln!(gp, "g(x)= c*x+d").unwrap();
+        if !how.is_no_fit(){
+            writeln!(gp, "t(x)=abs(x)>0.1?0.00000000001:10000000").unwrap();
+            writeln!(gp, "g(x)= c*x+d").unwrap();
+        }
     
+        let s = opt.sub_dist.gnuplot_x_axis_name();
+
         let using = if let Some(f) = opt.reset_fraction{
-            writeln!(gp, "set xlabel 'p_s f'").unwrap();
-            
+            writeln!(gp, "set xlabel '{s} f'").unwrap();
             format!("($1*{f})")
         } else {
-            writeln!(gp, "set xlabel 'p_s'").unwrap();
-            
+            writeln!(gp, "set xlabel '{s}'").unwrap();
             "1".to_owned()
         };
         match how{
             How::Complex => {
-                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2 via a,b,k,l")
+                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2:(t(${using})) yerr via a,b,k,l").unwrap();
             },
             How::Linear => {
-                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2 via a,b")
-            }
-        }.unwrap();
+                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2:(t(${using})) yerr via a,b").unwrap();
+            },
+            How::NoFit => ()
+        }
+        if !how.is_no_fit(){
+            writeln!(gp, "fit g(x) '{crit_name}' u {using}:3:(t($3)) yerr via c,d").unwrap();
+            writeln!(gp, "h(x)=-g(x)/f(x)").unwrap();
+        }
         
-        writeln!(gp, "fit g(x) '{crit_name}' u {using}:3 via c,d").unwrap();
-        writeln!(gp, "h(x)=-g(x)/f(x)").unwrap();
-        
-        writeln!(
+        write!(
             gp, 
-            "p '{crit_name}' u {using}:2 t 'a', '' u {using}:3 t 'b', '' u {using}:4 t 'Crit B', f(x) t 'fit a', g(x) t 'fit b', h(x) t 'approx'"
+            "p '{crit_name}' u {using}:2 t 'a', '' u {using}:3 t 'b', '' u {using}:4 t 'Crit B'"
         ).unwrap();
+        if how.is_no_fit(){
+            writeln!(gp)
+        } else {
+            writeln!(gp, ", f(x) t 'fit a', g(x) t 'fit b', h(x) t 'approx'")
+        }.unwrap();
         writeln!(gp, "set output").unwrap();
         drop(gp);
         crit_gp
@@ -771,7 +842,13 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
         let crit_gp = crit_gp_write(How::Linear);
         let out = call_gnuplot(&crit_gp);
         if !out.status.success(){
-            eprintln!("RECOVERY also failed :(");
+            eprintln!("RECOVERY also failed :( Removing fit!");
+            let crit_gp = crit_gp_write(How::NoFit);
+            let out = call_gnuplot(&crit_gp);
+            if !out.status.success(){
+                eprintln!("This also failed...");
+                dbg!(out);
+            }
         } else {
             eprintln!("RECOVERY SUCCESS!");
         }

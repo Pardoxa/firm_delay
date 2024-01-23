@@ -89,6 +89,7 @@ where P: AsRef<Path>
 {
     let mut buf = create_buf_with_command_and_version(path);
     writeln!(buf, "reset session").unwrap();
+    writeln!(buf, "set encoding utf8").unwrap();
     buf
 }
 
