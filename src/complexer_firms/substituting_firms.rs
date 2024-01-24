@@ -154,6 +154,13 @@ impl SubstitutingMeanField{
             .for_each(|v| *v = const_val)
     }
 
+    pub fn change_substitution_prob_to_const(&mut self, const_val: f64)
+    {
+        self.substitution_prob
+            .iter_mut()
+            .for_each(|v| *v = const_val)
+    }
+
     pub fn change_substitution_prob<D>(
         &mut self, 
         sub_dist: D
@@ -490,17 +497,22 @@ impl PossibleDists{
                 let fun = move |model: &mut SubstitutingMeanField, alpha: f64|
                 {
                     assert!(
-                        alpha > -1.0, 
+                        alpha >= -1.0, 
                         "Integral does not converge for x^a for a <= 1.0, So it is not a valid probability distribution. Thus: ERROR!"
                     );
-                    let exponent = 1.0 /(1.0 + alpha);
-                    let dist = uni.map(
-                        |val|
-                        val.powf(exponent)
-                    );
-                    model.change_substitution_prob(
-                        dist
-                    );
+                    if alpha == -1.0 {
+                        model.change_substitution_prob_to_const(0.0);
+                    } else {
+                        let exponent = 1.0 /(1.0 + alpha);
+                        let dist = uni.map(
+                            |val|
+                            val.powf(exponent)
+                        );
+                        model.change_substitution_prob(
+                            dist
+                        );
+                    }
+                    
                 };
                 Box::new(fun)
             }
@@ -515,8 +527,9 @@ impl PrintAlternatives for PossibleDists{
         let c = Self::UniformAround(UniformAround { interval_length_half: 0.2 });
         let d = Self::Gauss(Gauss { std_dev: 0.2 });
         let e = Self::Beta;
+        let f = Self::Pow;
 
-        let all = [a, b, c, d, e];
+        let all = [a, b, c, d, e, f];
 
         let mut stdout = stdout();
         let msg = "Serialization issue PossibleDists";
