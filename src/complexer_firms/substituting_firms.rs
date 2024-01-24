@@ -823,10 +823,10 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
         };
         match how{
             How::Complex => {
-                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2:(t(${using})) yerr via a,b,k,l").unwrap();
+                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2:(t({using})) yerr via a,b,k,l").unwrap();
             },
             How::Linear => {
-                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2:(t(${using})) yerr via a,b").unwrap();
+                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2:(t({using})) yerr via a,b").unwrap();
             },
             How::NoFit => ()
         }
