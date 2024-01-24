@@ -2,13 +2,14 @@ use indicatif::{ProgressIterator, ParallelProgressIterator};
 use rand_distr::{Exp, Distribution, Uniform, Normal};
 use rand_pcg::Pcg64;
 use rand::{Rng, SeedableRng};
-use rayon::iter::{IntoParallelRefIterator, IndexedParallelIterator, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::{Serialize, Deserialize};
 use crate::index_sampler::IndexSampler;
 use crate::misc::*;
 use std::io::{Write, stdout};
 use std::num::NonZeroU32;
 use std::sync::Mutex;
+use std::borrow::Borrow;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, Copy)]
 pub enum SelfLinks{
@@ -870,4 +871,149 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
 
     create_video("TMP_*.png", out_stub, frametime);
     cleaner.clean();
+}
+
+#[derive(Deserialize, Serialize, Default)]
+pub struct AutoOpts{
+    mean_opts: SubstitutingMeanFieldOpts,
+    total_steps: u32,
+    self_links: SelfLinks,
+    samples: u32
+}
+
+pub fn auto(opt: &AutoOpts, output: &str)
+{
+    
+    
+    let fun = opt.self_links.get_step_fun();
+    let samples = 1;
+
+    let time_series = Mutex::new(vec![0.0; opt.total_steps as usize]);
+
+    (0..opt.samples)
+        .into_par_iter()
+        .progress()
+        .for_each(
+            |i|
+            {
+                let mut mopt = opt.mean_opts.clone();
+                mopt.seed += i as u64;
+                let mut model = SubstitutingMeanField::new(&mopt);
+                let v: Vec<_> = (0..opt.total_steps)
+                    .map(
+                        |_|
+                        {
+                            let d = model.average_delay();
+                            fun(&mut model);
+                            d
+                        }
+                    ).collect();
+                let mut lock = time_series.lock().unwrap();
+                lock
+                    .iter_mut()
+                    .zip(v)
+                    .for_each(|(this, other)| *this += other);
+                drop(lock);
+            }
+        );
+    let mut time_series = time_series.into_inner().unwrap();
+    time_series.iter_mut()
+        .for_each(|v| *v /= samples as f64);
+    //remove_mean(&mut time_series);
+    
+    let auto = cross_correlation(&time_series, &time_series);
+    let auto_2 = cross_correlation_alt(&time_series, &time_series);
+    let mut buf = create_buf_with_command_and_version(output);
+    let header = ["delay", "auto", "auto_pear"];
+    write_slice_head(&mut buf, header).unwrap();
+    for (i, (auto, auto2)) in auto.iter().zip(auto_2).enumerate()
+    {
+        writeln!(buf, "{i} {auto} {auto2}").unwrap();
+    }
+
+    let name = format!("{output}.time");
+    let mut buf = create_buf_with_command_and_version(name);
+
+    for (i, v) in time_series.iter().enumerate(){
+        writeln!(buf, "{i} {v}").unwrap();
+    }
+}
+
+
+pub fn remove_mean(slice: &mut [f64])
+{
+    let mut mean: f64 = slice.iter().sum();
+    mean /= slice.len() as f64;
+    slice.iter_mut()
+        .for_each(|v| *v -= mean);
+}
+
+pub fn cross_correlation(a: &[f64], b: &[f64]) -> Vec<f64>
+{
+    assert_eq!(a.len(), b.len());
+    (0..a.len())
+        .progress()
+        .map(
+            |lag|
+            {
+                a[lag..].iter()//.chain(a[..lag].iter())
+                    .zip(
+                        b.iter()//.chain(b[..lag].iter())
+                    ).map(|(&this, &other)| this * other)
+                    .sum()
+            }
+        ).collect()
+}
+
+pub fn cross_correlation_alt(a: &[f64], b: &[f64]) -> Vec<f64>
+{
+    assert_eq!(a.len(), b.len());
+    (0..a.len())
+        .progress()
+        .map(
+            |lag|
+            {
+                let iter = a[lag..].iter()//.chain(a[..lag].iter())
+                    .zip(
+                        b.iter()//.chain(b[..lag].iter())
+                    ).map(|(a,b)| (*a, *b));
+                pearson_correlation_coefficient(iter)
+            }
+        ).collect()
+}
+
+fn pearson_correlation_coefficient<I, F>(iterator: I) -> f64
+where I: IntoIterator<Item = (F, F)>,
+    F: Borrow<f64>
+{
+    let mut product_sum = 0.0;
+    let mut x_sum = 0.0;
+    let mut x_sq_sum = 0.0;
+    let mut y_sum = 0.0;
+    let mut y_sq_sum = 0.0;
+    let mut counter = 0_u64;
+
+    for (x, y) in iterator
+    {
+        let x = *x.borrow();
+        let y = *y.borrow();
+        product_sum = x.mul_add(y, product_sum);
+        x_sq_sum = x.mul_add(x, x_sq_sum);
+        y_sq_sum = y.mul_add(y, y_sq_sum);
+        x_sum += x;
+        y_sum += y;
+        counter += 1;
+    }
+
+    let factor = (counter as f64).recip();
+    let average_x = x_sum * factor;
+    let average_y = y_sum * factor;
+    let average_product = product_sum * factor;
+
+    let covariance = average_product - average_x * average_y;
+    let variance_x = x_sq_sum * factor - average_x * average_x;
+    let variance_y = y_sq_sum * factor - average_y * average_y;
+    let std_product = (variance_x * variance_y).sqrt();
+
+    covariance / std_product
 }

@@ -1,5 +1,6 @@
 use clap::{Parser, ValueEnum, Subcommand};
 
+
 #[derive(Parser, Debug)]
 pub struct SimpleOpt{
     #[arg(short, long)]
@@ -9,6 +10,18 @@ pub struct SimpleOpt{
     #[arg(short, long)]
     /// print alternative json options
     pub print_alternatives: bool
+
+}
+
+#[derive(Parser, Debug)]
+pub struct SimpleOpt2{
+    #[arg(short, long)]
+    /// path to json file
+    pub json: Option<String>,
+
+    #[arg(short, long)]
+    /// output name
+    pub output: String
 
 }
 
@@ -59,7 +72,9 @@ pub enum SimpleCommand{
 pub enum SubstitutingCommand{
     SubMean(SubstitutingMeanFieldOpt),
     /// Create video and measure critical B over substitution probability
-    CritBVideo(SubstitutingMeanFieldOpt)
+    CritBVideo(SubstitutingMeanFieldOpt),
+    /// Calculate the autocorrelation of the mean delay
+    Auto(SimpleOpt2)
 }
 
 /// Created by Yannick Feld

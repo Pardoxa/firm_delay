@@ -63,6 +63,7 @@ pub fn write_commands_and_version<W: Write>(mut w: W) -> std::io::Result<()>
     write_commands(w)
 }
 
+#[must_use]
 pub fn create_buf_with_command_and_version<P>(path: P) -> BufWriter<File>
 where P: AsRef<Path>
 {

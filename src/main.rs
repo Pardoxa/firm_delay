@@ -1,6 +1,6 @@
 use std::process::exit;
 
-use complexer_firms::SubstitutionVelocitySampleOpts;
+use complexer_firms::{auto, SubstitutionVelocitySampleOpts};
 use global_opts::{SimpleCommand, SubstitutingCommand};
 
 use crate::complexer_firms::SubstitutionVelocityVideoOpts;
@@ -126,6 +126,10 @@ fn sub_chooser(opt: SubstitutingCommand)
                     )
                 }
             }
+        },
+        SubstitutingCommand::Auto(opt) => {
+            let auto_opt = parse_and_add_to_global(opt.json);
+            auto(&auto_opt, &opt.output)
         }
     }
 }
