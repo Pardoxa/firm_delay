@@ -1,8 +1,7 @@
 use serde::{Serialize, Deserialize};
 use rand::distributions::Uniform;
-use std::io::stdout;
 
-use crate::misc::{PrintAlternatives, print_spaces};
+use crate::misc::*;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum AnyDist {
     Uniform(UniformDistCreator),
@@ -13,17 +12,9 @@ impl PrintAlternatives for AnyDist{
     fn print_alternatives(layer: u8) {
         let a = AnyDist::Uniform(UniformDistCreator { min: 0.0, max: 1.0 });
         let b = AnyDist::Exponential(ExponentialDist { lambda: 1.0 });
-        print_spaces(layer);
-        println!("a)");
-        let mut stdout = stdout();
-        serde_json::to_writer_pretty(&mut stdout, &a)
-            .expect("cannot create json a)");
-        println!();
-        print_spaces(layer);
-        println!("b)");
-        serde_json::to_writer_pretty(stdout, &b)
-            .expect("cannot create json b)");
-        println!();
+
+        let all = [a, b];
+        print_alternatives_helper(&all, layer, "AnyDist");
     }
 }
 
@@ -212,31 +203,8 @@ impl PrintAlternatives for AnyBufDist{
         let d = Self::ConstMinFrac(BufferConstMinFrac { buf_const: 0.5, buf_min: 0.2, min_frac: 0.5 });
         let e = Self::UniformMax(UniformMax { buf_max: 0.5, uniform: UniformDistCreator2 { mean: 0.5, half_width: 0.1 } });
 
-        let mut stdout = stdout();
-        let msg = "Serialization issue AnyBufDist";
-
-        print_spaces(layer);
-        println!("AnyBufDist a)");
-        serde_json::to_writer_pretty(&mut stdout, &a)
-            .expect(msg);
-        AnyDistCreator::print_alternatives(layer + 1);
-        print_spaces(layer);
-        println!("AnyBufDist b)");
-        serde_json::to_writer_pretty(&mut stdout, &b)
-            .expect(msg);
-        print_spaces(layer);
-        println!("AnyBufDist c)");
-        serde_json::to_writer_pretty(&mut stdout, &c)
-            .expect(msg);
-        print_spaces(layer);
-        println!("AnyBufDist d)");
-        serde_json::to_writer_pretty(&mut stdout, &d)
-            .expect(msg);
-        print_spaces(layer);
-        println!("AnyBufDist e)");
-        serde_json::to_writer_pretty(&mut stdout, &e)
-            .expect(msg);
-
+        let all = [a, b, c, d, e];
+        print_alternatives_helper(&all, layer, "AnyBufDist");
     }
 }
 
@@ -252,24 +220,9 @@ impl PrintAlternatives for AnyDistCreator{
         let a = AnyDistCreator::Uniform(UniformDistCreator { min: 0.0, max: 1.0 });
         let b = AnyDistCreator::Uniform2(UniformDistCreator2 { mean: 0.5, half_width: 0.1 });
         let c = AnyDistCreator::Exponential(ExponentialDist { lambda: 1.0 });
-        let mut stdout = stdout();
-        print_spaces(layer);
-        println!("a)");
-        serde_json::to_writer_pretty(&mut stdout, &a)
-            .expect("unable to create json a");
-        println!();
-        print_spaces(layer);
-        println!("b)");
-        serde_json::to_writer_pretty(&mut stdout, &b)
-            .expect("unable to create json b");
-        println!();
-        print_spaces(layer);
-        println!("c)");
-        serde_json::to_writer_pretty(&mut stdout, &c)
-            .expect("unable to create json c");
-        println!();
 
-
+        let all = [a, b, c];
+        print_alternatives_helper(&all, layer, "AnyDistCreator");
     }
 }
 

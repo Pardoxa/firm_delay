@@ -1,5 +1,3 @@
-use std::io::stdout;
-
 use crate::any_dist::*;
 use serde_json::Value;
 use super::{measure_phase, sample_simple_firm_buffer_hist};
@@ -355,24 +353,11 @@ impl PrintAlternatives for SimpleFirmAverageAfter{
         let a = ScanBufDist::Const;
         let b = ScanBufDist::Uniform(HalfWidth { half_width: 0.1 });
         let c = ScanBufDist::MinScan(MinScan { other_consts: 1.0 });
+
+        let all = [a, b, c];
+        print_alternatives_helper(&all, layer, "scan_buf_dist");
         print_spaces(layer);
         println!("Alternatives for scan_buf_dist");
-        print_spaces(layer);
-        println!("a)");
-        let mut stdout = stdout();
-        serde_json::to_writer_pretty(&mut stdout, &a)
-            .unwrap();
-        println!();
-        print_spaces(layer);
-        println!("b)");
-        serde_json::to_writer_pretty(&mut stdout, &b)
-            .unwrap();
-        println!();
-        print_spaces(layer);
-        println!("c)");
-        serde_json::to_writer_pretty(&mut stdout, &c)
-            .unwrap();
-        
     }
 }
 
