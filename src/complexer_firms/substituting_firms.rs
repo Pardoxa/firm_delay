@@ -1,7 +1,7 @@
 use indicatif::{ProgressIterator, ParallelProgressIterator};
 use rand_distr::{Distribution, Exp, Exp1, Normal, Uniform};
 use rand_pcg::{Pcg64, Pcg64Mcg};
-use rand_xoshiro::Xoshiro256PlusPlus;
+use rand_xoshiro::{Xoshiro256PlusPlus, SplitMix64};
 use rand_chacha::ChaCha20Rng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
@@ -20,7 +20,8 @@ pub enum RngChoice
     #[default]
     Pcg64,
     Pcg64Mcg,
-    ChaCha20
+    ChaCha20,
+    BadRng
 }
 
 impl PrintAlternatives for RngChoice{
@@ -412,6 +413,9 @@ pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts, out_stub: &str){
         },
         RngChoice::ChaCha20 => {
             sample_velocity_helper::<ChaCha20Rng>(opt, out_stub)
+        },
+        RngChoice::BadRng => {
+            sample_velocity_helper::<SplitMix64>(opt, out_stub)
         }
     }
 }
@@ -737,6 +741,9 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
         },
         RngChoice::ChaCha20 => {
             sample_velocity_video_helper::<ChaCha20Rng>(opt, out_stub, frametime)
+        },
+        RngChoice::BadRng => {
+            sample_velocity_video_helper::<SplitMix64>(opt, out_stub, frametime)
         }
     }
 }
@@ -1035,6 +1042,9 @@ pub fn auto(opt: &AutoOpts, output: &str, disabled_auto_calc: bool, j: Option<No
         },
         RngChoice::ChaCha20 => {
             auto_helper::<ChaCha20Rng>(opt, output, disabled_auto_calc, j)
+        },
+        RngChoice::BadRng => {
+            auto_helper::<SplitMix64>(opt, output, disabled_auto_calc, j)
         }
     }
 }
