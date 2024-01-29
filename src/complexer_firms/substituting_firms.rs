@@ -1,6 +1,6 @@
 use indicatif::{ProgressIterator, ParallelProgressIterator};
 use rand_distr::{Distribution, Exp, Exp1, Normal, Uniform};
-use rand_pcg::Pcg64;
+use rand_pcg::{Pcg64, Pcg64Mcg};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use rand_chacha::ChaCha20Rng;
 use rand::{Rng, SeedableRng};
@@ -19,6 +19,7 @@ pub enum RngChoice
     XorShift,
     #[default]
     Pcg64,
+    Pcg64Mcg,
     ChaCha20
 }
 
@@ -27,8 +28,9 @@ impl PrintAlternatives for RngChoice{
         let a = RngChoice::Pcg64;
         let b = RngChoice::XorShift;
         let c = RngChoice::ChaCha20;
+        let d = RngChoice::Pcg64Mcg;
 
-        let all = [a, b, c];
+        let all = [a, b, c, d];
         print_alternatives_helper(&all, layer, "RngChoice");
     }
 }
@@ -402,6 +404,9 @@ pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts, out_stub: &str){
         RngChoice::Pcg64 => {
             sample_velocity_helper::<Pcg64>(opt, out_stub)
         },
+        RngChoice::Pcg64Mcg => {
+            sample_velocity_helper::<Pcg64Mcg>(opt, out_stub)
+        }
         RngChoice::XorShift => {
             sample_velocity_helper::<Xoshiro256PlusPlus>(opt, out_stub)
         },
@@ -724,6 +729,9 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
         RngChoice::Pcg64 => {
             sample_velocity_video_helper::<Pcg64>(opt, out_stub, frametime)
         },
+        RngChoice::Pcg64Mcg => {
+            sample_velocity_video_helper::<Pcg64Mcg>(opt, out_stub, frametime)
+        },
         RngChoice::XorShift => {
             sample_velocity_video_helper::<Xoshiro256PlusPlus>(opt, out_stub, frametime)
         },
@@ -1018,6 +1026,9 @@ pub fn auto(opt: &AutoOpts, output: &str, disabled_auto_calc: bool, j: Option<No
     match opt.rng_choice{
         RngChoice::Pcg64 => {
             auto_helper::<Pcg64>(opt, output, disabled_auto_calc, j)
+        },
+        RngChoice::Pcg64Mcg => {
+            auto_helper::<Pcg64Mcg>(opt, output, disabled_auto_calc, j)
         },
         RngChoice::XorShift => {
             auto_helper::<Xoshiro256PlusPlus>(opt, output, disabled_auto_calc, j)
