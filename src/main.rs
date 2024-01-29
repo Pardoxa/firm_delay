@@ -1,6 +1,6 @@
 use std::process::exit;
 
-use complexer_firms::{auto, SubstitutionVelocitySampleOpts};
+use complexer_firms::{auto, AutoOpts, SubstitutionVelocitySampleOpts};
 use correlations::calc_correlations;
 use global_opts::{SimpleCommand, SubstitutingCommand};
 
@@ -130,6 +130,10 @@ fn sub_chooser(opt: SubstitutingCommand)
             }
         },
         SubstitutingCommand::Auto(opt) => {
+            if opt.print_alternatives{
+                AutoOpts::print_alternatives(0);
+                exit(0);
+            }
             let auto_opt = parse_and_add_to_global(opt.json);
             auto(&auto_opt, &opt.output, opt.no_auto_calc, opt.j)
         }

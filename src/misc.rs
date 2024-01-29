@@ -1,6 +1,6 @@
 use {
     std::{
-        io::{Write, BufReader, BufWriter, BufRead},
+        io::{Write, BufReader, BufWriter, BufRead, stdout},
         process::{exit, Command, Output},
         fs::File,
         path::Path,
@@ -324,5 +324,21 @@ impl Stats{
         let average = sum * factor;
         let variance = sum_sq * factor - average * average;
         Self { average, variance, min, max }
+    }
+}
+
+
+pub fn print_alternatives_helper<'a, E, I>(iter: I, layer: u8, name: &'a str)
+where I: IntoIterator<Item = &'a E>,
+    E: Serialize + 'a
+{
+    let mut stdout = stdout();
+    let msg = "Serialization issue";
+    for (idx, dist) in iter.into_iter().enumerate(){
+        print_spaces(layer);
+        println!("{name} {idx})");
+        serde_json::to_writer_pretty(&mut stdout, dist)
+            .expect(msg);
+        println!();
     }
 }

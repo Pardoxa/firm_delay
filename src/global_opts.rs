@@ -33,7 +33,11 @@ pub struct SubAutoOpt{
 
     /// Num threads
     #[arg(short)]
-    pub j: Option<NonZeroUsize>
+    pub j: Option<NonZeroUsize>,
+
+    #[arg(long, short)]
+    /// Print alternatives
+    pub print_alternatives: bool
 
 }
 

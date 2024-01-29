@@ -1,6 +1,8 @@
 use indicatif::{ProgressIterator, ParallelProgressIterator};
 use rand_distr::{Distribution, Exp, Exp1, Normal, Uniform};
 use rand_pcg::Pcg64;
+use rand_xoshiro::Xoshiro256PlusPlus;
+use rand_chacha::ChaCha20Rng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -11,6 +13,26 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Mutex;
 use crate::correlations::*;
 
+#[derive(Clone, Copy, Serialize, Debug, Deserialize, Default)]
+pub enum RngChoice
+{
+    XorShift,
+    #[default]
+    Pcg64,
+    ChaCha20
+}
+
+impl PrintAlternatives for RngChoice{
+    fn print_alternatives(layer: u8) {
+        let a = RngChoice::Pcg64;
+        let b = RngChoice::XorShift;
+        let c = RngChoice::ChaCha20;
+
+        let all = [a, b, c];
+        print_alternatives_helper(&all, layer, "RngChoice");
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone, Copy)]
 pub enum SelfLinks{
     #[default]
@@ -20,8 +42,21 @@ pub enum SelfLinks{
     AllowMultiple
 }
 
+impl PrintAlternatives for SelfLinks{
+    fn print_alternatives(layer: u8) {
+        let a = Self::AllowSelfLinks;
+        let b = Self::NoSelfLinks;
+        let c = Self::AlwaysSelfLink;
+        let d = Self::AllowMultiple;
+        
+        let all = [a, b, c, d];
+        print_alternatives_helper(&all, layer, "SelfLinks")
+    }
+}
+
 impl SelfLinks{
-    pub fn get_step_fun(&self) -> fn (&mut SubstitutingMeanField)
+    pub fn get_step_fun<R>(&self) -> fn (&mut SubstitutingMeanField::<R>)
+    where R: Rng + SeedableRng
     {
         match self{
             Self::AllowSelfLinks => SubstitutingMeanField::step_with_self_links,
@@ -43,7 +78,8 @@ pub struct SubstitutionVelocityVideoOpts{
     pub reset_fraction: Option<f64>,
     pub samples_per_point: NonZeroU32,
     pub buffer_dist: BufferDist,
-    pub sub_dist: PossibleDists
+    pub sub_dist: PossibleDists,
+    pub rng_choice: RngChoice
 }
 
 impl PrintAlternatives for SubstitutionVelocityVideoOpts{
@@ -66,6 +102,8 @@ impl PrintAlternatives for SubstitutionVelocityVideoOpts{
         print_spaces(layer);
         println!("Alternatives for sub_dist:");
         PossibleDists::print_alternatives(layer + 1);
+        println!("Alternatives for rng_choice:");
+        RngChoice::print_alternatives(layer + 1);
     }
 }
 
@@ -81,7 +119,8 @@ impl Default for SubstitutionVelocityVideoOpts{
             reset_fraction: None,
             samples_per_point: NonZeroU32::new(1).unwrap(),
             buffer_dist: BufferDist::default(),
-            sub_dist: PossibleDists::default()
+            sub_dist: PossibleDists::default(),
+            rng_choice: RngChoice::default()
         }
     }
 }
@@ -91,7 +130,8 @@ pub struct SubstitutionVelocitySampleOpts{
     pub buffer: SampleRangeF64,
     pub opts: SubstitutingMeanFieldOpts,
     pub time_steps: usize,
-    pub self_links: SelfLinks
+    pub self_links: SelfLinks,
+    pub rng_choice: RngChoice
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -116,18 +156,19 @@ impl SubstitutingMeanFieldOpts{
     }
 }
 
-pub struct SubstitutingMeanField{
+pub struct SubstitutingMeanField<RNG>{
     current_delays: Vec<f64>,
     buffers: Vec<f64>,
     substitution_prob: Vec<f64>,
     next_delays: Vec<f64>,
     k: usize,
-    rng: Pcg64,
+    rng: RNG,
     index_sampler: IndexSampler,
     dist: Exp1
 }
 
-impl SubstitutingMeanField{
+impl<R> SubstitutingMeanField<R>
+where R: Rng + SeedableRng{
 
     pub fn reseed_sub_prob(&mut self, sub_prob: f64, fraction: f64)
     {
@@ -222,7 +263,7 @@ impl SubstitutingMeanField{
     {
         let current_delays = vec![0.0; opt.n];
         let next_delays = vec![0.0; opt.n];
-        let mut rng = Pcg64::seed_from_u64(opt.seed);
+        let mut rng = R::seed_from_u64(opt.seed);
         let index_sampler = IndexSampler::measure_which(
             opt.n, 
             opt.k, 
@@ -355,13 +396,30 @@ impl SubstitutingMeanField{
     }
 }
 
+
 pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts, out_stub: &str){
+    match opt.rng_choice{
+        RngChoice::Pcg64 => {
+            sample_velocity_helper::<Pcg64>(opt, out_stub)
+        },
+        RngChoice::XorShift => {
+            sample_velocity_helper::<Xoshiro256PlusPlus>(opt, out_stub)
+        },
+        RngChoice::ChaCha20 => {
+            sample_velocity_helper::<ChaCha20Rng>(opt, out_stub)
+        }
+    }
+}
+
+fn sample_velocity_helper<R>(opt: &SubstitutionVelocitySampleOpts, out_stub: &str)
+where R: Rng + SeedableRng
+{
     let name = format!("{out_stub}.dat");
     let mut writer = create_buf_with_command_and_version(name);
     let header = ["B", "Velocity"];
     write_slice_head(&mut writer, header).unwrap();
 
-    let mut model = SubstitutingMeanField::new(&opt.opts);
+    let mut model = SubstitutingMeanField::<R>::new(&opt.opts);
 
     let fun = opt.self_links.get_step_fun();
 
@@ -471,7 +529,8 @@ impl PossibleDists{
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn get_sub_fun<'a>(&'a self) -> Box<dyn Fn (&mut SubstitutingMeanField, f64) + Sync + 'a>
+    pub fn get_sub_fun<'a, R>(&'a self) -> Box<dyn Fn (&mut SubstitutingMeanField::<R>, f64) + Sync + 'a>
+    where R: Rng + SeedableRng
     {
         match self{
             Self::Const =>
@@ -479,7 +538,7 @@ impl PossibleDists{
                 Box::new(|_,_|{})
             },
             Self::Exp => {
-                let fun = |model: &mut SubstitutingMeanField, lambda: f64|
+                let fun = |model: &mut SubstitutingMeanField::<R>, lambda: f64|
                 {
                     let dist = Exp::new(lambda).unwrap();
                     model.change_substitution_prob(
@@ -489,7 +548,7 @@ impl PossibleDists{
                 Box::new(fun)
             },
             PossibleDists::UniformAround(uni) => {
-                let fun = move |model: &mut SubstitutingMeanField, mid: f64|
+                let fun = move |model: &mut SubstitutingMeanField::<R>, mid: f64|
                 {
                     let dist = uni.get_uniform(mid);
                     model.change_substitution_prob(
@@ -499,7 +558,7 @@ impl PossibleDists{
                 Box::new(fun)
             },
             PossibleDists::Gauss(gauss) => {
-                let fun = move |model: &mut SubstitutingMeanField, mean: f64|
+                let fun = move |model: &mut SubstitutingMeanField::<R>, mean: f64|
                 {
                     let dist = gauss.get_gauss(mean);
                     model.change_substitution_prob(
@@ -510,7 +569,7 @@ impl PossibleDists{
             },
             Self::Beta => {
                 // \frac{x^{\left(l-1\right)}\left(1-x\right)^{\left(1-l\right)}}{-(-1+l)\pi\csc(l\pi)}
-                let fun = |model: &mut SubstitutingMeanField, alpha: f64|
+                let fun = |model: &mut SubstitutingMeanField::<R>, alpha: f64|
                 {
                     let beta = 2.0 - alpha;
                     let dist = rand_distr::Beta::new(alpha, beta)
@@ -526,7 +585,7 @@ impl PossibleDists{
                 // alpha to p_s:
                 // f(alpha)=(alpha+1.0)/(alpha+2.0)
                 let uni: Uniform<f64> = Uniform::new_inclusive(0.0, 1.0);
-                let fun = move |model: &mut SubstitutingMeanField, alpha: f64|
+                let fun = move |model: &mut SubstitutingMeanField::<R>, alpha: f64|
                 {
                     assert!(
                         alpha >= -1.0, 
@@ -563,17 +622,7 @@ impl PrintAlternatives for PossibleDists{
 
         let all = [a, b, c, d, e, f];
 
-        let mut stdout = stdout();
-        let msg = "Serialization issue PossibleDists";
-
-        for (idx, dist) in all.iter().enumerate(){
-            print_spaces(layer);
-            println!("PossibleDists {idx})");
-            serde_json::to_writer_pretty(&mut stdout, dist)
-                .expect(msg);
-            println!();
-        }
-        
+        print_alternatives_helper(&all, layer, "PossibleDists");
     }
 }
 
@@ -616,16 +665,17 @@ impl BufferDist{
 
 
     #[allow(clippy::type_complexity)]
-    pub fn change_buffers_fun<'a>(&'a self) -> Box<dyn Fn(&mut SubstitutingMeanField, f64) + 'a + Sync>
+    pub fn change_buffers_fun<'a, R>(&'a self) -> Box<dyn Fn(&mut SubstitutingMeanField::<R>, f64) + 'a + Sync>
+    where R: SeedableRng + Rng + 'a
     {
         match self.dist{
             PossibleDists::Const =>
             {
-                Box::new(SubstitutingMeanField::change_buffer_to_const)
+                Box::new(SubstitutingMeanField::<R>::change_buffer_to_const)
             },
             PossibleDists::Exp => {
                 self.assert_unequal();
-                let fun = |model: &mut SubstitutingMeanField, lambda: f64|
+                let fun = |model: &mut SubstitutingMeanField::<R>, lambda: f64|
                 {
                     let dist = Exp::new(lambda).unwrap();
                     model.change_buffer_dist_min_max(
@@ -638,7 +688,7 @@ impl BufferDist{
             },
             PossibleDists::UniformAround(uni) => {
                 self.assert_unequal();
-                let fun = move |model: &mut SubstitutingMeanField, mid: f64|
+                let fun = move |model: &mut SubstitutingMeanField::<R>, mid: f64|
                 {
                     let dist = uni.get_uniform(mid);
                     model.change_buffer_dist_min_max(
@@ -651,7 +701,7 @@ impl BufferDist{
             },
             PossibleDists::Gauss(gauss) => {
                 self.assert_unequal();
-                let fun = move |model: &mut SubstitutingMeanField, mean: f64|
+                let fun = move |model: &mut SubstitutingMeanField::<R>, mean: f64|
                 {
                     let dist = gauss.get_gauss(mean);
                     model.change_buffer_dist_min_max(
@@ -670,6 +720,22 @@ impl BufferDist{
 
 pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8)
 {
+    match opt.rng_choice{
+        RngChoice::Pcg64 => {
+            sample_velocity_video_helper::<Pcg64>(opt, out_stub, frametime)
+        },
+        RngChoice::XorShift => {
+            sample_velocity_video_helper::<Xoshiro256PlusPlus>(opt, out_stub, frametime)
+        },
+        RngChoice::ChaCha20 => {
+            sample_velocity_video_helper::<ChaCha20Rng>(opt, out_stub, frametime)
+        }
+    }
+}
+
+fn sample_velocity_video_helper<R>(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8)
+where R: Rng + SeedableRng
+{
     if opt.reset_fraction.is_some(){
         assert!(opt.sub_dist.is_reset_fraction_allowed());
     }
@@ -680,7 +746,7 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
             "Reset fraction not implemented with sub dists"
         );
     }
-    let sub_fun = opt.sub_dist.get_sub_fun();
+    let sub_fun = opt.sub_dist.get_sub_fun::<R>();
     let all_sub_probs: Vec<_> = opt.substitution_prob
         .get_iter()
         .collect();
@@ -910,7 +976,28 @@ pub struct AutoOpts{
     total_steps: u32,
     self_links: SelfLinks,
     samples_per_seed: NonZeroU32,
-    num_seeds: NonZeroU32
+    num_seeds: NonZeroU32,
+    rng_choice: RngChoice
+}
+
+impl PrintAlternatives for AutoOpts
+{
+    fn print_alternatives(layer: u8) {
+        let this = Self::default();
+        let mut stdout = stdout();
+        let msg = "Serialization issue AutoOpts";
+        print_spaces(layer);
+        println!("AutoOpts:");
+        serde_json::to_writer_pretty(&mut stdout, &this)
+            .expect(msg);
+        println!();
+        print_spaces(layer);
+        println!("Alternatives for self_links:");
+        SelfLinks::print_alternatives(layer + 1);
+        print_spaces(layer);
+        println!("Alternatives for rng_choice:");
+        RngChoice::print_alternatives(layer + 1);
+    }
 }
 
 impl Default for AutoOpts{
@@ -920,12 +1007,29 @@ impl Default for AutoOpts{
             total_steps: 500000,
             samples_per_seed: NonZeroU32::new(1).unwrap(),
             num_seeds: NonZeroU32::new(1).unwrap(),
-            self_links: SelfLinks::default()
+            self_links: SelfLinks::default(),
+            rng_choice: RngChoice::default()
         }
     }
 }
 
 pub fn auto(opt: &AutoOpts, output: &str, disabled_auto_calc: bool, j: Option<NonZeroUsize>)
+{
+    match opt.rng_choice{
+        RngChoice::Pcg64 => {
+            auto_helper::<Pcg64>(opt, output, disabled_auto_calc, j)
+        },
+        RngChoice::XorShift => {
+            auto_helper::<Xoshiro256PlusPlus>(opt, output, disabled_auto_calc, j)
+        },
+        RngChoice::ChaCha20 => {
+            auto_helper::<ChaCha20Rng>(opt, output, disabled_auto_calc, j)
+        }
+    }
+}
+
+fn auto_helper<R>(opt: &AutoOpts, output: &str, disabled_auto_calc: bool, j: Option<NonZeroUsize>)
+where R: Rng + SeedableRng
 {
     if let Some(j) = j {
         rayon::ThreadPoolBuilder::new()
@@ -947,7 +1051,7 @@ pub fn auto(opt: &AutoOpts, output: &str, disabled_auto_calc: bool, j: Option<No
             
                 let mut mopt = opt.mean_opts.clone();
                 mopt.seed = seed;
-                let mut model = SubstitutingMeanField::new(&mopt);
+                let mut model = SubstitutingMeanField::<R>::new(&mopt);
 
                 (0..opt.samples_per_seed.get())
                     .for_each(
