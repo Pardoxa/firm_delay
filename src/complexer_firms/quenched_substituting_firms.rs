@@ -64,6 +64,9 @@ impl SubstitutingQuenchedMeanField{
             SelfLinks::AlwaysSelfLink =>
             {
                 unimplemented!()
+            },
+            SelfLinks::AllowMultiple => {
+                unimplemented!()
             }
         }
         

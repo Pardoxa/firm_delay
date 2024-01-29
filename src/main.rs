@@ -1,6 +1,7 @@
 use std::process::exit;
 
 use complexer_firms::{auto, SubstitutionVelocitySampleOpts};
+use correlations::calc_correlations;
 use global_opts::{SimpleCommand, SubstitutingCommand};
 
 use crate::complexer_firms::SubstitutionVelocityVideoOpts;
@@ -20,6 +21,7 @@ use {
 pub mod complexer_firms;
 pub mod misc;
 pub mod index_sampler;
+pub mod correlations;
 mod global_opts;
 mod simple_firm;
 mod any_dist;
@@ -129,7 +131,7 @@ fn sub_chooser(opt: SubstitutingCommand)
         },
         SubstitutingCommand::Auto(opt) => {
             let auto_opt = parse_and_add_to_global(opt.json);
-            auto(&auto_opt, &opt.output)
+            auto(&auto_opt, &opt.output, opt.no_auto_calc, opt.j)
         }
     }
 }
@@ -145,6 +147,9 @@ fn main() {
         },
         CmdChooser::Substituting(opt) => {
             sub_chooser(opt)
+        },
+        CmdChooser::Auto(auto_opt) => {
+            calc_correlations(auto_opt)
         }
 
     }

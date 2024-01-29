@@ -1,22 +1,23 @@
 use indicatif::{ProgressIterator, ParallelProgressIterator};
-use rand_distr::{Exp, Distribution, Uniform, Normal};
+use rand_distr::{Distribution, Exp, Exp1, Normal, Uniform};
 use rand_pcg::Pcg64;
 use rand::{Rng, SeedableRng};
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use serde::{Serialize, Deserialize};
+use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use crate::index_sampler::IndexSampler;
 use crate::misc::*;
 use std::io::{Write, stdout};
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Mutex;
-use std::borrow::Borrow;
+use crate::correlations::*;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, Copy)]
 pub enum SelfLinks{
     #[default]
     AllowSelfLinks,
     NoSelfLinks,
-    AlwaysSelfLink
+    AlwaysSelfLink,
+    AllowMultiple
 }
 
 impl SelfLinks{
@@ -25,7 +26,8 @@ impl SelfLinks{
         match self{
             Self::AllowSelfLinks => SubstitutingMeanField::step_with_self_links,
             Self::NoSelfLinks => SubstitutingMeanField::step_without_self_links,
-            Self::AlwaysSelfLink => SubstitutingMeanField::step_always_self_links
+            Self::AlwaysSelfLink => SubstitutingMeanField::step_always_self_links,
+            Self::AllowMultiple => SubstitutingMeanField::step_allowing_multiple
         }
     }
 }
@@ -122,7 +124,7 @@ pub struct SubstitutingMeanField{
     k: usize,
     rng: Pcg64,
     index_sampler: IndexSampler,
-    dist: Exp<f64>
+    dist: Exp1
 }
 
 impl SubstitutingMeanField{
@@ -226,8 +228,10 @@ impl SubstitutingMeanField{
             opt.k, 
             &mut rng
         );
-        let exp = Exp::new(opt.lambda)
-            .unwrap();
+        assert_eq!(opt.lambda, 1.0, "For optimization reasons other lamba are currently not implemented!");
+        // let exp = Exp::new(opt.lambda)
+        //    .unwrap();
+        let exp = Exp1;
         Self{
             current_delays,
             next_delays,
@@ -255,8 +259,9 @@ impl SubstitutingMeanField{
                             let i = *i as usize;
                             current = current.max(self.current_delays[i]);
                         }
+                        let e_sample: f64 = self.dist.sample(&mut self.rng);
                         *n_delay = (current - self.buffers[index]).max(0.0) 
-                            + self.dist.sample(&mut self.rng);
+                            + e_sample;
                         
                     }
                     
@@ -286,8 +291,9 @@ impl SubstitutingMeanField{
                             let i = i as usize;
                             current = current.max(self.current_delays[i]);
                         }
+                        let e_sample: f64 = self.dist.sample(&mut self.rng);
                         *n_delay = (current - self.buffers[index]).max(0.0) 
-                            + self.dist.sample(&mut self.rng);
+                            + e_sample;
                         
                     }
                     
@@ -311,8 +317,33 @@ impl SubstitutingMeanField{
                             let i = *i as usize;
                             current = current.max(self.current_delays[i]);
                         }
+                        let e_sample: f64 = self.dist.sample(&mut self.rng);
                         *n_delay = (current - self.buffers[index]).max(0.0) 
-                            + self.dist.sample(&mut self.rng);
+                            + e_sample;
+                    }
+                }
+            );
+        std::mem::swap(&mut self.current_delays, &mut self.next_delays);
+    }
+
+    pub fn step_allowing_multiple(&mut self)
+    {
+        let uni = Uniform::new(0, self.next_delays.len());
+        self.next_delays.iter_mut()
+            .enumerate()
+            .for_each(
+                |(index, n_delay)|
+                {
+                    if self.rng.gen::<f64>() < self.substitution_prob[index]{
+                        *n_delay = self.dist.sample(&mut self.rng);
+                    } else {
+                        let mut current = 0.0_f64;
+                        for i in uni.sample_iter(&mut self.rng).take(self.k){
+                            current = current.max(self.current_delays[i]);
+                        }
+                        let e_sample: f64 = self.dist.sample(&mut self.rng);
+                        *n_delay = (current - self.buffers[index]).max(0.0) 
+                            + e_sample;
                     }
                 }
             );
@@ -873,147 +904,98 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
     cleaner.clean();
 }
 
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize)]
 pub struct AutoOpts{
     mean_opts: SubstitutingMeanFieldOpts,
     total_steps: u32,
     self_links: SelfLinks,
-    samples: u32
+    samples_per_seed: NonZeroU32,
+    num_seeds: NonZeroU32
 }
 
-pub fn auto(opt: &AutoOpts, output: &str)
+impl Default for AutoOpts{
+    fn default() -> Self {
+        Self{
+            mean_opts: SubstitutingMeanFieldOpts::default(),
+            total_steps: 500000,
+            samples_per_seed: NonZeroU32::new(1).unwrap(),
+            num_seeds: NonZeroU32::new(1).unwrap(),
+            self_links: SelfLinks::default()
+        }
+    }
+}
+
+pub fn auto(opt: &AutoOpts, output: &str, disabled_auto_calc: bool, j: Option<NonZeroUsize>)
 {
-    
-    
+    if let Some(j) = j {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(j.get())
+            .build_global()
+            .unwrap();
+    }
     let fun = opt.self_links.get_step_fun();
-    let samples = 1;
-
-    let time_series = Mutex::new(vec![0.0; opt.total_steps as usize]);
-
-    (0..opt.samples)
+    (0..opt.num_seeds.get())
         .into_par_iter()
         .progress()
         .for_each(
-            |i|
+            |seed_offset|
             {
+                
+            
+                let mut time_series = vec![0.0; opt.total_steps as usize];
+                let seed = opt.mean_opts.seed + seed_offset as u64;
+            
                 let mut mopt = opt.mean_opts.clone();
-                mopt.seed += i as u64;
+                mopt.seed = seed;
                 let mut model = SubstitutingMeanField::new(&mopt);
-                let v: Vec<_> = (0..opt.total_steps)
-                    .map(
+
+                (0..opt.samples_per_seed.get())
+                    .for_each(
                         |_|
                         {
-                            let d = model.average_delay();
-                            fun(&mut model);
-                            d
+                            model.reset_delays();
+                            let v: Vec<_> = (0..opt.total_steps)
+                                .map(
+                                    |_|
+                                    {
+                                        let d = model.average_delay();
+                                        fun(&mut model);
+                                        d
+                                    }
+                                ).collect();
+                            
+                            time_series
+                                .iter_mut()
+                                .zip(v)
+                                .for_each(|(this, other)| *this += other);
                         }
-                    ).collect();
-                let mut lock = time_series.lock().unwrap();
-                lock
-                    .iter_mut()
-                    .zip(v)
-                    .for_each(|(this, other)| *this += other);
-                drop(lock);
+                    );
+                time_series.iter_mut()
+                    .for_each(|v| *v /= opt.samples_per_seed.get() as f64);
+                //remove_mean(&mut time_series);
+            
+                if !disabled_auto_calc{
+                    let auto = cross_correlation(&time_series, &time_series);
+                    let auto_2 = cross_correlation_alt(&time_series, &time_series);
+                    let mut buf = create_buf_with_command_and_version(output);
+                    let header = ["delay", "auto", "auto_pear"];
+                    write_slice_head(&mut buf, header).unwrap();
+                    for (i, (auto, auto2)) in auto.iter().zip(auto_2).enumerate()
+                    {
+                        writeln!(buf, "{i} {auto} {auto2}").unwrap();
+                    }
+                }
+                
+                
+            
+                let name = format!("{output}_seed{seed}.time");
+                let mut buf = create_buf_with_command_and_version(name);
+            
+                for (i, v) in time_series.iter().enumerate(){
+                    writeln!(buf, "{i} {v}").unwrap();
+                }
             }
-        );
-    let mut time_series = time_series.into_inner().unwrap();
-    time_series.iter_mut()
-        .for_each(|v| *v /= samples as f64);
-    //remove_mean(&mut time_series);
+        )
     
-    let auto = cross_correlation(&time_series, &time_series);
-    let auto_2 = cross_correlation_alt(&time_series, &time_series);
-    let mut buf = create_buf_with_command_and_version(output);
-    let header = ["delay", "auto", "auto_pear"];
-    write_slice_head(&mut buf, header).unwrap();
-    for (i, (auto, auto2)) in auto.iter().zip(auto_2).enumerate()
-    {
-        writeln!(buf, "{i} {auto} {auto2}").unwrap();
-    }
-
-    let name = format!("{output}.time");
-    let mut buf = create_buf_with_command_and_version(name);
-
-    for (i, v) in time_series.iter().enumerate(){
-        writeln!(buf, "{i} {v}").unwrap();
-    }
 }
 
-
-pub fn remove_mean(slice: &mut [f64])
-{
-    let mut mean: f64 = slice.iter().sum();
-    mean /= slice.len() as f64;
-    slice.iter_mut()
-        .for_each(|v| *v -= mean);
-}
-
-pub fn cross_correlation(a: &[f64], b: &[f64]) -> Vec<f64>
-{
-    assert_eq!(a.len(), b.len());
-    (0..a.len())
-        .progress()
-        .map(
-            |lag|
-            {
-                a[lag..].iter()//.chain(a[..lag].iter())
-                    .zip(
-                        b.iter()//.chain(b[..lag].iter())
-                    ).map(|(&this, &other)| this * other)
-                    .sum()
-            }
-        ).collect()
-}
-
-pub fn cross_correlation_alt(a: &[f64], b: &[f64]) -> Vec<f64>
-{
-    assert_eq!(a.len(), b.len());
-    (0..a.len())
-        .progress()
-        .map(
-            |lag|
-            {
-                let iter = a[lag..].iter()//.chain(a[..lag].iter())
-                    .zip(
-                        b.iter()//.chain(b[..lag].iter())
-                    ).map(|(a,b)| (*a, *b));
-                pearson_correlation_coefficient(iter)
-            }
-        ).collect()
-}
-
-fn pearson_correlation_coefficient<I, F>(iterator: I) -> f64
-where I: IntoIterator<Item = (F, F)>,
-    F: Borrow<f64>
-{
-    let mut product_sum = 0.0;
-    let mut x_sum = 0.0;
-    let mut x_sq_sum = 0.0;
-    let mut y_sum = 0.0;
-    let mut y_sq_sum = 0.0;
-    let mut counter = 0_u64;
-
-    for (x, y) in iterator
-    {
-        let x = *x.borrow();
-        let y = *y.borrow();
-        product_sum = x.mul_add(y, product_sum);
-        x_sq_sum = x.mul_add(x, x_sq_sum);
-        y_sq_sum = y.mul_add(y, y_sq_sum);
-        x_sum += x;
-        y_sum += y;
-        counter += 1;
-    }
-
-    let factor = (counter as f64).recip();
-    let average_x = x_sum * factor;
-    let average_y = y_sum * factor;
-    let average_product = product_sum * factor;
-
-    let covariance = average_product - average_x * average_y;
-    let variance_x = x_sq_sum * factor - average_x * average_x;
-    let variance_y = y_sq_sum * factor - average_y * average_y;
-    let std_product = (variance_x * variance_y).sqrt();
-
-    covariance / std_product
-}

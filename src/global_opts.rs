@@ -1,4 +1,8 @@
+use std::num::NonZeroUsize;
+
 use clap::{Parser, ValueEnum, Subcommand};
+
+use crate::correlations::CorOpts;
 
 
 #[derive(Parser, Debug)]
@@ -14,14 +18,22 @@ pub struct SimpleOpt{
 }
 
 #[derive(Parser, Debug)]
-pub struct SimpleOpt2{
-    #[arg(short, long)]
+pub struct SubAutoOpt{
+    #[arg(long)]
     /// path to json file
     pub json: Option<String>,
 
     #[arg(short, long)]
     /// output name
-    pub output: String
+    pub output: String,
+
+    #[arg(short, long)]
+    /// Disable calculation of autocorrelation
+    pub no_auto_calc: bool,
+
+    /// Num threads
+    #[arg(short)]
+    pub j: Option<NonZeroUsize>
 
 }
 
@@ -74,7 +86,7 @@ pub enum SubstitutingCommand{
     /// Create video and measure critical B over substitution probability
     CritBVideo(SubstitutingMeanFieldOpt),
     /// Calculate the autocorrelation of the mean delay
-    Auto(SimpleOpt2)
+    Auto(SubAutoOpt)
 }
 
 /// Created by Yannick Feld
@@ -90,4 +102,7 @@ pub enum CmdChooser{
     #[clap(visible_alias="sub")]
     /// Contains subcommands of substituting firms
     Substituting(SubstitutingCommand),
+
+    /// Calculate autocorrelation from a file
+    Auto(CorOpts)
 }

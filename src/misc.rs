@@ -1,6 +1,6 @@
 use {
     std::{
-        io::{Write, BufReader, BufWriter},
+        io::{Write, BufReader, BufWriter, BufRead},
         process::{exit, Command, Output},
         fs::File,
         path::Path,
@@ -15,6 +15,34 @@ use {
 
 pub static GLOBAL_ADDITIONS: RwLock<Option<String>> = RwLock::new(None);
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub fn open_bufreader<P>(path: P) -> BufReader<File>
+where P: AsRef<Path>
+{
+    let p = path.as_ref();
+    let file = match File::open(p){
+        Err(e) => panic!("Unable to open {p:?} - encountered {e:?}"),
+        Ok(file) =>  file
+    };
+    BufReader::new(file)
+}
+
+pub fn open_as_unwrapped_lines<P>(path: P) -> impl Iterator<Item = String>
+where P: AsRef<Path>
+{
+    open_bufreader(path)
+        .lines()
+        .map(Result::unwrap)
+}
+
+pub fn open_as_unwrapped_lines_filter_comments<P>(path: P) -> impl Iterator<Item = String>
+where P: AsRef<Path>
+{
+    open_bufreader(path)
+        .lines()
+        .map(Result::unwrap)
+        .filter(|line| !line.starts_with('#'))
+}
 
 pub fn write_json<W: Write>(mut writer: W, json: &Value)
 {
