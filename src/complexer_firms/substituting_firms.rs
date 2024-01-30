@@ -70,6 +70,18 @@ pub enum RngChoice
     WorstRng
 }
 
+impl RngChoice{
+    pub fn check_warning(self)
+    {
+        match self{
+            Self::BadRng | Self::WorstRng => {
+                eprintln!("WARNING: You are using a very bad RNG. This is only intended for tests!");
+            },
+            _ => ()
+        }
+    }
+}
+
 impl PrintAlternatives for RngChoice{
     fn print_alternatives(layer: u8) {
         let a = RngChoice::Pcg64;
@@ -447,6 +459,7 @@ where R: Rng + SeedableRng{
 
 
 pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts, out_stub: &str){
+    opt.rng_choice.check_warning();
     match opt.rng_choice{
         RngChoice::Pcg64 => {
             sample_velocity_helper::<Pcg64>(opt, out_stub)
@@ -778,6 +791,7 @@ impl BufferDist{
 
 pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8)
 {
+    opt.rng_choice.check_warning();
     match opt.rng_choice{
         RngChoice::Pcg64 => {
             sample_velocity_video_helper::<Pcg64>(opt, out_stub, frametime)
@@ -1082,6 +1096,7 @@ impl Default for AutoOpts{
 
 pub fn auto(opt: &AutoOpts, output: &str, disabled_auto_calc: bool, j: Option<NonZeroUsize>)
 {
+    opt.rng_choice.check_warning();
     match opt.rng_choice{
         RngChoice::Pcg64 => {
             auto_helper::<Pcg64>(opt, output, disabled_auto_calc, j)
