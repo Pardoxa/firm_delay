@@ -1,9 +1,10 @@
 use indicatif::{ProgressIterator, ParallelProgressIterator};
+use rand::RngCore;
 use rand_distr::{Distribution, Exp, Exp1, Normal, Uniform};
 use rand_pcg::{Pcg64, Pcg64Mcg};
 use rand_xoshiro::{Xoshiro256PlusPlus, SplitMix64};
 use rand_chacha::ChaCha20Rng;
-use rand::{Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::mock::StepRng};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use crate::index_sampler::IndexSampler;
@@ -13,6 +14,50 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Mutex;
 use crate::correlations::*;
 
+pub struct WorstRng{
+    rng: StepRng
+}
+
+impl RngCore for WorstRng{
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.rng.fill_bytes(dest)
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        self.rng.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.rng.next_u64()
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
+        self.rng.try_fill_bytes(dest)
+    }
+}
+
+impl SeedableRng for WorstRng{
+    type Seed = [u8;3];
+    fn from_entropy() -> Self {
+        unimplemented!()
+    }
+
+    fn seed_from_u64(state: u64) -> Self {
+        let rng = StepRng::new(
+            state.wrapping_mul(2), 
+            22801763489_u64.wrapping_mul(22801763489)
+        );
+        Self{rng}
+    }
+    fn from_rng<R: RngCore>(_: R) -> Result<Self, rand::Error> {
+        unimplemented!()
+    }
+
+    fn from_seed(_: Self::Seed) -> Self {
+        unimplemented!()
+    }
+}
+
 #[derive(Clone, Copy, Serialize, Debug, Deserialize, Default)]
 pub enum RngChoice
 {
@@ -21,7 +66,8 @@ pub enum RngChoice
     Pcg64,
     Pcg64Mcg,
     ChaCha20,
-    BadRng
+    BadRng,
+    WorstRng
 }
 
 impl PrintAlternatives for RngChoice{
@@ -416,6 +462,9 @@ pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts, out_stub: &str){
         },
         RngChoice::BadRng => {
             sample_velocity_helper::<SplitMix64>(opt, out_stub)
+        },
+        RngChoice::WorstRng => {
+            sample_velocity_helper::<WorstRng>(opt, out_stub)
         }
     }
 }
@@ -744,6 +793,9 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
         },
         RngChoice::BadRng => {
             sample_velocity_video_helper::<SplitMix64>(opt, out_stub, frametime)
+        },
+        RngChoice::WorstRng => {
+            sample_velocity_video_helper::<WorstRng>(opt, out_stub, frametime)
         }
     }
 }
@@ -1045,6 +1097,9 @@ pub fn auto(opt: &AutoOpts, output: &str, disabled_auto_calc: bool, j: Option<No
         },
         RngChoice::BadRng => {
             auto_helper::<SplitMix64>(opt, output, disabled_auto_calc, j)
+        },
+        RngChoice::WorstRng => {
+            auto_helper::<WorstRng>(opt, output, disabled_auto_calc, j)
         }
     }
 }
