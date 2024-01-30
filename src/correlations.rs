@@ -1,5 +1,4 @@
 use std::{
-    borrow::Borrow, 
     num::NonZeroUsize,
     io::Write
 };
@@ -7,7 +6,7 @@ use indicatif::*;
 use clap::*;
 use rayon::prelude::*;
 
-use crate::{create_buf_with_command_and_version, open_as_unwrapped_lines_filter_comments};
+use crate::{create_buf_with_command_and_version, open_as_unwrapped_lines_filter_comments, write_slice_head};
 
 
 pub fn remove_mean(slice: &mut [f64])
@@ -18,43 +17,10 @@ pub fn remove_mean(slice: &mut [f64])
         .for_each(|v| *v -= mean);
 }
 
-pub fn cross_correlation(a: &[f64], b: &[f64]) -> Vec<f64>
-{
-    assert_eq!(a.len(), b.len());
-    (0..a.len())
-        .progress()
-        .map(
-            |lag|
-            {
-                a[lag..].iter()//.chain(a[..lag].iter())
-                    .zip(
-                        b.iter()//.chain(b[..lag].iter())
-                    ).map(|(&this, &other)| this * other)
-                    .sum()
-            }
-        ).collect()
-}
 
-pub fn cross_correlation_alt(a: &[f64], b: &[f64]) -> Vec<f64>
-{
-    assert_eq!(a.len(), b.len());
-    (0..a.len())
-        .progress()
-        .map(
-            |lag|
-            {
-                let iter = a[lag..].iter()//.chain(a[..lag].iter())
-                    .zip(
-                        b.iter()//.chain(b[..lag].iter())
-                    ).map(|(a,b)| (*a, *b));
-                pearson_correlation_coefficient(iter)
-            }
-        ).collect()
-}
 
-pub fn pearson_correlation_coefficient<I, F>(iterator: I) -> f64
-where I: IntoIterator<Item = (F, F)>,
-    F: Borrow<f64>
+pub fn pearson_correlation_coefficient<I>(iterator: I) -> f64
+where I: IntoIterator<Item = (f64, f64)>
 {
     let mut product_sum = 0.0;
     let mut x_sum = 0.0;
@@ -65,8 +31,6 @@ where I: IntoIterator<Item = (F, F)>,
 
     for (x, y) in iterator
     {
-        let x = *x.borrow();
-        let y = *y.borrow();
         product_sum = x.mul_add(y, product_sum);
         x_sq_sum = x.mul_add(x, x_sq_sum);
         y_sq_sum = y.mul_add(y, y_sq_sum);
@@ -107,6 +71,10 @@ pub struct CorOpts{
     /// Path of result
     out: String,
 
+    #[arg(short, long, default_value_t)]
+    /// Which column shall we calculate the autocorrelation for?
+    col: usize,
+
     /// How many threads?
     #[arg(short)]
     j: Option<NonZeroUsize>,
@@ -129,10 +97,9 @@ pub fn calc_correlations(opt: CorOpts)
         .map(Result::unwrap)
         .collect();
 
-    let mut res_vecs = Vec::new();
-    let mut p_vecs = Vec::new();
+    
 
-    all
+    let p_vecs: Vec<_> = all
         .par_iter()
         .progress()
         .map(
@@ -144,34 +111,43 @@ pub fn calc_correlations(opt: CorOpts)
                         |line|
                         {
                             let mut iter = line.split_ascii_whitespace();
-                            let val: f64 = iter.nth(1).unwrap().parse().unwrap();
+                            let val: f64 = iter.nth(opt.col)
+                                .unwrap().parse().unwrap();
                             val
                         }
                     ).collect();
                 remove_mean(&mut data);
-                let res = cross_correlation_test(&data, &data, opt.every, opt.max_time);
-                let p = cross_correlation_test2(&data, &data, opt.every, opt.max_time);
-                (res, p)
+                
+                cross_correlation(&data, &data, opt.every, opt.max_time)
             }
-        ).unzip_into_vecs(&mut res_vecs, &mut p_vecs);
+        ).collect();
     
-    if res_vecs.len() == 1 {
+    if p_vecs.len() == 1 {
+        let head = ["Delay", "Autocorrelation"];
         println!("Creating {}", opt.out);
         let mut buf = create_buf_with_command_and_version(opt.out);
+        
+        write_slice_head(&mut buf, head).unwrap();
         let iter = (0_u64..)
             .step_by(opt.every.get())
-            .zip(&res_vecs[0])
             .zip(&p_vecs[0]);
-        for ((delay, auto), pear) in iter
+        for (delay, pear) in iter
         {
-            writeln!(buf, "{delay} {auto} {pear}").unwrap();
+            writeln!(buf, "{delay} {pear}").unwrap();
         }
     } else {        
         let mut median = Vec::new();
         let mut write_all = |name: &str, vecs: &[Vec<f64>]|
         {
             let mut buf = create_buf_with_command_and_version(name);
-    
+            let mut head = vec!["Delay".to_string()];
+            for p in all.iter(){
+                head.push(p.as_os_str().to_str().unwrap().to_owned());
+            }
+            head.push("Mean".to_owned());
+            head.push("Median".to_owned());
+            write_slice_head(&mut buf, head).unwrap();
+
             let factor = (vecs.len() as f64).recip();
             
             for i in 0..vecs[0].len()
@@ -192,41 +168,11 @@ pub fn calc_correlations(opt: CorOpts)
         };
         let p_name = format!("{}_p.dat", opt.out);
         write_all(&p_name, &p_vecs);
-        let r_name = format!("{}_res.dat", opt.out);
-        write_all(&r_name, &res_vecs);
         
     }
 }
 
-pub fn cross_correlation_test(
-    a: &[f64], 
-    b: &[f64], 
-    every: NonZeroUsize, 
-    max_time: Option<NonZeroUsize>
-) -> Vec<f64>
-{
-    assert_eq!(a.len(), b.len());
-    let min = match max_time {
-        Some(val) => val.get().min(a.len()),
-        None => a.len()
-    };
-    (0..min)
-        .step_by(every.get())
-        .map(
-            |lag|
-            {
-                let a_slice = &a[lag..];
-                let p_sum: f64 = a_slice.iter()//.chain(a[..lag].iter())
-                    .zip(
-                        b.iter()//.chain(b[..lag].iter())
-                    ).map(|(&this, &other)| this * other)
-                    .sum();
-                p_sum / a_slice.len() as f64
-            }
-        ).collect()
-}
-
-pub fn cross_correlation_test2(
+pub fn cross_correlation(
     a: &[f64], 
     b: &[f64], 
     every: NonZeroUsize,

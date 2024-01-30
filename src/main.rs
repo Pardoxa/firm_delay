@@ -135,7 +135,7 @@ fn sub_chooser(opt: SubstitutingCommand)
                 exit(0);
             }
             let auto_opt = parse_and_add_to_global(opt.json);
-            auto(&auto_opt, &opt.output, opt.no_auto_calc, opt.j)
+            auto(&auto_opt, &opt.output, opt.j)
         }
     }
 }

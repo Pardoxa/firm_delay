@@ -27,10 +27,6 @@ pub struct SubAutoOpt{
     /// output name
     pub output: String,
 
-    #[arg(short, long)]
-    /// Disable calculation of autocorrelation
-    pub no_auto_calc: bool,
-
     /// Num threads
     #[arg(short)]
     pub j: Option<NonZeroUsize>,

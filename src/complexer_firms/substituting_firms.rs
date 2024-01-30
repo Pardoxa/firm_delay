@@ -12,7 +12,6 @@ use crate::misc::*;
 use std::io::{Write, stdout};
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Mutex;
-use crate::correlations::*;
 
 pub struct WorstRng{
     rng: StepRng
@@ -1094,32 +1093,32 @@ impl Default for AutoOpts{
     }
 }
 
-pub fn auto(opt: &AutoOpts, output: &str, disabled_auto_calc: bool, j: Option<NonZeroUsize>)
+pub fn auto(opt: &AutoOpts, output: &str, j: Option<NonZeroUsize>)
 {
     opt.rng_choice.check_warning();
     match opt.rng_choice{
         RngChoice::Pcg64 => {
-            auto_helper::<Pcg64>(opt, output, disabled_auto_calc, j)
+            auto_helper::<Pcg64>(opt, output, j)
         },
         RngChoice::Pcg64Mcg => {
-            auto_helper::<Pcg64Mcg>(opt, output, disabled_auto_calc, j)
+            auto_helper::<Pcg64Mcg>(opt, output, j)
         },
         RngChoice::XorShift => {
-            auto_helper::<Xoshiro256PlusPlus>(opt, output, disabled_auto_calc, j)
+            auto_helper::<Xoshiro256PlusPlus>(opt, output, j)
         },
         RngChoice::ChaCha20 => {
-            auto_helper::<ChaCha20Rng>(opt, output, disabled_auto_calc, j)
+            auto_helper::<ChaCha20Rng>(opt, output, j)
         },
         RngChoice::BadRng => {
-            auto_helper::<SplitMix64>(opt, output, disabled_auto_calc, j)
+            auto_helper::<SplitMix64>(opt, output, j)
         },
         RngChoice::WorstRng => {
-            auto_helper::<WorstRng>(opt, output, disabled_auto_calc, j)
+            auto_helper::<WorstRng>(opt, output, j)
         }
     }
 }
 
-fn auto_helper<R>(opt: &AutoOpts, output: &str, disabled_auto_calc: bool, j: Option<NonZeroUsize>)
+fn auto_helper<R>(opt: &AutoOpts, output: &str, j: Option<NonZeroUsize>)
 where R: Rng + SeedableRng
 {
     if let Some(j) = j {
@@ -1131,14 +1130,13 @@ where R: Rng + SeedableRng
     let fun = opt.self_links.get_step_fun();
     (0..opt.num_seeds.get())
         .into_par_iter()
-        .progress()
         .for_each(
             |seed_offset|
             {
-                
-            
-                let mut time_series = vec![0.0; opt.total_steps as usize];
+                let mut time_series = Vec::new();
                 let seed = opt.mean_opts.seed + seed_offset as u64;
+                let mut pcg = Pcg64Mcg::seed_from_u64(seed);
+                let seed = pcg.next_u64();
             
                 let mut mopt = opt.mean_opts.clone();
                 mopt.seed = seed;
@@ -1149,48 +1147,43 @@ where R: Rng + SeedableRng
                         |_|
                         {
                             model.reset_delays();
-                            let v: Vec<_> = (0..opt.total_steps)
-                                .map(
-                                    |_|
-                                    {
-                                        let d = model.average_delay();
-                                        fun(&mut model);
-                                        d
-                                    }
-                                ).collect();
-                            
-                            time_series
+                            let mut v = Vec::with_capacity(opt.total_steps as usize);
+                            v.extend(
+                                    (0..opt.total_steps)
+                                    .map(
+                                        |_|
+                                        {
+                                            let d = model.average_delay();
+                                            fun(&mut model);
+                                            d
+                                        }
+                                    )
+                                );
+                            if time_series.is_empty(){
+                                time_series = v;
+                            } else {
+                                time_series
                                 .iter_mut()
                                 .zip(v)
                                 .for_each(|(this, other)| *this += other);
+                            }      
                         }
                     );
-                time_series.iter_mut()
-                    .for_each(|v| *v /= opt.samples_per_seed.get() as f64);
-                //remove_mean(&mut time_series);
-            
-                if !disabled_auto_calc{
-                    let auto = cross_correlation(&time_series, &time_series);
-                    let auto_2 = cross_correlation_alt(&time_series, &time_series);
-                    let mut buf = create_buf_with_command_and_version(output);
-                    let header = ["delay", "auto", "auto_pear"];
-                    write_slice_head(&mut buf, header).unwrap();
-                    for (i, (auto, auto2)) in auto.iter().zip(auto_2).enumerate()
-                    {
-                        writeln!(buf, "{i} {auto} {auto2}").unwrap();
-                    }
+                if opt.samples_per_seed.get() > 1 {
+                    let factor = (opt.samples_per_seed.get() as f64).recip();
+                    time_series.iter_mut()
+                        .for_each(|v| *v *= factor);
                 }
                 
-                
-            
                 let name = format!("{output}_seed{seed}.time");
                 let mut buf = create_buf_with_command_and_version(name);
+                let head = std::iter::once("Mean_delay_per_firm");
+                write_slice_head(&mut buf, head).unwrap();
             
-                for (i, v) in time_series.iter().enumerate(){
-                    writeln!(buf, "{i} {v}").unwrap();
+                for v in time_series.iter(){
+                    writeln!(buf, "{v:e}").unwrap();
                 }
             }
         )
-    
 }
 
