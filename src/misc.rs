@@ -2,12 +2,12 @@ use {
     std::{
         io::{Write, BufReader, BufWriter, BufRead, stdout},
         process::{exit, Command, Output},
-        fs::File,
         path::Path,
         num::*,
         fmt::Display,
         sync::RwLock
     },
+    fs_err::File,
     serde_json::Value,
     serde::{Serialize, Deserialize, de::DeserializeOwned},
     indicatif::{ProgressBar, ProgressStyle},
@@ -64,7 +64,7 @@ pub fn indication_bar(len: u64) -> ProgressBar
 pub fn create_buf<P>(path: P) -> BufWriter<File>
 where P: AsRef<Path>
 {
-    let file = File::create(path)
+    let file = File::create(path.as_ref())
         .expect("Unable to create file");
     BufWriter::new(file)
 }
@@ -175,7 +175,7 @@ where P: AsRef<Path>,
             exit(0)
         }, 
         Some(file) => {
-            let f = File::open(file)
+            let f = File::open(file.as_ref())
                 .expect("Unable to open file");
             let buf = BufReader::new(f);
 
