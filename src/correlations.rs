@@ -199,3 +199,40 @@ pub fn cross_correlation(
             }
         ).collect()
 }
+
+pub fn cross_correlation_unnormalized_alternative(
+    a: &[f64], 
+    b: &[f64], 
+    every: NonZeroUsize,
+    max_time: Option<NonZeroUsize>
+) -> Vec<f64>
+{
+    assert_eq!(a.len(), b.len());
+    let min = match max_time {
+        Some(val) => val.get().min(a.len()),
+        None => a.len()
+    };
+    (0..min)
+        .step_by(every.get())
+        .map(
+            |lag|
+            {
+                let a_slice = &a[lag..];
+                let a_slice_mean = average(a_slice.iter().copied());
+                let b_slice = &b[..a_slice.len()];
+                let b_slice_mean = average(b_slice.iter().copied());
+                let product_iter = a_slice.iter().zip(b_slice.iter()).map(|(&a, &b)| a*b);
+                let product_mean = average(product_iter);
+                product_mean - a_slice_mean * b_slice_mean
+            }
+        ).collect()
+}
+
+fn average<I>(iter: I) -> f64
+where I: Iterator<Item=f64> + ExactSizeIterator
+{
+    let mut sum = 0.0;
+    let len = iter.len();
+    iter.for_each(|v| sum += v);
+    sum / len as f64
+}
