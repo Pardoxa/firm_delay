@@ -95,6 +95,8 @@ pub fn calc_correlations(opt: CorOpts)
     let all: Vec<_> = glob::glob(&opt.glob)
         .unwrap()
         .map(Result::unwrap)
+        .map(camino::Utf8PathBuf::from_path_buf)
+        .map(Result::unwrap)
         .collect();
 
     
@@ -142,7 +144,7 @@ pub fn calc_correlations(opt: CorOpts)
             let mut buf = create_buf_with_command_and_version(name);
             let mut head = vec!["Delay".to_string()];
             for p in all.iter(){
-                head.push(p.as_os_str().to_str().unwrap().to_owned());
+                head.push(p.to_string());
             }
             head.push("Mean".to_owned());
             head.push("Median".to_owned());
