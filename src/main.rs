@@ -117,7 +117,8 @@ fn sub_chooser(opt: SubstitutingCommand)
                     complexer_firms::sample_velocity_video(
                         &o, 
                         out, 
-                        opt.framerate
+                        opt.framerate,
+                        opt.no_clean
                     )
                 },
                 RandomState::Quenched => {

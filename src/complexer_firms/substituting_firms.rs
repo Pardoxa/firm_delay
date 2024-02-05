@@ -788,32 +788,32 @@ impl BufferDist{
     }
 }
 
-pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8)
+pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8, no_clean: bool)
 {
     opt.rng_choice.check_warning();
     match opt.rng_choice{
         RngChoice::Pcg64 => {
-            sample_velocity_video_helper::<Pcg64>(opt, out_stub, frametime)
+            sample_velocity_video_helper::<Pcg64>(opt, out_stub, frametime, no_clean)
         },
         RngChoice::Pcg64Mcg => {
-            sample_velocity_video_helper::<Pcg64Mcg>(opt, out_stub, frametime)
+            sample_velocity_video_helper::<Pcg64Mcg>(opt, out_stub, frametime, no_clean)
         },
         RngChoice::XorShift => {
-            sample_velocity_video_helper::<Xoshiro256PlusPlus>(opt, out_stub, frametime)
+            sample_velocity_video_helper::<Xoshiro256PlusPlus>(opt, out_stub, frametime, no_clean)
         },
         RngChoice::ChaCha20 => {
-            sample_velocity_video_helper::<ChaCha20Rng>(opt, out_stub, frametime)
+            sample_velocity_video_helper::<ChaCha20Rng>(opt, out_stub, frametime, no_clean)
         },
         RngChoice::BadRng => {
-            sample_velocity_video_helper::<SplitMix64>(opt, out_stub, frametime)
+            sample_velocity_video_helper::<SplitMix64>(opt, out_stub, frametime, no_clean)
         },
         RngChoice::WorstRng => {
-            sample_velocity_video_helper::<WorstRng>(opt, out_stub, frametime)
+            sample_velocity_video_helper::<WorstRng>(opt, out_stub, frametime, no_clean)
         }
     }
 }
 
-fn sample_velocity_video_helper<R>(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8)
+fn sample_velocity_video_helper<R>(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8, no_clean: bool)
 where R: Rng + SeedableRng
 {
     if opt.reset_fraction.is_some(){
@@ -1047,7 +1047,9 @@ where R: Rng + SeedableRng
     }
 
     create_video("TMP_*.png", out_stub, frametime);
-    cleaner.clean();
+    if !no_clean{
+        cleaner.clean();
+    }
 }
 
 #[derive(Deserialize, Serialize)]

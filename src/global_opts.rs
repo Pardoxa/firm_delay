@@ -65,7 +65,11 @@ pub struct SubstitutingMeanFieldOpt{
 
     /// print alternatives for json creation
     #[arg(long, short)]
-    pub print_alternatives: bool
+    pub print_alternatives: bool,
+
+    #[arg(long, short)]
+    /// Do not clean temporary files afterwards
+    pub no_clean: bool
 }
 
 #[derive(Subcommand, Debug)]
