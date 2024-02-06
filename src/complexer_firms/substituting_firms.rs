@@ -501,7 +501,33 @@ pub fn sample_velocity(
     }
 }
 
+#[derive(Default)]
+pub struct Stats{
+    pub samples: usize,
+    pub sum: f64,
+    pub sum2: f64
+}
 
+impl Stats{
+    pub fn add(&mut self, val: f64)
+    {
+        self.samples += 1;
+        self.sum += val;
+        self.sum2 += val * val;
+    }
+
+    pub fn stats(&self) -> (f64, f64)
+    {
+        let average = self.sum / self.samples as f64;
+        let variance = self.sum2 / self.samples as f64 - average * average;
+        (average, variance)
+    }
+
+    pub fn new() -> Self
+    {
+        Self::default()
+    }
+}
 
 fn sample_velocity_helper<R>(
     opt: &SubstitutionVelocitySampleOpts, 
@@ -540,12 +566,15 @@ where R: Rng + SeedableRng + Sync + Send
         .map(
             |_|
             {
-                Mutex::new(0.0_f64)
+                Mutex::new((Stats::new(), Stats::new()))
             }
         ).collect();
 
     let total = length * models.len();
     let bar = crate::misc::indication_bar(total as u64);
+
+    let half = opt.time_steps / 2;
+    let twice = half * 2;
 
     models.par_iter_mut()
         .for_each(
@@ -554,12 +583,18 @@ where R: Rng + SeedableRng + Sync + Send
                 for (idx, b) in opt.buffer.get_iter().enumerate(){
                     model.change_buffer_to_const(b);
                     model.reset_delays();
-                    for _ in 0..opt.time_steps{
+                    
+                    for _ in 0..half{
                         fun(model);
                     }
-                    let velocity = model.average_delay() / opt.time_steps as f64;
+                    let velocity_old = model.average_delay() / half as f64;
+                    for _ in 0..half{
+                        fun(model);
+                    }
+                    let velocity_new = model.average_delay() / twice as f64;
                     let mut lock = velocity_sum[idx].lock().unwrap();
-                    *lock += velocity;
+                    lock.0.add(velocity_old);
+                    lock.1.add(velocity_new);
                     drop(lock);
                     bar.inc(1);
                 }
@@ -568,8 +603,11 @@ where R: Rng + SeedableRng + Sync + Send
     bar.finish_and_clear();
 
     for (b, v_sum) in opt.buffer.get_iter().zip(velocity_sum){
-        let velocity = v_sum.into_inner().unwrap() / models.len() as f64;
-        writeln!(writer, "{b} {velocity}").unwrap();
+        let (old, new) = v_sum.into_inner().unwrap();
+        let (old_average, old_variance) = old.stats();
+        let (new_average, new_variance) = new.stats();
+
+        writeln!(writer, "{b} {old_average} {new_average} {old_variance} {new_variance}").unwrap();
     }
 
     if gnuplot.gnuplot{
