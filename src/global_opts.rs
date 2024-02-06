@@ -69,7 +69,12 @@ pub struct SubstitutingMeanFieldOpt{
 
     #[arg(long, short)]
     /// Do not clean temporary files afterwards
-    pub no_clean: bool
+    pub no_clean: bool,
+
+    #[arg(long, short)]
+    /// Also create a converted video file that 
+    /// has better compatibility, i.e., with more video players
+    pub convert_video: bool
 }
 
 #[derive(Subcommand, Debug)]

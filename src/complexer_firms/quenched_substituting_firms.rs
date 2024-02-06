@@ -166,7 +166,12 @@ impl SubstitutingQuenchedMeanField{
     }
 }
 
-pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8)
+pub fn sample_velocity_video(
+    opt: &SubstitutionVelocityVideoOpts, 
+    out_stub: &str, 
+    frametime: u8, 
+    convert_video: bool
+)
 {
 
     assert!(
@@ -364,6 +369,11 @@ pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str
         }
     }
 
-    create_video("TMP_*.png", out_stub, frametime);
+    create_video(
+        "TMP_*.png", 
+        out_stub, 
+        frametime,
+        convert_video
+    );
     cleaner.clean();
 }

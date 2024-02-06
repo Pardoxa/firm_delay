@@ -788,32 +788,44 @@ impl BufferDist{
     }
 }
 
-pub fn sample_velocity_video(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8, no_clean: bool)
+pub fn sample_velocity_video(
+    opt: &SubstitutionVelocityVideoOpts, 
+    out_stub: &str, 
+    frametime: u8, 
+    no_clean: bool,
+    convert_video: bool
+)
 {
     opt.rng_choice.check_warning();
     match opt.rng_choice{
         RngChoice::Pcg64 => {
-            sample_velocity_video_helper::<Pcg64>(opt, out_stub, frametime, no_clean)
+            sample_velocity_video_helper::<Pcg64>(opt, out_stub, frametime, no_clean, convert_video)
         },
         RngChoice::Pcg64Mcg => {
-            sample_velocity_video_helper::<Pcg64Mcg>(opt, out_stub, frametime, no_clean)
+            sample_velocity_video_helper::<Pcg64Mcg>(opt, out_stub, frametime, no_clean, convert_video)
         },
         RngChoice::XorShift => {
-            sample_velocity_video_helper::<Xoshiro256PlusPlus>(opt, out_stub, frametime, no_clean)
+            sample_velocity_video_helper::<Xoshiro256PlusPlus>(opt, out_stub, frametime, no_clean, convert_video)
         },
         RngChoice::ChaCha20 => {
-            sample_velocity_video_helper::<ChaCha20Rng>(opt, out_stub, frametime, no_clean)
+            sample_velocity_video_helper::<ChaCha20Rng>(opt, out_stub, frametime, no_clean, convert_video)
         },
         RngChoice::BadRng => {
-            sample_velocity_video_helper::<SplitMix64>(opt, out_stub, frametime, no_clean)
+            sample_velocity_video_helper::<SplitMix64>(opt, out_stub, frametime, no_clean, convert_video)
         },
         RngChoice::WorstRng => {
-            sample_velocity_video_helper::<WorstRng>(opt, out_stub, frametime, no_clean)
+            sample_velocity_video_helper::<WorstRng>(opt, out_stub, frametime, no_clean, convert_video)
         }
     }
 }
 
-fn sample_velocity_video_helper<R>(opt: &SubstitutionVelocityVideoOpts, out_stub: &str, frametime: u8, no_clean: bool)
+fn sample_velocity_video_helper<R>(
+    opt: &SubstitutionVelocityVideoOpts, 
+    out_stub: &str, 
+    frametime: u8, 
+    no_clean: bool,
+    convert_video: bool
+)
 where R: Rng + SeedableRng
 {
     if opt.reset_fraction.is_some(){
@@ -1046,7 +1058,12 @@ where R: Rng + SeedableRng
         }
     }
 
-    create_video("TMP_*.png", out_stub, frametime);
+    create_video(
+        "TMP_*.png", 
+        out_stub, 
+        frametime,
+        convert_video
+    );
     if !no_clean{
         cleaner.clean();
     }
