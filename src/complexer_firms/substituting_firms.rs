@@ -1,4 +1,4 @@
-use indicatif::{ProgressIterator, ParallelProgressIterator};
+use indicatif::ParallelProgressIterator;
 use rand::RngCore;
 use rand_distr::{Distribution, Exp, Exp1, Normal, Uniform};
 use rand_pcg::{Pcg64, Pcg64Mcg};
@@ -7,6 +7,7 @@ use rand_chacha::ChaCha20Rng;
 use rand::{Rng, SeedableRng, rngs::mock::StepRng};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use crate::global_opts::Gnuplot;
 use crate::index_sampler::IndexSampler;
 use crate::misc::*;
 use std::io::{Write, stdout};
@@ -185,13 +186,28 @@ impl Default for SubstitutionVelocityVideoOpts{
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SubstitutionVelocitySampleOpts{
     pub buffer: SampleRangeF64,
     pub opts: SubstitutingMeanFieldOpts,
     pub time_steps: usize,
     pub self_links: SelfLinks,
-    pub rng_choice: RngChoice
+    pub rng_choice: RngChoice,
+    pub samples_per_sample: Option<NonZeroUsize>
+}
+
+impl Default for SubstitutionVelocitySampleOpts
+{
+    fn default() -> Self {
+        Self{
+            buffer: SampleRangeF64::default(),
+            opts: SubstitutingMeanFieldOpts::default(),
+            time_steps: 1000,
+            self_links: SelfLinks::default(),
+            rng_choice: RngChoice::default(),
+            samples_per_sample: Some(NonZeroUsize::new(1).unwrap())
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -457,52 +473,126 @@ where R: Rng + SeedableRng{
 }
 
 
-pub fn sample_velocity(opt: &SubstitutionVelocitySampleOpts, out_stub: &str){
+pub fn sample_velocity(
+    opt: &SubstitutionVelocitySampleOpts, 
+    out_stub: &str,
+    gnuplot: Gnuplot
+){
     opt.rng_choice.check_warning();
     match opt.rng_choice{
         RngChoice::Pcg64 => {
-            sample_velocity_helper::<Pcg64>(opt, out_stub)
+            sample_velocity_helper::<Pcg64>(opt, out_stub, gnuplot)
         },
         RngChoice::Pcg64Mcg => {
-            sample_velocity_helper::<Pcg64Mcg>(opt, out_stub)
+            sample_velocity_helper::<Pcg64Mcg>(opt, out_stub, gnuplot)
         }
         RngChoice::XorShift => {
-            sample_velocity_helper::<Xoshiro256PlusPlus>(opt, out_stub)
+            sample_velocity_helper::<Xoshiro256PlusPlus>(opt, out_stub, gnuplot)
         },
         RngChoice::ChaCha20 => {
-            sample_velocity_helper::<ChaCha20Rng>(opt, out_stub)
+            sample_velocity_helper::<ChaCha20Rng>(opt, out_stub, gnuplot)
         },
         RngChoice::BadRng => {
-            sample_velocity_helper::<SplitMix64>(opt, out_stub)
+            sample_velocity_helper::<SplitMix64>(opt, out_stub, gnuplot)
         },
         RngChoice::WorstRng => {
-            sample_velocity_helper::<WorstRng>(opt, out_stub)
+            sample_velocity_helper::<WorstRng>(opt, out_stub, gnuplot)
         }
     }
 }
 
-fn sample_velocity_helper<R>(opt: &SubstitutionVelocitySampleOpts, out_stub: &str)
-where R: Rng + SeedableRng
+
+
+fn sample_velocity_helper<R>(
+    opt: &SubstitutionVelocitySampleOpts, 
+    out_stub: &str,
+    gnuplot: Gnuplot
+)
+where R: Rng + SeedableRng + Sync + Send
 {
     let name = format!("{out_stub}.dat");
-    let mut writer = create_buf_with_command_and_version(name);
+    let mut writer = create_buf_with_command_and_version(&name);
     let header = ["B", "Velocity"];
     write_slice_head(&mut writer, header).unwrap();
 
-    let mut model = SubstitutingMeanField::<R>::new(&opt.opts);
+    let model = SubstitutingMeanField::<R>::new(&opt.opts);
+    let mut rng = R::seed_from_u64(opt.opts.seed);
+    let mut models = vec![model];
+    if let Some(len) = opt.samples_per_sample{
+        let left = len.get() - 1;
+        models.extend(
+            (0..left)
+                .map(
+                    |_|
+                    {
+                        let mut opt = opt.opts.clone();
+                        opt.seed = rng.next_u64();
+                        SubstitutingMeanField::<R>::new(&opt)
+                    }
+                )
+        );
+    }
 
     let fun = opt.self_links.get_step_fun();
 
-    let bar = crate::misc::indication_bar(opt.buffer.samples as u64);
+    let length = opt.buffer.samples;
+    let velocity_sum: Vec<_> = (0..length)
+        .map(
+            |_|
+            {
+                Mutex::new(0.0_f64)
+            }
+        ).collect();
 
-    for b in opt.buffer.get_iter().progress_with(bar){
-        model.change_buffer_to_const(b);
-        model.reset_delays();
-        for _ in 0..opt.time_steps{
-            fun(&mut model);
-        }
-        let velocity = model.average_delay() / opt.time_steps as f64;
+    let total = length * models.len();
+    let bar = crate::misc::indication_bar(total as u64);
+
+    models.par_iter_mut()
+        .for_each(
+            |model|
+            {
+                for (idx, b) in opt.buffer.get_iter().enumerate(){
+                    model.change_buffer_to_const(b);
+                    model.reset_delays();
+                    for _ in 0..opt.time_steps{
+                        fun(model);
+                    }
+                    let velocity = model.average_delay() / opt.time_steps as f64;
+                    let mut lock = velocity_sum[idx].lock().unwrap();
+                    *lock += velocity;
+                    drop(lock);
+                    bar.inc(1);
+                }
+            }
+        );
+    bar.finish_and_clear();
+
+    for (b, v_sum) in opt.buffer.get_iter().zip(velocity_sum){
+        let velocity = v_sum.into_inner().unwrap() / models.len() as f64;
         writeln!(writer, "{b} {velocity}").unwrap();
+    }
+
+    if gnuplot.gnuplot{
+        let gp_name = format!("{out_stub}.gp");
+        let mut gp_writer = create_gnuplot_buf(&gp_name);
+        let what = gnuplot.gnuplot_terminal.str();
+        let gnuplot_out = format!("{out_stub}.{what}");
+        writeln!(gp_writer, "set t {what}cairo").unwrap();
+        writeln!(gp_writer, "set output '{gnuplot_out}'").unwrap();
+        writeln!(gp_writer, "set ylabel 'v'").unwrap();
+        writeln!(gp_writer, "set xlabel 'B'").unwrap();
+        writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:100000000").unwrap();
+        writeln!(gp_writer, "f(x)=a*x+b").unwrap();
+        writeln!(gp_writer, "fit f(x) '{name}' u 1:2:(t($2)) yerr via a,b").unwrap();
+        writeln!(gp_writer, "set label 'p={}' at screen 0.4,0.9", opt.opts.substitution_prob).unwrap();
+        if let (Some(min), Some(max)) = (gnuplot.y_min, gnuplot.y_max){
+            writeln!(gp_writer, "set yrange [{min}:{max}]").unwrap();
+        }
+        writeln!(gp_writer, "p '{name}' t '', f(x)").unwrap();
+        writeln!(gp_writer, "set output").unwrap();
+        drop(gp_writer);
+        let out = call_gnuplot(&gp_name);
+        assert!(out.status.success());
     }
 }
 

@@ -99,11 +99,11 @@ fn simple_chooser(opt: SimpleCommand)
 fn sub_chooser(opt: SubstitutingCommand)
 {
     match opt{
-        SubstitutingCommand::SubMean(opt) =>
+        SubstitutingCommand::Velocity(opt) =>
         {
             let o: SubstitutionVelocitySampleOpts = parse_and_add_to_global(opt.json);
             let out = opt.out_stub.as_deref().unwrap();
-            complexer_firms::sample_velocity(&o, out);
+            complexer_firms::sample_velocity(&o, out, opt.gnuplot);
         },
         SubstitutingCommand::CritBVideo(opt) => {
             if opt.print_alternatives{

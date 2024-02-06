@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::num::*;
 
 use clap::{Parser, ValueEnum, Subcommand};
 
@@ -77,6 +77,62 @@ pub struct SubstitutingMeanFieldOpt{
     pub convert_video: bool
 }
 
+#[derive(Parser, Debug)]
+pub struct SubstitutingMeanFieldSampleVeloOpt{
+    #[arg(short, long, requires("out_stub"))]
+    /// path to json file
+    pub json: Option<camino::Utf8PathBuf>,
+
+    #[arg(short, long)]
+    /// output stub
+    pub out_stub: Option<String>,
+
+    /// print alternatives for json creation
+    #[arg(long, short)]
+    pub print_alternatives: bool,
+
+    #[clap(flatten)]
+    pub gnuplot: Gnuplot
+}
+
+#[derive(Parser, Debug)]
+pub struct Gnuplot{
+    #[arg(long)]
+    /// create plot with gnuplot
+    pub gnuplot: bool,
+
+    #[arg(long, requires("y_max"))]
+    /// Set min for y-range
+    pub y_min: Option<f64>,
+
+    #[arg(long)]
+    /// set max for y-range
+    pub y_max: Option<f64>,
+
+    #[arg(long, value_enum, default_value_t)]
+    /// Choose other gnuplot terminal
+    pub gnuplot_terminal: GnuplotTerminal
+}
+
+#[derive(Default, Debug, ValueEnum, Clone, Copy)]
+pub enum GnuplotTerminal{
+    /// Set gnuplot terminal to produce png output
+    Png,
+    #[default]
+    /// Set gnuplot terminal to produce pdf output
+    Pdf
+}
+
+impl GnuplotTerminal{
+    pub fn str(self) -> &'static str
+    {
+        match self {
+            Self::Pdf => "pdf",
+            Self::Png => "png"
+        }
+    }
+}
+
 #[derive(Subcommand, Debug)]
 pub enum SimpleCommand{
     SimpleFirmDifK(SimpleOpt),
@@ -91,8 +147,11 @@ pub enum SimpleCommand{
 
 #[derive(Subcommand, Debug)]
 pub enum SubstitutingCommand{
-    SubMean(SubstitutingMeanFieldOpt),
+    /// Sample velocity with option to create plot
+    #[clap(visible_alias="vel")]
+    Velocity(SubstitutingMeanFieldSampleVeloOpt),
     /// Create video and measure critical B over substitution probability
+    #[clap(visible_alias="video")]
     CritBVideo(SubstitutingMeanFieldOpt),
     /// Calculate the autocorrelation of the mean delay
     Auto(SubAutoOpt)
