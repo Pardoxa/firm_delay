@@ -536,11 +536,6 @@ fn sample_velocity_helper<R>(
 )
 where R: Rng + SeedableRng + Sync + Send
 {
-    let name = format!("{out_stub}.dat");
-    let mut writer = create_buf_with_command_and_version(&name);
-    let header = ["B", "Velocity"];
-    write_slice_head(&mut writer, header).unwrap();
-
     let model = SubstitutingMeanField::<R>::new(&opt.opts);
     let mut rng = R::seed_from_u64(opt.opts.seed);
     let mut models = vec![model];
@@ -601,6 +596,11 @@ where R: Rng + SeedableRng + Sync + Send
             }
         );
     bar.finish_and_clear();
+
+    let name = format!("{out_stub}.dat");
+    let mut writer = create_buf_with_command_and_version(&name);
+    let header = ["B", "Velocity_half", "Velocity_full", "variance_half", "variance_full"];
+    write_slice_head(&mut writer, header).unwrap();
 
     for (b, v_sum) in opt.buffer.get_iter().zip(velocity_sum){
         let (old, new) = v_sum.into_inner().unwrap();
