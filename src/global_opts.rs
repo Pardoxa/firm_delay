@@ -19,13 +19,13 @@ pub struct SimpleOpt{
 
 #[derive(Parser, Debug)]
 pub struct SubAutoOpt{
-    #[arg(long)]
+    #[arg(long, requires("output"))]
     /// path to json file
     pub json: Option<String>,
 
     #[arg(short, long)]
     /// output name
-    pub output: String,
+    pub output: Option<String>,
 
     /// Num threads
     #[arg(short)]
