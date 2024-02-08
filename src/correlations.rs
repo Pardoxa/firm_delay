@@ -2,11 +2,12 @@ use std::{
     num::NonZeroUsize,
     io::Write
 };
+use camino::Utf8PathBuf;
 use indicatif::*;
 use clap::*;
 use rayon::prelude::*;
 
-use crate::{create_buf_with_command_and_version, open_as_unwrapped_lines_filter_comments, write_slice_head};
+use crate::{create_buf_with_command_and_version, open_as_unwrapped_lines_filter_comments, open_gz_as_unwrapped_lines_filter_comments, write_slice_head};
 
 
 pub fn remove_mean(slice: &mut [f64])
@@ -84,6 +85,36 @@ pub struct CorOpts{
     pub max_time: Option<NonZeroUsize>
 }
 
+fn read_data_file_helper<I>(iter: I, skip: usize, col: usize) -> Vec<f64>
+where I: Iterator<Item = String>
+{
+    iter.skip(skip)
+        .map(
+            |line|
+            {
+                let mut iter = line.split_ascii_whitespace();
+                let val: f64 = iter.nth(col)
+                    .unwrap().parse().unwrap();
+                val
+            }
+        ).collect()
+}
+
+fn read_data_file(p: &Utf8PathBuf, skip: usize, col: usize) -> Vec<f64>
+{
+    match p.extension()
+    {
+        Some("gz") => {
+            let iter = open_gz_as_unwrapped_lines_filter_comments(p);
+            read_data_file_helper(iter, skip, col)
+        },
+        _ => {
+            let iter = open_as_unwrapped_lines_filter_comments(p);
+            read_data_file_helper(iter, skip, col)
+        }
+    }
+}
+
 pub fn calc_correlations(opt: CorOpts)
 {
     if let Some(j) = opt.j {
@@ -99,7 +130,6 @@ pub fn calc_correlations(opt: CorOpts)
         .map(Result::unwrap)
         .collect();
 
-    
 
     let p_vecs: Vec<_> = all
         .par_iter()
@@ -107,17 +137,7 @@ pub fn calc_correlations(opt: CorOpts)
         .map(
             |p|
             {
-                let mut data: Vec<_> = open_as_unwrapped_lines_filter_comments(p)
-                    .skip(opt.skip)
-                    .map(
-                        |line|
-                        {
-                            let mut iter = line.split_ascii_whitespace();
-                            let val: f64 = iter.nth(opt.col)
-                                .unwrap().parse().unwrap();
-                            val
-                        }
-                    ).collect();
+                let mut data: Vec<_> = read_data_file(p, opt.skip, opt.col);
                 remove_mean(&mut data);
                 
                 cross_correlation(&data, &data, opt.every, opt.max_time)

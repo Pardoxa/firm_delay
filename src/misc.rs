@@ -1,16 +1,17 @@
 use {
+    flate2::bufread::GzDecoder, 
+    fs_err::File, 
+    indicatif::{ProgressBar, ProgressStyle}, 
+    serde::{de::DeserializeOwned, Deserialize, Serialize}, 
+    serde_json::Value, 
     std::{
-        io::{Write, BufReader, BufWriter, BufRead, stdout},
-        process::{exit, Command, Output},
-        path::Path,
-        num::*,
-        fmt::Display,
+        fmt::Display, 
+        io::{stdout, BufRead, BufReader, BufWriter, Write}, 
+        num::*, 
+        path::Path, 
+        process::{exit, Command, Output}, 
         sync::RwLock
-    },
-    fs_err::File,
-    serde_json::Value,
-    serde::{Serialize, Deserialize, de::DeserializeOwned},
-    indicatif::{ProgressBar, ProgressStyle},
+    }
 };
 
 pub static GLOBAL_ADDITIONS: RwLock<Option<String>> = RwLock::new(None);
@@ -27,6 +28,14 @@ where P: AsRef<Path>
     BufReader::new(file)
 }
 
+pub fn open_gz_bufreader<P>(path: P) -> impl BufRead
+where P: AsRef<Path>
+{
+    let buf = open_bufreader(path);
+    let decoder = GzDecoder::new(buf);
+    BufReader::new(decoder)
+}
+
 pub fn open_as_unwrapped_lines<P>(path: P) -> impl Iterator<Item = String>
 where P: AsRef<Path>
 {
@@ -35,12 +44,25 @@ where P: AsRef<Path>
         .map(Result::unwrap)
 }
 
+pub fn open_gz_as_unwrapped_lines<P>(path: P) -> impl Iterator<Item = String>
+where P: AsRef<Path>
+{
+    open_gz_bufreader(path)
+        .lines()
+        .map(Result::unwrap)
+}
+
 pub fn open_as_unwrapped_lines_filter_comments<P>(path: P) -> impl Iterator<Item = String>
 where P: AsRef<Path>
 {
-    open_bufreader(path)
-        .lines()
-        .map(Result::unwrap)
+    open_as_unwrapped_lines(path)
+        .filter(|line| !line.starts_with('#'))
+}
+
+pub fn open_gz_as_unwrapped_lines_filter_comments<P>(path: P) -> impl Iterator<Item = String>
+where P: AsRef<Path>
+{
+    open_gz_as_unwrapped_lines(path)
         .filter(|line| !line.starts_with('#'))
 }
 
