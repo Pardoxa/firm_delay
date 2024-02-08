@@ -126,6 +126,16 @@ impl SelfLinks{
             Self::AllowMultiple => SubstitutingMeanField::step_allowing_multiple
         }
     }
+
+    pub fn str(&self) -> &'static str
+    {
+        match self {
+            Self::AllowMultiple => "allow_multiple",
+            Self::AllowSelfLinks => "allow_self_links",
+            Self::AlwaysSelfLink => "always_self_link",
+            Self::NoSelfLinks =>  "no_self_links"
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1201,9 +1211,9 @@ where R: Rng + SeedableRng
 pub struct AutoOpts{
     pub mean_opts: SubstitutingMeanFieldOpts,
     total_steps: u32,
-    self_links: SelfLinks,
+    pub self_links: SelfLinks,
     samples_per_seed: NonZeroU32,
-    num_seeds: NonZeroU32,
+    pub num_seeds: NonZeroU32,
     rng_choice: RngChoice
 }
 

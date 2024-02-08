@@ -147,7 +147,8 @@ fn sub_chooser(opt: SubstitutingCommand)
 fn helper_chooser(opts: Helper)
 {
     match opts{
-        Helper::SubAutoBufSwap(opt) => config_helper::exec_auto_sub_buf_swapper(opt)
+        Helper::SubAutoBufSwap(opt) => config_helper::exec_auto_sub_buf_swapper(opt),
+        Helper::SubAutoKanta(kanta) => config_helper::exec_auto_buf_sub_job_creator(kanta)
     }
 }
 

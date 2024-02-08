@@ -3,7 +3,7 @@ use std::num::*;
 use camino::Utf8PathBuf;
 use clap::{Parser, ValueEnum, Subcommand};
 
-use crate::correlations::CorOpts;
+use crate::{config_helper::AutoBufSubJobOpts, correlations::CorOpts};
 
 
 #[derive(Parser, Debug)]
@@ -183,7 +183,10 @@ pub enum CmdChooser{
 
 #[derive(Subcommand, Debug)]
 pub enum Helper{
-    SubAutoBufSwap(SubAutoBufSwaper)
+    /// Create jsons for Correlation of Substituting firms from buffer file + example json
+    SubAutoBufSwap(SubAutoBufSwaper),
+    /// Create kanta job for autocorrelation measurings
+    SubAutoKanta(AutoBufSubJobOpts)
 }
 
 #[derive(Parser, Debug)]
