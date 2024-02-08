@@ -2,7 +2,7 @@ use std::process::exit;
 
 use complexer_firms::{auto, AutoOpts, SubstitutionVelocitySampleOpts};
 use correlations::calc_correlations;
-use global_opts::{SimpleCommand, SubstitutingCommand};
+use global_opts::{Helper, SimpleCommand, SubstitutingCommand};
 
 use crate::complexer_firms::SubstitutionVelocityVideoOpts;
 
@@ -25,6 +25,7 @@ pub mod correlations;
 mod global_opts;
 mod simple_firm;
 mod any_dist;
+mod config_helper;
 
 fn simple_chooser(opt: SimpleCommand)
 {
@@ -143,6 +144,13 @@ fn sub_chooser(opt: SubstitutingCommand)
     }
 }
 
+fn helper_chooser(opts: Helper)
+{
+    match opts{
+        Helper::SubAutoBufSwap(opt) => config_helper::exec_auto_sub_buf_swapper(opt)
+    }
+}
+
 fn main() {
     
     let option = CmdChooser::parse();
@@ -157,6 +165,9 @@ fn main() {
         },
         CmdChooser::Auto(auto_opt) => {
             calc_correlations(auto_opt)
+        },
+        CmdChooser::Helper(helper_opt) => {
+            helper_chooser(helper_opt)
         }
 
     }

@@ -1197,9 +1197,9 @@ where R: Rng + SeedableRng
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct AutoOpts{
-    mean_opts: SubstitutingMeanFieldOpts,
+    pub mean_opts: SubstitutingMeanFieldOpts,
     total_steps: u32,
     self_links: SelfLinks,
     samples_per_seed: NonZeroU32,

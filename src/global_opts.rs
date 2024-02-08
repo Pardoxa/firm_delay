@@ -1,5 +1,6 @@
 use std::num::*;
 
+use camino::Utf8PathBuf;
 use clap::{Parser, ValueEnum, Subcommand};
 
 use crate::correlations::CorOpts;
@@ -172,5 +173,31 @@ pub enum CmdChooser{
     Substituting(SubstitutingCommand),
 
     /// Calculate autocorrelation from a file
-    Auto(CorOpts)
+    Auto(CorOpts),
+
+    /// Various helper stuff
+    #[command(subcommand)]
+    #[clap(visible_alias="he")]
+    Helper(Helper)
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Helper{
+    SubAutoBufSwap(SubAutoBufSwaper)
+}
+
+#[derive(Parser, Debug)]
+pub struct SubAutoBufSwaper{
+    /// File that contains all the buffer vals as lines
+    #[arg(long, short)]
+    pub buffer_file: Utf8PathBuf,
+
+    #[arg(long, short)]
+    /// File that contains the old config
+    pub example_file: Utf8PathBuf,
+
+    #[arg(long, short)]
+    #[clap(visible_alias="sub")]
+    /// Also change the substitution probability
+    pub change_sub_prob: Option<f64>
 }
