@@ -1,10 +1,10 @@
 use std::{
-    num::NonZeroUsize,
-    io::Write
+    io::Write, num::NonZeroUsize, ops::AddAssign
 };
 use camino::Utf8PathBuf;
 use indicatif::*;
 use clap::*;
+use kahan::*;
 use rayon::prelude::*;
 
 use crate::{create_buf_with_command_and_version, open_as_unwrapped_lines_filter_comments, open_gz_as_unwrapped_lines_filter_comments, write_slice_head};
@@ -12,8 +12,8 @@ use crate::{create_buf_with_command_and_version, open_as_unwrapped_lines_filter_
 
 pub fn remove_mean(slice: &mut [f64])
 {
-    let mut mean: f64 = slice.iter().sum();
-    mean /= slice.len() as f64;
+    let mean: KahanSum<f64> = slice.iter().kahan_sum();
+    let mean = mean.sum() / slice.len() as f64;
     slice.iter_mut()
         .for_each(|v| *v -= mean);
 }
@@ -23,31 +23,31 @@ pub fn remove_mean(slice: &mut [f64])
 pub fn pearson_correlation_coefficient<I>(iterator: I) -> f64
 where I: IntoIterator<Item = (f64, f64)>
 {
-    let mut product_sum = 0.0;
-    let mut x_sum = 0.0;
-    let mut x_sq_sum = 0.0;
-    let mut y_sum = 0.0;
-    let mut y_sq_sum = 0.0;
+    let mut product_sum = KahanSum::new();
+    let mut x_sum = KahanSum::new();
+    let mut x_sq_sum = KahanSum::new();
+    let mut y_sum = KahanSum::new();
+    let mut y_sq_sum = KahanSum::new();
     let mut counter = 0_u64;
 
     for (x, y) in iterator
     {
-        product_sum = x.mul_add(y, product_sum);
-        x_sq_sum = x.mul_add(x, x_sq_sum);
-        y_sq_sum = y.mul_add(y, y_sq_sum);
-        x_sum += x;
-        y_sum += y;
+        product_sum.add_assign(x*y);
+        x_sq_sum.add_assign(x*x);
+        y_sq_sum.add_assign(y*y);
+        x_sum.add_assign(x);
+        y_sum.add_assign(y);
         counter += 1;
     }
 
     let factor = (counter as f64).recip();
-    let average_x = x_sum * factor;
-    let average_y = y_sum * factor;
-    let average_product = product_sum * factor;
+    let average_x = x_sum.sum() * factor;
+    let average_y = y_sum.sum() * factor;
+    let average_product = product_sum.sum() * factor;
 
     let covariance = average_product - average_x * average_y;
-    let variance_x = x_sq_sum * factor - average_x * average_x;
-    let variance_y = y_sq_sum * factor - average_y * average_y;
+    let variance_x = x_sq_sum.sum() * factor - average_x * average_x;
+    let variance_y = y_sq_sum.sum() * factor - average_y * average_y;
     let std_product = (variance_x * variance_y).sqrt();
 
     covariance / std_product
