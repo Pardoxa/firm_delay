@@ -14,6 +14,8 @@ use std::io::{Write, stdout};
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Mutex;
 
+const DBSTRING: &str = "ΔB/2";
+
 pub struct WorstRng{
     rng: StepRng
 }
@@ -141,7 +143,8 @@ impl SelfLinks{
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SubstitutionVelocityVideoOpts{
     pub buffer: SampleRangeF64,
-    pub substitution_prob: SampleRangeF64,
+    pub substitution_prob: Option<SampleRangeF64>,
+    pub buffer_dist_sample_range: Option<SampleRangeF64>,
     pub opts: SubstitutingMeanFieldOpts,
     pub time_steps: usize,
     pub self_links: SelfLinks,
@@ -151,6 +154,28 @@ pub struct SubstitutionVelocityVideoOpts{
     pub buffer_dist: BufferDist,
     pub sub_dist: PossibleDists,
     pub rng_choice: RngChoice
+}
+
+impl SubstitutionVelocityVideoOpts {
+    pub fn get_iter_help(&self) -> (Vec<f64>, ChangeType)
+    {
+        match (self.substitution_prob.as_ref(), self.buffer_dist_sample_range.as_ref())
+        {
+            (Some(s), None) => {
+                let all_sub_probs: Vec<_> = s
+                    .get_iter()
+                    .collect();
+                (all_sub_probs, ChangeType::SubProb)
+            },
+            (None, Some(b)) => {
+                let deltas = b
+                    .get_iter()
+                    .collect();
+                (deltas, ChangeType::DistUniMid)
+            },
+            _ => unimplemented!()
+        }
+    }
 }
 
 impl PrintAlternatives for SubstitutionVelocityVideoOpts{
@@ -182,8 +207,9 @@ impl Default for SubstitutionVelocityVideoOpts{
     fn default() -> Self {
         Self { 
             buffer: SampleRangeF64::default(), 
-            substitution_prob: SampleRangeF64::default(), 
+            substitution_prob: Some(SampleRangeF64::default()), 
             opts: SubstitutingMeanFieldOpts::default(), 
+            buffer_dist_sample_range: None,
             time_steps: 1000, 
             self_links: SelfLinks::default(), 
             yrange: Some((0.0,3.5)),
@@ -858,6 +884,7 @@ impl PrintAlternatives for BufferDist {
     }
 }
 
+type CBufferFun<R> =  Box<dyn Fn(&mut SubstitutingMeanField::<R>, f64)  + Sync>;
 
 impl BufferDist{
 
@@ -872,9 +899,8 @@ impl BufferDist{
 
 
 
-    #[allow(clippy::type_complexity)]
-    pub fn change_buffers_fun<'a, R>(&'a self) -> Box<dyn Fn(&mut SubstitutingMeanField::<R>, f64) + 'a + Sync>
-    where R: SeedableRng + Rng + 'a
+    pub fn change_buffers_fun<R>(&self) -> CBufferFun<R>
+    where R: SeedableRng + Rng + 'static
     {
         match self.dist{
             PossibleDists::Const =>
@@ -883,39 +909,45 @@ impl BufferDist{
             },
             PossibleDists::Exp => {
                 self.assert_unequal();
-                let fun = |model: &mut SubstitutingMeanField::<R>, lambda: f64|
+                let min = self.min;
+                let max = self.max;
+                let fun = move |model: &mut SubstitutingMeanField::<R>, lambda: f64|
                 {
                     let dist = Exp::new(lambda).unwrap();
                     model.change_buffer_dist_min_max(
                         dist,
-                        self.min, 
-                        self.max
+                        min, 
+                        max
                     );
                 };
                 Box::new(fun)
             },
             PossibleDists::UniformAround(uni) => {
                 self.assert_unequal();
+                let min = self.min;
+                let max = self.max;
                 let fun = move |model: &mut SubstitutingMeanField::<R>, mid: f64|
                 {
                     let dist = uni.get_uniform(mid);
                     model.change_buffer_dist_min_max(
                         dist,
-                        self.min, 
-                        self.max
+                        min, 
+                        max
                     );
                 };
                 Box::new(fun)
             },
             PossibleDists::Gauss(gauss) => {
                 self.assert_unequal();
+                let min = self.min;
+                let max = self.max;
                 let fun = move |model: &mut SubstitutingMeanField::<R>, mean: f64|
                 {
                     let dist = gauss.get_gauss(mean);
                     model.change_buffer_dist_min_max(
                         dist,
-                        self.min, 
-                        self.max
+                        min, 
+                        max
                     );
                 };
                 Box::new(fun)
@@ -957,6 +989,13 @@ pub fn sample_velocity_video(
     }
 }
 
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+pub enum ChangeType
+{
+    SubProb,
+    DistUniMid
+}
+
 fn sample_velocity_video_helper<R>(
     opt: &SubstitutionVelocityVideoOpts, 
     out_stub: &str, 
@@ -964,7 +1003,7 @@ fn sample_velocity_video_helper<R>(
     no_clean: bool,
     convert_video: bool
 )
-where R: Rng + SeedableRng
+where R: Rng + SeedableRng + 'static
 {
     if opt.reset_fraction.is_some(){
         assert!(opt.sub_dist.is_reset_fraction_allowed());
@@ -977,26 +1016,29 @@ where R: Rng + SeedableRng
         );
     }
     let sub_fun = opt.sub_dist.get_sub_fun::<R>();
-    let all_sub_probs: Vec<_> = opt.substitution_prob
-        .get_iter()
-        .collect();
+
+    let (iter, what_type) = opt.get_iter_help(); 
+    
 
     let zeros = "000000000";
 
     let cleaner = Cleaner::new();
 
-    let bar = crate::misc::indication_bar(all_sub_probs.len() as u64);
+    let bar = crate::misc::indication_bar(iter.len() as u64);
 
-    let change_buffers_fun = opt.buffer_dist.change_buffers_fun();
+    
 
-    let criticals: Vec<_> = all_sub_probs
+    let criticals: Vec<_> = iter
         .par_iter()
         .enumerate()
         .filter_map(
-            |(index, &sub_prob)|
+            |(index, &item)|
             {
                 let mut model_opt = opt.opts.clone();
-                model_opt.substitution_prob = sub_prob;
+                if let ChangeType::SubProb = what_type{
+                    model_opt.substitution_prob = item;
+                }
+                
                 model_opt.seed = index as u64;
 
                 let mut model = SubstitutingMeanField::new(&model_opt);
@@ -1008,20 +1050,54 @@ where R: Rng + SeedableRng
                 let w_name = format!("{stub}.dat");
                 let mut writer = create_buf(&w_name);
 
+                let sub_prob = match what_type{
+                    ChangeType::SubProb =>{
+                        item
+                    },
+                    ChangeType::DistUniMid => {
+                        opt.opts.substitution_prob
+                    }
+                };
+
                 for b in opt.buffer.get_iter(){
                     let mut velocity_sum = 0.0;
+                    let change_buffers_fun: CBufferFun<R> = if let ChangeType::DistUniMid = what_type
+                    {
+                        match &opt.buffer_dist.dist {
+                            PossibleDists::UniformAround(around) => {
+                                let mut uni = *around;
+                                uni.interval_length_half = item;
+                                let dist = PossibleDists::UniformAround(uni);
+                                let dist = BufferDist{
+                                    min: opt.buffer_dist.min,
+                                    max: opt.buffer_dist.max,
+                                    dist
+                                };
+                                dist.change_buffers_fun()
+                            },
+                            _ => unreachable!()
+                        }
+                    } else {
+                        opt.buffer_dist.change_buffers_fun()
+                    };
+                    
                     (0..opt.samples_per_point.get())
                         .for_each(
                             |_|
                             {
                                 change_buffers_fun(&mut model, b);
                                 
-                                if let Some(f) = opt.reset_fraction{
-                                    model.reseed_sub_prob(sub_prob, f);
-                                } else {
-                                    // Sub fun currently not compatible with reset_fraction
-                                    sub_fun(&mut model, sub_prob);
+
+                                match opt.reset_fraction{
+                                    Some(f) => {
+                                        model.reseed_sub_prob(sub_prob, f);
+                                    },
+                                    None => {
+                                        // Sub fun currently not compatible with reset_fraction
+                                        sub_fun(&mut model, sub_prob);
+                                    }
                                 }
+                                
                                 model.reset_delays();
                                 
                                 for _ in 0..opt.time_steps{
@@ -1047,7 +1123,15 @@ where R: Rng + SeedableRng
                 writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
                 writeln!(gp_writer, "f(x)=a*x+b").unwrap();
                 writeln!(gp_writer, "fit f(x) '{w_name}' u 1:2:(t($2)) yerr via a,b").unwrap();
-                writeln!(gp_writer, "set label 'p={sub_prob}' at screen 0.4,0.9").unwrap();
+                match what_type{
+                    ChangeType::SubProb => {
+                        writeln!(gp_writer, "set label 'p={sub_prob}' at screen 0.4,0.9").unwrap();
+                    },
+                    ChangeType::DistUniMid => {
+                        writeln!(gp_writer, "set label '{DBSTRING}={item}' at screen 0.4,0.9").unwrap();
+                    }
+                }
+                
                 if let Some((min, max)) = &opt.yrange{
                     writeln!(gp_writer, "set yrange [{min}:{max}]").unwrap();
                 }
@@ -1068,7 +1152,15 @@ where R: Rng + SeedableRng
                     let crit = -b/a;
                     
                     cleaner.add_multi([w_name, gp_name, png]);
-                    Some([sub_prob, a, b, crit])
+                    let first = match what_type{
+                        ChangeType::SubProb => {
+                            sub_prob
+                        },
+                        ChangeType::DistUniMid => {
+                            item
+                        }
+                    };
+                    Some([first, a, b, crit])
                 } else {
                     None
                 }
@@ -1080,7 +1172,19 @@ where R: Rng + SeedableRng
     let crit_stub = format!("{out_stub}_crit");
     let crit_name = format!("{crit_stub}.dat");
     let mut buf = create_buf_with_command_and_version(&crit_name);
-    let header = ["sub_prob", "a", "b", "critical"];
+    let mut header = Vec::new();
+    let s = match what_type
+    {
+        ChangeType::SubProb => {
+            header.push("sub_prob");
+            opt.sub_dist.gnuplot_x_axis_name()
+        }, 
+        ChangeType::DistUniMid => {
+            header.push("half_width_buf_dist");
+            DBSTRING
+        }
+    };
+    header.extend_from_slice(&["a", "b", "critical"]);
     write_slice_head(&mut buf, header).unwrap();
     for s in criticals.iter(){
         writeln!(
@@ -1115,7 +1219,16 @@ where R: Rng + SeedableRng
         
         let mut min = f64::INFINITY;
         let mut max = f64::NEG_INFINITY;
-        for &val in criticals[0].iter().skip(1){
+        let start_idx = match what_type{
+            ChangeType::SubProb => {
+                1
+            },
+            ChangeType::DistUniMid => {
+                3
+            }
+        };
+
+        for &val in criticals.iter().flat_map(|slice| &slice[start_idx..]){
             if val > max{
                 max = val;
             } 
@@ -1123,6 +1236,7 @@ where R: Rng + SeedableRng
                 min = val;
             }
         }
+        
         writeln!(gp, "set yrange[{min}:{max}]").unwrap();
         writeln!(gp, "set ylabel 'B'").unwrap();
         match how{
@@ -1139,8 +1253,6 @@ where R: Rng + SeedableRng
             writeln!(gp, "t(x)=abs(x)>0.1?0.00000000001:10000000").unwrap();
             writeln!(gp, "g(x)= c*x+d").unwrap();
         }
-    
-        let s = opt.sub_dist.gnuplot_x_axis_name();
 
         let using = if let Some(f) = opt.reset_fraction{
             writeln!(gp, "set xlabel '{s} f'").unwrap();
@@ -1162,11 +1274,23 @@ where R: Rng + SeedableRng
             writeln!(gp, "fit g(x) '{crit_name}' u {using}:3:(t($3)) yerr via c,d").unwrap();
             writeln!(gp, "h(x)=-g(x)/f(x)").unwrap();
         }
+
+        match what_type{
+            ChangeType::SubProb => {
+                write!(
+                    gp, 
+                    "p '{crit_name}' u {using}:2 t 'a', '' u {using}:3 t 'b', '' u {using}:4 t 'Crit B'"
+                ).unwrap();
+            },
+            ChangeType::DistUniMid => {
+                write!(
+                    gp, 
+                    "p '{crit_name}' u {using}:4 t 'Crit B'"
+                ).unwrap();
+            }
+        }
         
-        write!(
-            gp, 
-            "p '{crit_name}' u {using}:2 t 'a', '' u {using}:3 t 'b', '' u {using}:4 t 'Crit B'"
-        ).unwrap();
+        
         if how.is_no_fit(){
             writeln!(gp)
         } else {
@@ -1177,7 +1301,11 @@ where R: Rng + SeedableRng
         crit_gp
     };
 
-    let crit_gp = crit_gp_write(How::Complex);
+    let how = match what_type{
+        ChangeType::SubProb => How::Complex,
+        ChangeType::DistUniMid => How::NoFit
+    };
+    let crit_gp = crit_gp_write(how);
     let out = call_gnuplot(&crit_gp);
     if !out.status.success(){
         eprintln!("CRIT GNUPLOT ERROR! Trying to recover by using linear function instead!");

@@ -3,7 +3,7 @@ use rand_distr::{Exp, Distribution};
 use rand_pcg::Pcg64;
 use rand::{Rng, SeedableRng};
 use rayon::iter::{IntoParallelRefIterator, IndexedParallelIterator, ParallelIterator};
-use crate::index_sampler::IndexSampler;
+use crate::{complexer_firms::ChangeType, index_sampler::IndexSampler};
 use crate::misc::*;
 use std::io::Write;
 use super::{
@@ -182,9 +182,12 @@ pub fn sample_velocity_video(
         "ERROR: Only const buffer dist is implemented for Quenched. Others are implemented for non-quenched. If you want to use it for quenched, look there and copy the nessessary parts over"
     );
 
-    let all_sub_probs: Vec<_> = opt.substitution_prob
-        .get_iter()
-        .collect();
+    let (all_sub_probs, what_type) = opt.get_iter_help();
+    assert_eq!(
+        what_type,
+        ChangeType::SubProb,
+        "Others unimplemented right now"
+    );
 
     let zeros = "000000000";
 
