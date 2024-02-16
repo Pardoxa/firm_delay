@@ -3,7 +3,7 @@ use std::num::*;
 use camino::Utf8PathBuf;
 use clap::{Parser, ValueEnum, Subcommand};
 
-use crate::{config_helper::AutoBufSubJobOpts, correlations::CorOpts};
+use crate::{complexer_firms::NetworkStructure, config_helper::AutoBufSubJobOpts, correlations::CorOpts};
 
 
 #[derive(Parser, Debug)]
@@ -63,6 +63,39 @@ pub struct SubstitutingMeanFieldOpt{
     /// Quenched or not?
     #[arg(short, long, value_enum, default_value_t)]
     pub randomness: RandomState,
+
+    /// print alternatives for json creation
+    #[arg(long, short)]
+    pub print_alternatives: bool,
+
+    #[arg(long, short)]
+    /// Do not clean temporary files afterwards
+    pub no_clean: bool,
+
+    #[arg(long, short)]
+    /// Also create a converted video file that 
+    /// has better compatibility, i.e., with more video players
+    pub convert_video: bool
+}
+
+#[derive(Parser, Debug)]
+pub struct SubstitutingNetworkOpt{
+    #[arg(short, long, requires("out_stub"))]
+    /// path to json file
+    pub json: Option<String>,
+
+    #[arg(short, long)]
+    /// output stub
+    pub out_stub: Option<String>,
+
+
+    /// desired framerate in Hz
+    #[arg(short, long, default_value_t=25)]
+    pub framerate: u8,
+
+    #[command(subcommand)]
+    /// network structure
+    pub structure: NetworkStructure,
 
     /// print alternatives for json creation
     #[arg(long, short)]
@@ -154,6 +187,9 @@ pub enum SubstitutingCommand{
     /// Create video and measure critical B over substitution probability
     #[clap(visible_alias="video")]
     CritBVideo(SubstitutingMeanFieldOpt),
+    /// Create video and measure critical B over substitution probability (or delta buffer)
+    #[clap(visible_alias="video2")]
+    CritBVideoRing(SubstitutingNetworkOpt),
     /// Calculate the autocorrelation of the mean delay
     Auto(SubAutoOpt)
 }

@@ -4,7 +4,7 @@ use complexer_firms::{auto, AutoOpts, SubstitutionVelocitySampleOpts};
 use correlations::calc_correlations;
 use global_opts::{Helper, SimpleCommand, SubstitutingCommand};
 
-use crate::complexer_firms::SubstitutionVelocityVideoOpts;
+use crate::complexer_firms::{SelfLinks, SubstitutionVelocityVideoOpts};
 
 use {
     clap::Parser,
@@ -132,6 +132,28 @@ fn sub_chooser(opt: SubstitutingCommand)
                     )
                 }
             }
+        },
+        SubstitutingCommand::CritBVideoRing(opt) => {
+            if opt.print_alternatives{
+                SubstitutionVelocityVideoOpts::print_alternatives(0);
+                exit(0);
+            }
+            
+            let o: SubstitutionVelocityVideoOpts = parse_and_add_to_global(opt.json);
+            assert_eq!(
+                o.self_links,
+                SelfLinks::AllowSelfLinks,
+                "Other self links are unimplemented!"
+            );
+            let out = opt.out_stub.as_deref().unwrap();
+            complexer_firms::sample_ring_velocity_video(
+                &o, 
+                out, 
+                opt.framerate,
+                opt.no_clean,
+                opt.convert_video,
+                opt.structure
+            )
         },
         SubstitutingCommand::Auto(opt) => {
             if opt.print_alternatives{

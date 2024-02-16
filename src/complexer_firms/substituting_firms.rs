@@ -14,7 +14,7 @@ use std::io::{Write, stdout};
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Mutex;
 
-const DBSTRING: &str = "ΔB/2";
+pub const DBSTRING: &str = "ΔB/2";
 
 pub struct WorstRng{
     rng: StepRng
@@ -96,7 +96,7 @@ impl PrintAlternatives for RngChoice{
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
 pub enum SelfLinks{
     #[default]
     AllowSelfLinks,
@@ -269,14 +269,14 @@ impl SubstitutingMeanFieldOpts{
 }
 
 pub struct SubstitutingMeanField<RNG>{
-    current_delays: Vec<f64>,
-    buffers: Vec<f64>,
-    substitution_prob: Vec<f64>,
-    next_delays: Vec<f64>,
-    k: usize,
-    rng: RNG,
-    index_sampler: IndexSampler,
-    dist: Exp1
+    pub current_delays: Vec<f64>,
+    pub buffers: Vec<f64>,
+    pub substitution_prob: Vec<f64>,
+    pub next_delays: Vec<f64>,
+    pub k: usize,
+    pub rng: RNG,
+    pub index_sampler: IndexSampler,
+    pub dist: Exp1
 }
 
 impl<R> SubstitutingMeanField<R>
@@ -707,7 +707,7 @@ impl Cleaner{
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct UniformAround{
-    interval_length_half: f64
+    pub interval_length_half: f64
 }
 
 impl UniformAround{
@@ -884,7 +884,7 @@ impl PrintAlternatives for BufferDist {
     }
 }
 
-type CBufferFun<R> =  Box<dyn Fn(&mut SubstitutingMeanField::<R>, f64)  + Sync>;
+pub type CBufferFun<R> =  Box<dyn Fn(&mut SubstitutingMeanField::<R>, f64)  + Sync>;
 
 impl BufferDist{
 

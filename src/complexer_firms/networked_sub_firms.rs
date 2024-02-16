@@ -1,0 +1,495 @@
+use {
+    super::substituting_firms::*, 
+    crate::misc::*, 
+    clap::{Parser, Subcommand}, 
+    indicatif::ParallelProgressIterator, 
+    rand::{Rng, RngCore, SeedableRng}, 
+    rand_chacha::ChaCha20Rng, 
+    rand_distr::Distribution, 
+    rand_pcg::{Pcg64, Pcg64Mcg}, 
+    rand_xoshiro::{SplitMix64, Xoshiro256PlusPlus}, 
+    rayon::prelude::*, 
+    std::io::Write
+};
+
+
+pub struct NetworkedSubFirms<R>{
+    firms: SubstitutingMeanField<R>,
+    pub network: Vec<Vec<usize>>
+}
+
+impl<R> NetworkedSubFirms<R>
+where R: Rng + RngCore
+{
+    pub fn new_empty(firms: SubstitutingMeanField<R>) -> Self
+    {
+        let n = firms.current_delays.len();
+        Self { firms, network: vec![Vec::new(); n] }
+    }
+
+    pub fn random_network(&mut self)
+    {
+        self.network
+            .iter_mut()
+            .for_each(
+                |adj|
+                {
+                    adj.clear();
+                    adj.extend(
+                        self.firms
+                            .index_sampler
+                            .sample_indices(&mut self.firms.rng)
+                            .iter()
+                            .map(|&val| val as usize)
+                    )
+                }
+            );
+    }
+
+    pub fn make_ring(&mut self, offset: isize)
+    {
+        let k = self.firms.k;
+        let i_len = self.network.len() as isize;
+
+        self.network
+            .iter_mut()
+            .zip(0_isize..)
+            .for_each(
+                |(adj, index)|
+                {
+                    adj.clear();
+                    adj.extend(
+                        (index..(index+k as isize))
+                            .map(
+                                |idx|
+                                {
+                                    let val = idx + offset + i_len;
+                                    (val % i_len) as usize
+                                }
+                            )
+                    );
+                }
+            )
+    }
+
+    pub fn step(&mut self)
+    {
+        self.firms
+            .next_delays
+            .iter_mut()
+            .enumerate()
+            .for_each(
+                |(index, n_delay)|
+                {
+                    if self.firms.rng.gen::<f64>() < self.firms.substitution_prob[index]{
+                        *n_delay = self.firms.dist.sample(&mut self.firms.rng);
+                    } else {
+                        let mut current = 0.0_f64;
+                        for &i in &self.network[index]{
+                            current = current.max(self.firms.current_delays[i]);
+                        }
+                        let e_sample: f64 = self.firms
+                            .dist
+                            .sample(&mut self.firms.rng);
+                        *n_delay = (current - self.firms.buffers[index]).max(0.0) 
+                            + e_sample;
+                    }
+                    
+                }
+            );
+        std::mem::swap(&mut self.firms.current_delays, &mut self.firms.next_delays);
+    }
+}
+
+#[derive(Debug, Clone, Copy, Parser)]
+pub struct RingOpt{
+    /// Offset for ring
+    offset: isize
+}
+
+
+#[derive(Subcommand, Debug, Clone)]
+/// Which network structure to use?
+pub enum NetworkStructure{
+    /// Ring structure for network
+    Ring(RingOpt),
+    /// Random network
+    Random
+}
+
+pub fn sample_ring_velocity_video(
+    opt: &SubstitutionVelocityVideoOpts, 
+    out_stub: &str, 
+    frametime: u8, 
+    no_clean: bool,
+    convert_video: bool,
+    structure: NetworkStructure
+)
+{
+    opt.rng_choice.check_warning();
+    match opt.rng_choice{
+        RngChoice::Pcg64 => {
+            sample_network_velocity_video_helper::<Pcg64>(opt, out_stub, frametime, no_clean, convert_video, structure)
+        },
+        RngChoice::Pcg64Mcg => {
+            sample_network_velocity_video_helper::<Pcg64Mcg>(opt, out_stub, frametime, no_clean, convert_video, structure)
+        },
+        RngChoice::XorShift => {
+            sample_network_velocity_video_helper::<Xoshiro256PlusPlus>(opt, out_stub, frametime, no_clean, convert_video, structure)
+        },
+        RngChoice::ChaCha20 => {
+            sample_network_velocity_video_helper::<ChaCha20Rng>(opt, out_stub, frametime, no_clean, convert_video, structure)
+        },
+        RngChoice::BadRng => {
+            sample_network_velocity_video_helper::<SplitMix64>(opt, out_stub, frametime, no_clean, convert_video, structure)
+        },
+        RngChoice::WorstRng => {
+            sample_network_velocity_video_helper::<WorstRng>(opt, out_stub, frametime, no_clean, convert_video, structure)
+        }
+    }
+}
+
+fn sample_network_velocity_video_helper<R>(
+    opt: &SubstitutionVelocityVideoOpts, 
+    out_stub: &str, 
+    frametime: u8, 
+    no_clean: bool,
+    convert_video: bool,
+    structure: NetworkStructure
+)
+where R: Rng + SeedableRng + 'static
+{
+    if opt.reset_fraction.is_some(){
+        assert!(opt.sub_dist.is_reset_fraction_allowed());
+    }
+    
+    if !opt.sub_dist.is_const(){
+        assert!(
+            opt.reset_fraction.is_none(),
+            "Reset fraction not implemented with sub dists"
+        );
+    }
+    let sub_fun = opt.sub_dist.get_sub_fun::<R>();
+
+    let (iter, what_type) = opt.get_iter_help(); 
+    
+
+    let zeros = "000000000";
+
+    let cleaner = Cleaner::new();
+
+    let bar = crate::misc::indication_bar(iter.len() as u64);
+
+    
+
+    let criticals: Vec<_> = iter
+        .par_iter()
+        .enumerate()
+        .filter_map(
+            |(index, &item)|
+            {
+                let mut model_opt = opt.opts.clone();
+                if let ChangeType::SubProb = what_type{
+                    model_opt.substitution_prob = item;
+                }
+                
+                model_opt.seed = index as u64;
+
+                let model = SubstitutingMeanField::new(&model_opt);
+                let mut network_model = NetworkedSubFirms::new_empty(model);
+                match &structure{
+                    NetworkStructure::Ring(offset) => network_model.make_ring(offset.offset),
+                    NetworkStructure::Random => network_model.random_network()
+                }
+
+                let i_name = index.to_string();
+                let start = i_name.len();
+                let zeros = &zeros[start..];
+                let stub = format!("TMP_{zeros}{i_name}{out_stub}");
+                let w_name = format!("{stub}.dat");
+                let mut writer = create_buf(&w_name);
+
+                let sub_prob = match what_type{
+                    ChangeType::SubProb =>{
+                        item
+                    },
+                    ChangeType::DistUniMid => {
+                        opt.opts.substitution_prob
+                    }
+                };
+
+                for b in opt.buffer.get_iter(){
+                    let mut velocity_sum = 0.0;
+                    let change_buffers_fun: CBufferFun<R> = if let ChangeType::DistUniMid = what_type
+                    {
+                        match &opt.buffer_dist.dist {
+                            PossibleDists::UniformAround(around) => {
+                                let mut uni = *around;
+                                uni.interval_length_half = item;
+                                let dist = PossibleDists::UniformAround(uni);
+                                let dist = BufferDist{
+                                    min: opt.buffer_dist.min,
+                                    max: opt.buffer_dist.max,
+                                    dist
+                                };
+                                dist.change_buffers_fun()
+                            },
+                            _ => unreachable!()
+                        }
+                    } else {
+                        opt.buffer_dist.change_buffers_fun()
+                    };
+                    
+                    (0..opt.samples_per_point.get())
+                        .for_each(
+                            |_|
+                            {
+                                change_buffers_fun(&mut network_model.firms, b);
+                                
+
+                                match opt.reset_fraction{
+                                    Some(f) => {
+                                        network_model.firms.reseed_sub_prob(sub_prob, f);
+                                    },
+                                    None => {
+                                        // Sub fun currently not compatible with reset_fraction
+                                        sub_fun(&mut network_model.firms, sub_prob);
+                                    }
+                                }
+                                
+                                network_model.firms.reset_delays();
+                                
+                                for _ in 0..opt.time_steps{
+                                    network_model.step();
+                                }
+                                let velocity = network_model.firms.average_delay() / opt.time_steps as f64;
+                                velocity_sum += velocity;
+                            }
+                        );
+                    let average_velocity = velocity_sum / opt.samples_per_point.get() as f64;
+                    
+                    writeln!(writer, "{b} {average_velocity}").unwrap();
+                }
+                drop(writer);
+                let gp_name = format!("{stub}.gp");
+                let mut gp_writer = create_gnuplot_buf(&gp_name);
+                let png = format!("{stub}.png");
+                writeln!(gp_writer, "set t pngcairo").unwrap();
+                writeln!(gp_writer, "set output '{png}'").unwrap();
+                writeln!(gp_writer, "set ylabel 'v'").unwrap();
+                writeln!(gp_writer, "set xlabel 'B'").unwrap();
+                writeln!(gp_writer, "set fit quiet").unwrap();
+                writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
+                writeln!(gp_writer, "f(x)=a*x+b").unwrap();
+                writeln!(gp_writer, "fit f(x) '{w_name}' u 1:2:(t($2)) yerr via a,b").unwrap();
+                match what_type{
+                    ChangeType::SubProb => {
+                        writeln!(gp_writer, "set label 'p={sub_prob}' at screen 0.4,0.9").unwrap();
+                    },
+                    ChangeType::DistUniMid => {
+                        writeln!(gp_writer, "set label '{DBSTRING}={item}' at screen 0.4,0.9").unwrap();
+                    }
+                }
+                
+                if let Some((min, max)) = &opt.yrange{
+                    writeln!(gp_writer, "set yrange [{min}:{max}]").unwrap();
+                }
+                writeln!(gp_writer, "p '{w_name}' t '', f(x)").unwrap();
+                writeln!(gp_writer, "print(b)").unwrap();
+                writeln!(gp_writer, "print(a)").unwrap();
+                writeln!(gp_writer, "set output").unwrap();
+                drop(gp_writer);
+                let out = call_gnuplot(&gp_name);
+                if out.status.success(){
+                    let s = String::from_utf8(out.stderr)
+                        .unwrap();
+                
+                    let mut iter = s.lines();
+
+                    let b: f64 = iter.next().unwrap().parse().unwrap();
+                    let a: f64 = iter.next().unwrap().parse().unwrap();
+                    let crit = -b/a;
+                    
+                    cleaner.add_multi([w_name, gp_name, png]);
+                    let first = match what_type{
+                        ChangeType::SubProb => {
+                            sub_prob
+                        },
+                        ChangeType::DistUniMid => {
+                            item
+                        }
+                    };
+                    Some([first, a, b, crit])
+                } else {
+                    None
+                }
+                
+            }
+        ).progress_with(bar)
+        .collect();
+
+    let crit_stub = format!("{out_stub}_crit");
+    let crit_name = format!("{crit_stub}.dat");
+    let mut buf = create_buf_with_command_and_version(&crit_name);
+    let mut header = Vec::new();
+    let s = match what_type
+    {
+        ChangeType::SubProb => {
+            header.push("sub_prob");
+            opt.sub_dist.gnuplot_x_axis_name()
+        }, 
+        ChangeType::DistUniMid => {
+            header.push("half_width_buf_dist");
+            DBSTRING
+        }
+    };
+    header.extend_from_slice(&["a", "b", "critical"]);
+    write_slice_head(&mut buf, header).unwrap();
+    for s in criticals.iter(){
+        writeln!(
+            buf, 
+            "{} {} {} {}", 
+            s[0], 
+            s[1], 
+            s[2], 
+            s[3]
+        ).unwrap();
+    }
+    drop(buf);
+    enum How{
+        Linear,
+        Complex,
+        NoFit
+    }
+
+    impl How {
+        fn is_no_fit(&self) -> bool
+        {
+            matches!(self, How::NoFit)
+        }
+    }
+
+    let crit_gp_write = |how: How|
+    {
+        let crit_gp = format!("{crit_stub}.gp");
+        let mut gp = create_gnuplot_buf(&crit_gp);
+        writeln!(gp, "set t pdfcairo").unwrap();
+        writeln!(gp, "set output '{crit_stub}.pdf'").unwrap();
+        
+        let mut min = f64::INFINITY;
+        let mut max = f64::NEG_INFINITY;
+        let start_idx = match what_type{
+            ChangeType::SubProb => {
+                1
+            },
+            ChangeType::DistUniMid => {
+                3
+            }
+        };
+
+        for &val in criticals.iter().flat_map(|slice| &slice[start_idx..]){
+            if val > max{
+                max = val;
+            } 
+            if val < min {
+                min = val;
+            }
+        }
+        
+        writeln!(gp, "set yrange[{min}:{max}]").unwrap();
+        writeln!(gp, "set ylabel 'B'").unwrap();
+        match how{
+            How::Complex => {
+                writeln!(gp, "f(x)= a*x+b+k*x**l").unwrap();
+            },
+            How::Linear => {
+                writeln!(gp, "f(x)= a*x+b").unwrap();
+            },
+            How::NoFit => ()
+        }
+        
+        if !how.is_no_fit(){
+            writeln!(gp, "t(x)=abs(x)>0.1?0.00000000001:10000000").unwrap();
+            writeln!(gp, "g(x)= c*x+d").unwrap();
+        }
+
+        let using = if let Some(f) = opt.reset_fraction{
+            writeln!(gp, "set xlabel '{s} f'").unwrap();
+            format!("($1*{f})")
+        } else {
+            writeln!(gp, "set xlabel '{s}'").unwrap();
+            "1".to_owned()
+        };
+        match how{
+            How::Complex => {
+                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2:(t({using})) yerr via a,b,k,l").unwrap();
+            },
+            How::Linear => {
+                writeln!(gp, "fit f(x) '{crit_name}' u {using}:2:(t({using})) yerr via a,b").unwrap();
+            },
+            How::NoFit => ()
+        }
+        if !how.is_no_fit(){
+            writeln!(gp, "fit g(x) '{crit_name}' u {using}:3:(t($3)) yerr via c,d").unwrap();
+            writeln!(gp, "h(x)=-g(x)/f(x)").unwrap();
+        }
+
+        match what_type{
+            ChangeType::SubProb => {
+                write!(
+                    gp, 
+                    "p '{crit_name}' u {using}:2 t 'a', '' u {using}:3 t 'b', '' u {using}:4 t 'Crit B'"
+                ).unwrap();
+            },
+            ChangeType::DistUniMid => {
+                write!(
+                    gp, 
+                    "p '{crit_name}' u {using}:4 t 'Crit B'"
+                ).unwrap();
+            }
+        }
+        
+        
+        if how.is_no_fit(){
+            writeln!(gp)
+        } else {
+            writeln!(gp, ", f(x) t 'fit a', g(x) t 'fit b', h(x) t 'approx'")
+        }.unwrap();
+        writeln!(gp, "set output").unwrap();
+        drop(gp);
+        crit_gp
+    };
+
+    let how = match what_type{
+        ChangeType::SubProb => How::Complex,
+        ChangeType::DistUniMid => How::NoFit
+    };
+    let crit_gp = crit_gp_write(how);
+    let out = call_gnuplot(&crit_gp);
+    if !out.status.success(){
+        eprintln!("CRIT GNUPLOT ERROR! Trying to recover by using linear function instead!");
+        let crit_gp = crit_gp_write(How::Linear);
+        let out = call_gnuplot(&crit_gp);
+        if !out.status.success(){
+            eprintln!("RECOVERY also failed :( Removing fit!");
+            let crit_gp = crit_gp_write(How::NoFit);
+            let out = call_gnuplot(&crit_gp);
+            if !out.status.success(){
+                eprintln!("This also failed...");
+                dbg!(out);
+            }
+        } else {
+            eprintln!("RECOVERY SUCCESS!");
+        }
+    }
+
+    create_video(
+        "TMP_*.png", 
+        out_stub, 
+        frametime,
+        convert_video
+    );
+    if !no_clean{
+        cleaner.clean();
+    }
+}
