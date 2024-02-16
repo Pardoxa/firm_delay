@@ -24,13 +24,19 @@ where R: Rng + RngCore
     pub fn new_empty(firms: SubstitutingMeanField<R>) -> Self
     {
         let n = firms.current_delays.len();
-        Self { firms, network: vec![Vec::new(); n] }
+        let network = vec![Vec::with_capacity(firms.k); n];
+        Self { firms, network }
+    }
+    
+    fn clear_network(&mut self)
+    {
+        self.network.iter_mut().for_each(Vec::clear);
     }
 
     pub fn independent_hub(&mut self)
     {
+        self.clear_network();
         let k = self.firms.k;
-        self.network.iter_mut().for_each(Vec::clear);
         self.network[k..]
             .iter_mut()
             .for_each(
@@ -47,6 +53,21 @@ where R: Rng + RngCore
             .iter_mut()
             .enumerate()
             .for_each(|(index, adj)| adj.push(index));
+    }
+
+    pub fn line(&mut self)
+    {
+        self.clear_network();
+        let lenm1 = self.network.len() - 1;
+        self.network[..lenm1]
+            .iter_mut()
+            .zip(1..)
+            .for_each(
+                |(adj, idx)|
+                {
+                    adj.push(idx);
+                }
+            )
     }
 
     pub fn small_world(&mut self, p: f64, offset: isize)
@@ -125,6 +146,7 @@ where R: Rng + RngCore
 
     pub fn make_ring(&mut self, offset: isize)
     {
+        self.clear_network();
         let k = self.firms.k;
         let i_len = self.network.len() as isize;
 
@@ -209,7 +231,9 @@ pub enum NetworkStructure{
     /// K nodes depend on nothing, everything else depends on these k nodes. Every node has a self link
     IndependentHubSelfLinks,
     /// K nodes depend on each other, everything else depends on these k nodes. NO SELF LINKS
-    DependentHub
+    DependentHub,
+    /// Line, just a test
+    Line
 }
 
 pub fn sample_ring_velocity_video(
@@ -298,7 +322,8 @@ where R: Rng + SeedableRng + 'static
                     NetworkStructure::IndependentHub => network_model.independent_hub(),
                     NetworkStructure::IndependentHubSelfLinks => network_model.independent_hub_self_links(),
                     NetworkStructure::DependentHub => network_model.dependent_hub(),
-                    NetworkStructure::RandomizedRing(opt) => network_model.small_world(opt.p, opt.offset)
+                    NetworkStructure::RandomizedRing(opt) => network_model.small_world(opt.p, opt.offset),
+                    NetworkStructure::Line => network_model.line()
                 }
 
                 let i_name = index.to_string();
