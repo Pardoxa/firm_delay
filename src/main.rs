@@ -15,8 +15,7 @@ use {
         SimpleFirmPhase, 
         SimpleFirmBufferHistogram,
         SimpleFirmAverageAfter
-    },
-    crate::global_opts::RandomState
+    }
 };
 pub mod complexer_firms;
 pub mod misc;
@@ -113,25 +112,13 @@ fn sub_chooser(opt: SubstitutingCommand)
             }
             let o: SubstitutionVelocityVideoOpts = parse_and_add_to_global(opt.json);
             let out = opt.out_stub.as_deref().unwrap();
-            match opt.randomness{
-                RandomState::Dynamic => {
-                    complexer_firms::sample_velocity_video(
-                        &o, 
-                        out, 
-                        opt.framerate,
-                        opt.no_clean,
-                        opt.convert_video
-                    )
-                },
-                RandomState::Quenched => {
-                    complexer_firms::quenched_substituting_firms::sample_velocity_video(
-                        &o, 
-                        out, 
-                        opt.framerate,
-                        opt.convert_video
-                    )
-                }
-            }
+            complexer_firms::sample_velocity_video(
+                &o, 
+                out, 
+                opt.framerate,
+                opt.no_clean,
+                opt.convert_video
+            )
         },
         SubstitutingCommand::CritBVideoRing(opt) => {
             if opt.print_alternatives{

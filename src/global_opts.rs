@@ -38,12 +38,6 @@ pub struct SubAutoOpt{
 
 }
 
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
-pub enum RandomState{
-    Quenched,
-    #[default]
-    Dynamic
-}
 
 #[derive(Parser, Debug)]
 pub struct SubstitutingMeanFieldOpt{
@@ -59,10 +53,6 @@ pub struct SubstitutingMeanFieldOpt{
     /// desired framerate in Hz
     #[arg(short, long, default_value_t=25)]
     pub framerate: u8,
-
-    /// Quenched or not?
-    #[arg(short, long, value_enum, default_value_t)]
-    pub randomness: RandomState,
 
     /// print alternatives for json creation
     #[arg(long, short)]
