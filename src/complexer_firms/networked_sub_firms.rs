@@ -27,6 +27,55 @@ where R: Rng + RngCore
         Self { firms, network: vec![Vec::new(); n] }
     }
 
+    pub fn independent_hub(&mut self)
+    {
+        let k = self.firms.k;
+        self.network.iter_mut().for_each(Vec::clear);
+        self.network[k..]
+            .iter_mut()
+            .for_each(
+                |adj|
+                {
+                    adj.extend(0..k)
+                }
+            );
+    }
+
+    fn add_self_links_unchecked(&mut self)
+    {
+        self.network
+            .iter_mut()
+            .enumerate()
+            .for_each(
+                |(index, adj)|
+                {
+                    adj.push(index);
+                }
+            );
+    }
+
+    pub fn independent_hub_self_links(&mut self)
+    {
+        self.independent_hub();
+        self.add_self_links_unchecked();
+    }
+
+    pub fn dependent_hub(&mut self)
+    {
+        let k = self.firms.k;
+        self.independent_hub();
+        self.network[..k]
+            .iter_mut()
+            .enumerate()
+            .for_each(
+                |(index, adj)|
+                {
+                    adj.extend(0..index);
+                    adj.extend(index+1..k);
+                }
+            )
+    }
+
     pub fn random_network(&mut self)
     {
         self.network
@@ -114,7 +163,13 @@ pub enum NetworkStructure{
     /// Ring structure for network
     Ring(RingOpt),
     /// Random network
-    Random
+    Random,
+    /// K nodes depend on nothing, everything else depends on these k nodes. NO SELF LINKS
+    IndependentHub,
+    /// K nodes depend on nothing, everything else depends on these k nodes. Every node has a self link
+    IndependentHubSelfLinks,
+    /// K nodes depend on each other, everything else depends on these k nodes. NO SELF LINKS
+    DependentHub
 }
 
 pub fn sample_ring_velocity_video(
@@ -199,7 +254,10 @@ where R: Rng + SeedableRng + 'static
                 let mut network_model = NetworkedSubFirms::new_empty(model);
                 match &structure{
                     NetworkStructure::Ring(offset) => network_model.make_ring(offset.offset),
-                    NetworkStructure::Random => network_model.random_network()
+                    NetworkStructure::Random => network_model.random_network(),
+                    NetworkStructure::IndependentHub => network_model.independent_hub(),
+                    NetworkStructure::IndependentHubSelfLinks => network_model.independent_hub_self_links(),
+                    NetworkStructure::DependentHub => network_model.dependent_hub()
                 }
 
                 let i_name = index.to_string();
