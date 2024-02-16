@@ -5,7 +5,7 @@ use {
     indicatif::ParallelProgressIterator, 
     rand::{Rng, RngCore, SeedableRng}, 
     rand_chacha::ChaCha20Rng, 
-    rand_distr::Distribution, 
+    rand_distr::{Distribution, Uniform}, 
     rand_pcg::{Pcg64, Pcg64Mcg}, 
     rand_xoshiro::{SplitMix64, Xoshiro256PlusPlus}, 
     rayon::prelude::*, 
@@ -46,10 +46,38 @@ where R: Rng + RngCore
         self.network
             .iter_mut()
             .enumerate()
+            .for_each(|(index, adj)| adj.push(index));
+    }
+
+    pub fn small_world(&mut self, p: f64, offset: isize)
+    {
+        self.make_ring(offset);
+        let k = self.firms.k;
+        let uni = Uniform::new(0, self.network.len());
+        self.network
+            .iter_mut()
             .for_each(
-                |(index, adj)|
+                |adj|
                 {
-                    adj.push(index);
+                    // randomly remove nodes
+                    (0..adj.len())
+                        .rev()
+                        .for_each(
+                            |i|
+                            {
+                                if self.firms.rng.gen::<f64>() < p {
+                                    adj.swap_remove(i);
+                                }
+                            }
+                        );
+                    // randomly add nodes
+                    while adj.len() < k {
+                        let idx = uni.sample(&mut self.firms.rng);
+                        if !adj.contains(&idx)
+                        {
+                            adj.push(idx);
+                        }
+                    }
                 }
             );
     }
@@ -156,12 +184,24 @@ pub struct RingOpt{
     offset: isize
 }
 
+#[derive(Debug, Clone, Copy, Parser)]
+pub struct RandomizedRingOpt{
+    /// Offset for ring
+    offset: isize,
+
+    /// rewire probability
+    p: f64
+}
+
+
 
 #[derive(Subcommand, Debug, Clone)]
 /// Which network structure to use?
 pub enum NetworkStructure{
     /// Ring structure for network
     Ring(RingOpt),
+    /// Ring structure but randomized
+    RandomizedRing(RandomizedRingOpt),
     /// Random network
     Random,
     /// K nodes depend on nothing, everything else depends on these k nodes. NO SELF LINKS
@@ -257,7 +297,8 @@ where R: Rng + SeedableRng + 'static
                     NetworkStructure::Random => network_model.random_network(),
                     NetworkStructure::IndependentHub => network_model.independent_hub(),
                     NetworkStructure::IndependentHubSelfLinks => network_model.independent_hub_self_links(),
-                    NetworkStructure::DependentHub => network_model.dependent_hub()
+                    NetworkStructure::DependentHub => network_model.dependent_hub(),
+                    NetworkStructure::RandomizedRing(opt) => network_model.small_world(opt.p, opt.offset)
                 }
 
                 let i_name = index.to_string();
