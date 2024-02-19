@@ -3,7 +3,7 @@ use {
     crate::misc::*, 
     clap::{Parser, Subcommand}, 
     indicatif::ParallelProgressIterator, 
-    rand::{Rng, RngCore, SeedableRng}, 
+    rand::{seq::SliceRandom, Rng, RngCore, SeedableRng}, 
     rand_chacha::ChaCha20Rng, 
     rand_distr::{Distribution, Uniform}, 
     rand_pcg::{Pcg64, Pcg64Mcg}, 
@@ -68,6 +68,95 @@ where R: Rng + RngCore
                     adj.push(idx);
                 }
             )
+    }
+
+    fn line_like(&mut self)
+    {
+        self.clear_network();
+        let k = self.firms.k;
+        let len = self.network.len();
+        self.network[..len-k]
+            .iter_mut()
+            .enumerate()
+            .for_each(
+                |(idx, adj)|
+                {
+                    adj.extend(idx..idx+k);
+                }
+            );
+        self.network[len-k..]
+            .iter_mut()
+            .for_each(
+                |adj|
+                {
+                    adj.extend(len-k..len)
+                }
+            );
+    }
+
+    pub fn loop_network(&mut self, frac: f64){
+        self.line_like();
+        if frac > 0.0 {
+            let k = self.firms.k;
+            let n = self.network.len();
+            let mut possibility: Vec<_> = (k..n-k)
+                .flat_map(
+                    |i|
+                    {
+                        (1..k)
+                            .map(
+                                move |o|
+                                {
+                                    (i, o)
+                                }
+                            )
+                    }
+                ).collect();
+            possibility.shuffle(&mut self.firms.rng);
+            let bound = (frac * n as f64).floor() as usize;
+            possibility[0..bound]
+                .iter()
+                .for_each(
+                    |&(i, o)|
+                    {
+                        loop{
+                            let new_val = self.firms.rng.gen_range(0..i);
+                            if !self.network[i].contains(&new_val){
+                                self.network[i][o] = new_val;
+                                break;
+                            }
+                        }
+                    }
+                )
+        }
+    }
+
+    pub fn separated_complete_graphs(&mut self)
+    {
+        self.clear_network();
+        let k = self.firms.k;
+        let mut iter = self.network
+            .chunks_exact_mut(k);
+        let mut counter = 0;
+        (&mut iter)
+            .for_each(
+                |chunk|
+                {
+                    let start = counter * k;
+                    let end = start + k;
+                    chunk.iter_mut()
+                        .for_each(|adj| adj.extend(start..end));
+                    counter += 1;
+                }
+            );
+        let rest = iter.into_remainder();
+        let start = counter * k;
+        let amount = rest.len();
+        let end = start + amount;
+        rest.iter_mut()
+            .for_each(
+                |adj| adj.extend(start..end)
+            );
     }
 
     pub fn small_world(&mut self, p: f64, offset: isize)
@@ -216,6 +305,10 @@ pub struct RandomizedRingOpt{
 }
 
 
+#[derive(Debug, Clone, Copy, Parser)]
+pub struct LoopTest{
+    p: f64
+}
 
 #[derive(Subcommand, Debug, Clone)]
 /// Which network structure to use?
@@ -233,7 +326,11 @@ pub enum NetworkStructure{
     /// K nodes depend on each other, everything else depends on these k nodes. NO SELF LINKS
     DependentHub,
     /// Line, just a test
-    Line
+    Line,
+    /// Loop tests
+    LoopTest(LoopTest),
+    /// Complete graphs that are separated from one another
+    CompleteChunks
 }
 
 pub fn sample_ring_velocity_video(
@@ -323,7 +420,9 @@ where R: Rng + SeedableRng + 'static
                     NetworkStructure::IndependentHubSelfLinks => network_model.independent_hub_self_links(),
                     NetworkStructure::DependentHub => network_model.dependent_hub(),
                     NetworkStructure::RandomizedRing(opt) => network_model.small_world(opt.p, opt.offset),
-                    NetworkStructure::Line => network_model.line()
+                    NetworkStructure::Line => network_model.line(),
+                    NetworkStructure::LoopTest(opt) => network_model.loop_network(opt.p),
+                    NetworkStructure::CompleteChunks => network_model.separated_complete_graphs()
                 }
 
                 let i_name = index.to_string();
