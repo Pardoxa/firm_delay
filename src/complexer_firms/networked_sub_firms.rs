@@ -1,5 +1,5 @@
 use {
-    super::substituting_firms::*, 
+    super::{network_helper::ImpactNetworkHelper, substituting_firms::*}, 
     crate::misc::*, 
     clap::{Parser, Subcommand}, 
     indicatif::ParallelProgressIterator, 
@@ -9,9 +9,18 @@ use {
     rand_pcg::{Pcg64, Pcg64Mcg}, 
     rand_xoshiro::{SplitMix64, Xoshiro256PlusPlus}, 
     rayon::prelude::*, 
-    std::io::Write
+    std::{io::Write, sync::RwLock}
 };
 
+static GLOBAL_NETWORK: RwLock<Vec<Vec<usize>>> = RwLock::new(Vec::new());
+
+fn set_global_network(k: usize, n: usize)
+{
+    let network = ImpactNetworkHelper::new(k, n).into_inner_network();
+    let mut lock = GLOBAL_NETWORK.write().unwrap();
+    *lock = network;
+    drop(lock);
+}
 
 pub struct NetworkedSubFirms<R>{
     firms: SubstitutingMeanField<R>,
@@ -233,6 +242,21 @@ where R: Rng + RngCore
             );
     }
 
+    pub fn impact_network(&mut self)
+    {
+        self.clear_network();
+        self.network
+            .iter_mut()
+            .enumerate()
+            .for_each(
+                |(idx, adj)|
+                {
+                    adj.push(idx);
+                }
+            );
+        
+    }
+
     pub fn make_ring(&mut self, offset: isize)
     {
         self.clear_network();
@@ -289,13 +313,13 @@ where R: Rng + RngCore
     }
 }
 
-#[derive(Debug, Clone, Copy, Parser)]
+#[derive(Debug, Clone, Copy, Parser, PartialEq, Eq)]
 pub struct RingOpt{
     /// Offset for ring
     offset: isize
 }
 
-#[derive(Debug, Clone, Copy, Parser)]
+#[derive(Debug, Clone, Copy, Parser, PartialEq)]
 pub struct RandomizedRingOpt{
     /// Offset for ring
     offset: isize,
@@ -305,12 +329,12 @@ pub struct RandomizedRingOpt{
 }
 
 
-#[derive(Debug, Clone, Copy, Parser)]
+#[derive(Debug, Clone, Copy, Parser, PartialEq)]
 pub struct LoopTest{
     p: f64
 }
 
-#[derive(Subcommand, Debug, Clone)]
+#[derive(Subcommand, Debug, Clone, PartialEq)]
 /// Which network structure to use?
 pub enum NetworkStructure{
     /// Ring structure for network
@@ -330,7 +354,9 @@ pub enum NetworkStructure{
     /// Loop tests
     LoopTest(LoopTest),
     /// Complete graphs that are separated from one another
-    CompleteChunks
+    CompleteChunks,
+    /// Using a distance Heuristic
+    DistanceHeuristic
 }
 
 pub fn sample_ring_velocity_video(
@@ -396,6 +422,11 @@ where R: Rng + SeedableRng + 'static
 
     let bar = crate::misc::indication_bar(iter.len() as u64);
 
+    if matches!(&structure, NetworkStructure::DistanceHeuristic)
+    {
+        set_global_network(opt.opts.k, opt.opts.n);
+    }
+
     
 
     let criticals: Vec<_> = iter
@@ -422,7 +453,12 @@ where R: Rng + SeedableRng + 'static
                     NetworkStructure::RandomizedRing(opt) => network_model.small_world(opt.p, opt.offset),
                     NetworkStructure::Line => network_model.line(),
                     NetworkStructure::LoopTest(opt) => network_model.loop_network(opt.p),
-                    NetworkStructure::CompleteChunks => network_model.separated_complete_graphs()
+                    NetworkStructure::CompleteChunks => network_model.separated_complete_graphs(),
+                    NetworkStructure::DistanceHeuristic => {
+                        let global = GLOBAL_NETWORK.read().unwrap();
+                        network_model.network = global.clone();
+                        drop(global);
+                    }
                 }
 
                 let i_name = index.to_string();
