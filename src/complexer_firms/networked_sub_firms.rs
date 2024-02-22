@@ -14,10 +14,11 @@ use {
 
 static GLOBAL_NETWORK: RwLock<Vec<Vec<usize>>> = RwLock::new(Vec::new());
 
-fn set_global_network(k: usize, n: usize, iterations: usize)
+fn set_global_network(k: usize, n: usize, iterations: usize, markov_steps: usize)
 {
     let mut impact = ImpactNetworkHelper::new_both_dirs(k, n);
     impact.rebuild_both_dirs(iterations);
+    impact.markov_greed(markov_steps);
     let network = impact.into_inner_network();
     let mut lock = GLOBAL_NETWORK.write().unwrap();
     *lock = network;
@@ -338,7 +339,8 @@ pub struct LoopTest{
 
 #[derive(Debug, Clone, Copy, Parser, PartialEq)]
 pub struct DistHeur{
-    iterations: usize
+    iterations: usize,
+    markov_steps: usize
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq)]
@@ -431,7 +433,7 @@ where R: Rng + SeedableRng + 'static
 
     if let NetworkStructure::DistanceHeuristic(d) = &structure
     {
-        set_global_network(opt.opts.k, opt.opts.n, d.iterations);
+        set_global_network(opt.opts.k, opt.opts.n, d.iterations, d.markov_steps);
     }
 
     

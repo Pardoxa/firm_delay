@@ -1,11 +1,63 @@
 use itertools::*;
-use rand::{seq::SliceRandom, SeedableRng};
+use rand::{seq::SliceRandom, Rng, SeedableRng};
 use rand_pcg::Pcg64Mcg;
+use sampling::traits::MarkovChain;
 pub struct ImpactNetworkHelper{
     //k: usize, // currently not needed, remove comment if that changes
     network: Vec<Vec<usize>>,
     // reverse network contains all links except self links
-    reverse_network: Vec<Vec<usize>>
+    reverse_network: Vec<Vec<usize>>,
+    rng: Pcg64Mcg
+}
+
+pub struct Step{
+    i: usize,
+    old_j: usize,
+    new_j: usize
+}
+
+impl MarkovChain<Step, ()> for ImpactNetworkHelper{
+    fn m_step(&mut self) -> Step {
+        let which_i = self.rng.gen_range(0..self.network.len());
+        let which_a = self.rng.gen_range(0..self.network[which_i].len());
+
+        let removed = self.network[which_i].swap_remove(which_a);
+        let pos = self.reverse_network[removed]
+            .iter().position(|&val| val == which_i)
+            .unwrap();
+        self.reverse_network[removed].swap_remove(pos);
+        loop{
+            let new = self.rng.gen_range(0..self.network.len());
+            if !self.network[which_i].contains(&new)
+            {
+                self.network[which_i].push(new);
+                self.reverse_network[new].push(which_i);
+                return Step{
+                    i: which_i,
+                    old_j: removed,
+                    new_j: new
+                };
+            }
+        }
+    }
+
+    fn undo_step(&mut self, step: &Step) {
+        self.undo_step_quiet(step)
+    }
+
+    fn undo_step_quiet(&mut self, step: &Step) {
+        let pos = self.network[step.i]
+            .iter().position(|&val| val == step.new_j)
+            .unwrap();
+        let _new_j = self.network[step.i].swap_remove(pos);
+        let pos = self.reverse_network[step.new_j]
+            .iter().position(|&val| val == step.i)
+            .unwrap();
+        self.reverse_network[step.new_j].swap_remove(pos);
+        self.reverse_network[step.old_j].push(step.i);
+        self.network[step.i].push(step.old_j);
+
+    }
 }
 
 #[allow(clippy::upper_case_acronyms)]
@@ -79,6 +131,16 @@ impl<'a> BFS<'a>
             level: 0 
         }
     }
+
+    pub fn recycle_self(&mut self, start: usize)
+    {
+        self.visited.iter_mut()
+            .for_each(|item| *item = false);
+        self.current_queue.clear();
+        self.current_queue.push(start);
+        self.next_queue.clear();
+        self.level = 0;
+    }
 }
 
 impl ImpactNetworkHelper{
@@ -113,6 +175,40 @@ impl ImpactNetworkHelper{
         }
     }
 
+    pub fn markov_greed(&mut self, steps: usize)
+    {
+        let mut current_energy = self.pseudo_energy();
+        for _ in 0..steps{
+            let step = self.m_step();
+            let new_energy = self.pseudo_energy();
+            if new_energy > current_energy{
+                self.undo_step_quiet(&step);
+            } else {
+                current_energy = new_energy;
+            }
+        }
+    }
+
+    fn pseudo_energy(&self) -> usize
+    {
+        let mut bfs_rn = BFS::new(&self.reverse_network, 0);
+        let mut counter = 1;
+        let len = self.network.len();
+        let mut sum = 0;
+        loop{
+            for (level, _) in &mut bfs_rn
+            {
+                sum += level as usize;
+            }
+            if counter == len{
+                break;
+            }
+            bfs_rn.recycle_self(counter);
+            counter += 1;
+        }
+        sum
+    }
+
     pub fn into_inner_network(self) -> Vec<Vec<usize>>
     {
         self.network
@@ -123,7 +219,8 @@ impl ImpactNetworkHelper{
         Self{
             //k,
             network: vec![Vec::with_capacity(k); n],
-            reverse_network: vec![Vec::new(); n]
+            reverse_network: vec![Vec::new(); n],
+            rng: Pcg64Mcg::seed_from_u64(823947)
         }
         
     }
