@@ -195,15 +195,18 @@ impl ImpactNetworkHelper{
         let mut counter = 1;
         let len = self.network.len();
         let mut sum = 0;
+        let mut all = vec![u32::MAX; len];
         loop{
-            for (level, _) in &mut bfs_rn
+            for (level, idx) in &mut bfs_rn
             {
-                sum += level as usize;
+                all[idx] = level;
             }
+            sum += all.iter().sum::<u32>() as usize;
             if counter == len{
                 break;
             }
             bfs_rn.recycle_self(counter);
+            all.iter_mut().for_each(|i| *i = u32::MAX);
             counter += 1;
         }
         sum

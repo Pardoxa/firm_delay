@@ -20,6 +20,11 @@ fn set_global_network(k: usize, n: usize, iterations: usize, markov_steps: usize
     impact.rebuild_both_dirs(iterations);
     impact.markov_greed(markov_steps);
     let network = impact.into_inner_network();
+    let correct_dim = network
+        .iter()
+        .map(|adj| adj.len())
+        .all(|len| len == k);
+    assert!(correct_dim);
     let mut lock = GLOBAL_NETWORK.write().unwrap();
     *lock = network;
     drop(lock);
