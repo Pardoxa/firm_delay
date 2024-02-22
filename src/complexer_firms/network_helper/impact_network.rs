@@ -97,13 +97,10 @@ impl ImpactNetworkHelper{
 
     pub fn new_both_dirs(k: usize, n: usize) -> Self{
         let mut this = Self::new_empty(k, n);
-        this.self_links();
-        this.ring_links();
-        let mut rng = Pcg64Mcg::seed_from_u64(814932);
-        let mut order = (0..this.reverse_network.len()).collect_vec();
-        for _ in 2..k {
-            order.shuffle(&mut rng);
-            this.neighbor_adding_sweep_both_directions(&order);
+        //this.self_links();
+        //this.ring_links();
+        for _ in 0..k {
+            this.neighbor_adding_sweep_both_directions();
         }
         this
     }
@@ -162,10 +159,23 @@ impl ImpactNetworkHelper{
         }
     }
 
-    fn neighbor_adding_sweep_both_directions(&mut self, order: &[usize])
+    fn neighbor_adding_sweep_both_directions(&mut self)
     {
-        // maybe I want to change the order in which this is iterated…
-        for &i in order
+        let mut front = true;
+        let iter = (0..self.network.len())
+            .batching(
+                |it|
+                {
+                    let next = if front{
+                        it.next()
+                    } else {
+                        it.next_back()
+                    };
+                    front = !front;
+                    next
+                }
+            );
+        for i in iter
         {
             let mut count = vec![u32::MAX; self.reverse_network.len()];
             let mut bfs = BFS::new(&self.reverse_network, i);
@@ -181,7 +191,7 @@ impl ImpactNetworkHelper{
             let mut idx = 0;
             for (&level, index) in count[1..].iter().zip(1..)
             {
-                if level > maximum{
+                if level >= maximum{
                     maximum = level;
                     idx = index;
                 }
