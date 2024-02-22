@@ -9,25 +9,21 @@ use {
     rand_pcg::{Pcg64, Pcg64Mcg}, 
     rand_xoshiro::{SplitMix64, Xoshiro256PlusPlus}, 
     rayon::prelude::*, 
-    std::{io::Write, sync::RwLock}
+    std::io::Write
 };
 
-static GLOBAL_NETWORK: RwLock<Vec<Vec<usize>>> = RwLock::new(Vec::new());
-
-fn set_global_network(k: usize, n: usize, iterations: usize, markov_steps: usize)
+fn get_heur_network(k: usize, n: usize, d: &DistHeur) -> Vec<Vec<usize>>
 {
     let mut impact = ImpactNetworkHelper::new_both_dirs(k, n);
-    impact.rebuild_both_dirs(iterations);
-    impact.markov_greed(markov_steps);
+    impact.rebuild_both_dirs(d.iterations);
+    impact.markov_greed(d.markov_steps, d.step_size);
     let network = impact.into_inner_network();
     let correct_dim = network
         .iter()
         .map(|adj| adj.len())
         .all(|len| len == k);
     assert!(correct_dim);
-    let mut lock = GLOBAL_NETWORK.write().unwrap();
-    *lock = network;
-    drop(lock);
+    network
 }
 
 pub struct NetworkedSubFirms<R>{
@@ -345,7 +341,9 @@ pub struct LoopTest{
 #[derive(Debug, Clone, Copy, Parser, PartialEq)]
 pub struct DistHeur{
     iterations: usize,
-    markov_steps: usize
+    markov_steps: usize,
+    #[arg(default_value_t=1)]
+    step_size: usize
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq)]
@@ -436,12 +434,12 @@ where R: Rng + SeedableRng + 'static
 
     let bar = crate::misc::indication_bar(iter.len() as u64);
 
-    if let NetworkStructure::DistanceHeuristic(d) = &structure
-    {
-        set_global_network(opt.opts.k, opt.opts.n, d.iterations, d.markov_steps);
-    }
-
-    
+    let g_network = match &structure{
+        NetworkStructure::DistanceHeuristic(d) => {
+            Some(get_heur_network(opt.opts.k, opt.opts.n, d))
+        },
+        _ => None
+    };
 
     let criticals: Vec<_> = iter
         .par_iter()
@@ -469,9 +467,8 @@ where R: Rng + SeedableRng + 'static
                     NetworkStructure::LoopTest(opt) => network_model.loop_network(opt.p),
                     NetworkStructure::CompleteChunks => network_model.separated_complete_graphs(),
                     NetworkStructure::DistanceHeuristic(_) => {
-                        let global = GLOBAL_NETWORK.read().unwrap();
-                        network_model.network = global.clone();
-                        drop(global);
+                        let network = g_network.as_ref().unwrap();
+                        network_model.network.clone_from(network);
                     }
                 }
 

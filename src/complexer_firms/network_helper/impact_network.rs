@@ -175,14 +175,15 @@ impl ImpactNetworkHelper{
         }
     }
 
-    pub fn markov_greed(&mut self, steps: usize)
+    pub fn markov_greed(&mut self, steps: usize, sz: usize)
     {
         let mut current_energy = self.pseudo_energy();
+        let mut step_vec = Vec::new();
         for _ in 0..steps{
-            let step = self.m_step();
+            self.m_steps(sz, &mut step_vec);
             let new_energy = self.pseudo_energy();
             if new_energy > current_energy{
-                self.undo_step_quiet(&step);
+                self.undo_steps_quiet(&step_vec);
             } else {
                 current_energy = new_energy;
             }
