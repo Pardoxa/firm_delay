@@ -14,9 +14,11 @@ use {
 
 static GLOBAL_NETWORK: RwLock<Vec<Vec<usize>>> = RwLock::new(Vec::new());
 
-fn set_global_network(k: usize, n: usize)
+fn set_global_network(k: usize, n: usize, iterations: usize)
 {
-    let network = ImpactNetworkHelper::new_both_dirs(k, n).into_inner_network();
+    let mut impact = ImpactNetworkHelper::new_both_dirs(k, n);
+    impact.rebuild_both_dirs(iterations);
+    let network = impact.into_inner_network();
     let mut lock = GLOBAL_NETWORK.write().unwrap();
     *lock = network;
     drop(lock);
@@ -334,6 +336,11 @@ pub struct LoopTest{
     p: f64
 }
 
+#[derive(Debug, Clone, Copy, Parser, PartialEq)]
+pub struct DistHeur{
+    iterations: usize
+}
+
 #[derive(Subcommand, Debug, Clone, PartialEq)]
 /// Which network structure to use?
 pub enum NetworkStructure{
@@ -356,7 +363,7 @@ pub enum NetworkStructure{
     /// Complete graphs that are separated from one another
     CompleteChunks,
     /// Using a distance Heuristic
-    DistanceHeuristic
+    DistanceHeuristic(DistHeur)
 }
 
 pub fn sample_ring_velocity_video(
@@ -422,9 +429,9 @@ where R: Rng + SeedableRng + 'static
 
     let bar = crate::misc::indication_bar(iter.len() as u64);
 
-    if matches!(&structure, NetworkStructure::DistanceHeuristic)
+    if let NetworkStructure::DistanceHeuristic(d) = &structure
     {
-        set_global_network(opt.opts.k, opt.opts.n);
+        set_global_network(opt.opts.k, opt.opts.n, d.iterations);
     }
 
     
@@ -454,7 +461,7 @@ where R: Rng + SeedableRng + 'static
                     NetworkStructure::Line => network_model.line(),
                     NetworkStructure::LoopTest(opt) => network_model.loop_network(opt.p),
                     NetworkStructure::CompleteChunks => network_model.separated_complete_graphs(),
-                    NetworkStructure::DistanceHeuristic => {
+                    NetworkStructure::DistanceHeuristic(_) => {
                         let global = GLOBAL_NETWORK.read().unwrap();
                         network_model.network = global.clone();
                         drop(global);

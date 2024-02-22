@@ -105,6 +105,14 @@ impl ImpactNetworkHelper{
         this
     }
 
+    pub fn rebuild_both_dirs(&mut self, iterations: usize)
+    {
+        let len = self.network[0].len();
+        for _ in 0..len * iterations{
+            self.rebuild_sweep_both_directions();
+        }
+    }
+
     pub fn into_inner_network(self) -> Vec<Vec<usize>>
     {
         self.network
@@ -198,6 +206,42 @@ impl ImpactNetworkHelper{
             }
             self.network[i].push(idx);
             self.reverse_network[idx].push(i);
+        }
+    }
+
+    fn rebuild_sweep_both_directions(&mut self)
+    {
+        for i in 0..self.network.len()
+        {
+            // first delete links
+            let removed = self.network[i].remove(0);
+            let pos = self.reverse_network[removed]
+                .iter().position(|&val| val == i)
+                .unwrap();
+            self.reverse_network[removed].swap_remove(pos);
+            // then add new ones
+            let mut count = vec![u32::MAX; self.reverse_network.len()];
+            let mut bfs = BFS::new(&self.reverse_network, i);
+            for (level, idx) in &mut bfs {
+                count[idx] = count[idx].min(level);
+            }
+            let bfs = bfs.recycle(&self.network, i);
+            for (level, idx) in bfs {
+                count[idx] = count[idx].min(level);
+            }
+
+            let mut maximum = count[0];
+            let mut idx = 0;
+            for (&level, index) in count[1..].iter().zip(1..)
+            {
+                if level >= maximum{
+                    maximum = level;
+                    idx = index;
+                }
+            }
+            self.network[i].push(idx);
+            self.reverse_network[idx].push(i);
+            
         }
     }
 }
