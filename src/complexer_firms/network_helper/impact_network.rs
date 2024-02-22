@@ -14,12 +14,12 @@ struct BFS<'a>{
     reverse_network: &'a [Vec<usize>],
     current_queue: Vec<usize>,
     next_queue: Vec<usize>,
-    level: usize
+    level: u32
 }
 
 impl<'a> Iterator for BFS<'a>
 {
-    type Item = (usize, usize);
+    type Item = (u32, usize);
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.current_queue.pop()?;
         self.reverse_network[next]
@@ -61,6 +61,24 @@ impl<'a> BFS<'a>
         }
     }
 
+    pub fn recycle(self, network: &[Vec<usize>], start: usize) -> BFS
+    {
+        let mut visited = self.visited;
+        visited.iter_mut()
+            .for_each(|item| *item = false);
+        let mut c_queue = self.current_queue;
+        c_queue.clear();
+        c_queue.push(start);
+        let mut next_queue = self.next_queue;
+        next_queue.clear();
+        BFS { 
+            visited, 
+            reverse_network: network, 
+            current_queue: c_queue, 
+            next_queue, 
+            level: 0 
+        }
+    }
 }
 
 impl ImpactNetworkHelper{
@@ -73,6 +91,19 @@ impl ImpactNetworkHelper{
         for _ in 2..k {
             order.shuffle(&mut rng);
             this.neighbor_adding_sweep(&order);
+        }
+        this
+    }
+
+    pub fn new_both_dirs(k: usize, n: usize) -> Self{
+        let mut this = Self::new_empty(k, n);
+        this.self_links();
+        this.ring_links();
+        let mut rng = Pcg64Mcg::seed_from_u64(814932);
+        let mut order = (0..this.reverse_network.len()).collect_vec();
+        for _ in 2..k {
+            order.shuffle(&mut rng);
+            this.neighbor_adding_sweep_both_directions(&order);
         }
         this
     }
@@ -128,6 +159,35 @@ impl ImpactNetworkHelper{
                 self.reverse_network[idx].push(i);
             }
 
+        }
+    }
+
+    fn neighbor_adding_sweep_both_directions(&mut self, order: &[usize])
+    {
+        // maybe I want to change the order in which this is iterated…
+        for &i in order
+        {
+            let mut count = vec![u32::MAX; self.reverse_network.len()];
+            let mut bfs = BFS::new(&self.reverse_network, i);
+            for (level, idx) in &mut bfs {
+                count[idx] = count[idx].min(level);
+            }
+            let bfs = bfs.recycle(&self.network, i);
+            for (level, idx) in bfs {
+                count[idx] = count[idx].min(level);
+            }
+
+            let mut maximum = count[0];
+            let mut idx = 0;
+            for (&level, index) in count[1..].iter().zip(1..)
+            {
+                if level > maximum{
+                    maximum = level;
+                    idx = index;
+                }
+            }
+            self.network[i].push(idx);
+            self.reverse_network[idx].push(i);
         }
     }
 }

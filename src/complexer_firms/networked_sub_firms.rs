@@ -16,7 +16,7 @@ static GLOBAL_NETWORK: RwLock<Vec<Vec<usize>>> = RwLock::new(Vec::new());
 
 fn set_global_network(k: usize, n: usize)
 {
-    let network = ImpactNetworkHelper::new(k, n).into_inner_network();
+    let network = ImpactNetworkHelper::new_both_dirs(k, n).into_inner_network();
     let mut lock = GLOBAL_NETWORK.write().unwrap();
     *lock = network;
     drop(lock);
