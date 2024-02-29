@@ -178,8 +178,8 @@ pub enum SubstitutingCommand{
     #[clap(visible_alias="video")]
     CritBVideo(SubstitutingMeanFieldOpt),
     /// Create video and measure critical B over substitution probability (or delta buffer)
-    #[clap(visible_alias="video2")]
-    CritBVideoRing(SubstitutingNetworkOpt),
+    #[clap(visible_alias="vNet")]
+    CritBVideoNetworks(SubstitutingNetworkOpt),
     /// Calculate the autocorrelation of the mean delay
     Auto(SubAutoOpt)
 }

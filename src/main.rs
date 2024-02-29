@@ -120,7 +120,7 @@ fn sub_chooser(opt: SubstitutingCommand)
                 opt.convert_video
             )
         },
-        SubstitutingCommand::CritBVideoRing(opt) => {
+        SubstitutingCommand::CritBVideoNetworks(opt) => {
             if opt.print_alternatives{
                 SubstitutionVelocityVideoOpts::print_alternatives(0);
                 exit(0);
