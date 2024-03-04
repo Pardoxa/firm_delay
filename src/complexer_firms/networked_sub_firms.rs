@@ -1,15 +1,12 @@
 use {
     super::{network_helper::ImpactNetworkHelper, substituting_firms::*}, 
-    crate::misc::*, 
-    clap::{Parser, Subcommand}, 
+    crate::misc::*, clap::{Parser, Subcommand}, 
     indicatif::ParallelProgressIterator, 
+    itertools::Itertools, 
     rand::{seq::SliceRandom, Rng, RngCore, SeedableRng}, 
-    rand_chacha::ChaCha20Rng, 
-    rand_distr::{Distribution, Uniform}, 
-    rand_pcg::{Pcg64, Pcg64Mcg}, 
-    rand_xoshiro::{SplitMix64, Xoshiro256PlusPlus}, 
-    rayon::prelude::*, 
-    std::io::Write
+    rand_chacha::ChaCha20Rng, rand_distr::{Distribution, Uniform}, 
+    rand_pcg::{Pcg64, Pcg64Mcg}, rand_xoshiro::{SplitMix64, Xoshiro256PlusPlus}, 
+    rayon::prelude::*, std::{collections::BTreeSet, io::Write}
 };
 
 fn get_heur_network(k: usize, n: usize, d: &DistHeur) -> Vec<Vec<usize>>
@@ -31,6 +28,38 @@ pub struct NetworkedSubFirms<R>{
     pub network: Vec<Vec<usize>>
 }
 
+fn ratios_to_layer_count(r: &[f64], len: usize) -> Vec<usize>
+{
+    let sum: f64 = r.iter().copied().sum();
+    let recip = sum.recip();
+    let percentages = r.iter()
+        .copied()
+        .map(|r| r * recip)
+        .collect_vec();
+    let len_f = len as f64;
+    let mut layer = percentages.iter()
+        .map(|&p| (p * len_f).floor() as usize)
+        .collect_vec();
+    let mut total: usize = layer.iter().sum();
+    while total < len {
+        let mut idx_max_missmatch = 0;
+        let mut max_missmatch = f64::NEG_INFINITY;
+        // this can be done more efficient, but I don't care as this is only called once per simulation
+        for i in 0..layer.len()
+        {
+            let current = layer[i] as f64 / len_f;
+            let missmatch = percentages[i] - current;
+            if missmatch > max_missmatch{
+                max_missmatch = missmatch;
+                idx_max_missmatch = i;
+            }
+        }
+        layer[idx_max_missmatch] += 1;
+        total += 1;
+    }
+    layer
+}
+
 impl<R> NetworkedSubFirms<R>
 where R: Rng + RngCore
 {
@@ -44,6 +73,95 @@ where R: Rng + RngCore
     fn clear_network(&mut self)
     {
         self.network.iter_mut().for_each(Vec::clear);
+    }
+
+    fn tree_like_network(&mut self, ratios: &[f64])
+    {
+        let k = self.firms.k;
+        self.clear_network();
+        let layer_count = ratios_to_layer_count(ratios, self.network.len());
+        assert!(
+            layer_count[0] >= self.firms.k,
+            "First layer needs to consist of at least k firms!"
+        );
+        let mut nodes = self.network.as_mut_slice();
+        // first nodes are of layer 0. They are only connected to themselves!
+        let mut current_layer;
+        let mut layer_iter = layer_count.iter();
+        let count = *layer_iter.next().unwrap();
+        (current_layer, nodes) = nodes.split_at_mut(count);
+        for (idx, node) in current_layer.iter_mut().enumerate()
+        {
+            node.push(idx);
+        }
+        let mut end = count;
+        // All other nodes are connected to k-1 nodes in layers above + to themselves
+        let km1 = k - 1;
+        for &count in layer_iter
+        {
+            (current_layer, nodes) = nodes.split_at_mut(count);
+            let mut set = BTreeSet::new();
+            let uni = Uniform::new(0, end);
+            for (node, idx) in current_layer.iter_mut().zip(end..)
+            {
+                set.clear();
+                while set.len() != km1 {
+                    set.extend(
+                        uni.sample_iter(&mut self.firms.rng)
+                            .take(km1 - set.len())
+                    );
+                }
+                node.extend(
+                    set.iter()
+                );
+                node.push(idx);
+            }
+            end += count;
+        }
+    }
+
+    fn tree_like_network_var(&mut self, ratios: &[f64])
+    {
+        let k = self.firms.k;
+        self.clear_network();
+        let layer_count = ratios_to_layer_count(ratios, self.network.len());
+        assert!(
+            layer_count[0] >= self.firms.k,
+            "First layer needs to consist of at least k firms!"
+        );
+        let mut nodes = self.network.as_mut_slice();
+        // first nodes are of layer 0. They are only connected to themselves!
+        let mut current_layer;
+        let mut layer_iter = layer_count.iter();
+        let count = *layer_iter.next().unwrap();
+        (current_layer, nodes) = nodes.split_at_mut(count);
+        for (idx, node) in current_layer.iter_mut().enumerate()
+        {
+            node.push(idx);
+        }
+        let mut end = count;
+        // All other nodes are connected to k-1 nodes in their + layer above and also to themselves
+        for &count in layer_iter
+        {
+            (current_layer, nodes) = nodes.split_at_mut(count);
+            let mut set = BTreeSet::new();
+            let uni = Uniform::new(0, end + count);
+            for (node, idx) in current_layer.iter_mut().zip(end..)
+            {
+                set.clear();
+                set.insert(idx);
+                while set.len() != k {
+                    set.extend(
+                        uni.sample_iter(&mut self.firms.rng)
+                            .take(k - set.len())
+                    );
+                }
+                node.extend(
+                    set.iter()
+                );
+            }
+            end += count;
+        }
     }
 
     pub fn independent_hub(&mut self)
@@ -332,6 +450,11 @@ pub struct RandomizedRingOpt{
     p: f64
 }
 
+#[derive(Debug, Clone, Parser, PartialEq)]
+pub struct TreeLikeNetwork{
+    pub ratios: Vec<f64>
+}
+
 
 #[derive(Debug, Clone, Copy, Parser, PartialEq)]
 pub struct LoopTest{
@@ -368,7 +491,12 @@ pub enum NetworkStructure{
     /// Complete graphs that are separated from one another
     CompleteChunks,
     /// Using a distance Heuristic
-    DistanceHeuristic(DistHeur)
+    DistanceHeuristic(DistHeur),
+    /// Tree like networks
+    TreeLike(TreeLikeNetwork),
+    /// Variant of tree like where each node may also be connected to nodes on the same layer 
+    /// (except for layer 0, which is only connected to themselves)
+    TreeLikeVar(TreeLikeNetwork)
 }
 
 pub fn sample_ring_velocity_video(
@@ -469,6 +597,12 @@ where R: Rng + SeedableRng + 'static
                     NetworkStructure::DistanceHeuristic(_) => {
                         let network = g_network.as_ref().unwrap();
                         network_model.network.clone_from(network);
+                    },
+                    NetworkStructure::TreeLike(opt) => {
+                        network_model.tree_like_network(&opt.ratios)
+                    },
+                    NetworkStructure::TreeLikeVar(opt) => {
+                        network_model.tree_like_network_var(&opt.ratios)
                     }
                 }
 
