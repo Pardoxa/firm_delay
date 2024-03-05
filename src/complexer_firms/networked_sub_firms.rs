@@ -9,6 +9,49 @@ use {
     rayon::prelude::*, std::{collections::BTreeSet, io::Write}
 };
 
+fn recursive_interweaving_k5(rec_count: u8) -> Vec<Vec<usize>>
+{
+    let mut origin = (0_usize..4)
+        .map(
+            |i|
+            {
+                (0..i).chain(i+1..4)
+                    .collect_vec()
+            }
+        ).collect_vec();
+    for _ in 0..rec_count
+    {
+        let new_len = origin.len() * 4;
+        let mut next_nodes = vec![Vec::with_capacity(5); new_len];
+        let mut next_node_count = origin.len();
+        for (idx, adj) in origin.iter().enumerate()
+        {
+            for &j in adj {
+                if j > idx {
+                    let k1 = next_node_count;
+                    let k2 = next_node_count + 1;
+                    next_node_count += 2;
+                    let j_adj = &mut next_nodes[j];
+                    j_adj.push(k1);
+                    let i_adj = &mut next_nodes[idx];
+                    i_adj.push(k2);
+                    let k1_adj = &mut next_nodes[k1];
+                    k1_adj.extend_from_slice(&[idx, j, k2]);
+                    let k2_adj = &mut next_nodes[k2];
+                    k2_adj.extend_from_slice(&[idx, j, k1]);
+                }
+            }
+        }
+        origin = next_nodes;
+    }
+    origin.iter_mut()
+        .enumerate()
+        .for_each(
+            |(idx, adj)| adj.push(idx)
+        );
+    origin
+}
+
 fn get_heur_network(k: usize, n: usize, d: &DistHeur) -> Vec<Vec<usize>>
 {
     let mut impact = ImpactNetworkHelper::new_both_dirs(k, n);
@@ -455,6 +498,11 @@ pub struct TreeLikeNetwork{
     pub ratios: Vec<f64>
 }
 
+#[derive(Debug, Clone, Parser, PartialEq)]
+pub struct RecursiveK5{
+    pub recursions: u8
+}
+
 
 #[derive(Debug, Clone, Copy, Parser, PartialEq)]
 pub struct LoopTest{
@@ -496,7 +544,9 @@ pub enum NetworkStructure{
     TreeLike(TreeLikeNetwork),
     /// Variant of tree like where each node may also be connected to nodes on the same layer 
     /// (except for layer 0, which is only connected to themselves)
-    TreeLikeVar(TreeLikeNetwork)
+    TreeLikeVar(TreeLikeNetwork),
+    /// Recursively created highly connected graph. Ignores N. k has to be 5
+    RecursiveK5(RecursiveK5)
 }
 
 pub fn sample_ring_velocity_video(
@@ -541,6 +591,28 @@ fn sample_network_velocity_video_helper<R>(
 )
 where R: Rng + SeedableRng + 'static
 {
+    let (opt, network) = match &structure
+    {
+        NetworkStructure::RecursiveK5(RecursiveK5{recursions}) => {
+            let n = 4_usize.pow(*recursions as u32 + 1);
+            let mut opt: SubstitutionVelocityVideoOpts = opt.clone();
+            opt.opts.n = n;
+            println!("Setting n to {n}");
+            assert_eq!(
+                opt.opts.k,
+                5,
+                "K needs to be five here!"
+            );
+            let network = recursive_interweaving_k5(*recursions);
+            let total_edges = network.iter()
+                .map(|adj| adj.len())
+                .sum::<usize>();
+            let average_edges = total_edges as f64 / network.len() as f64;
+            println!("Average edges: {average_edges}");
+            (opt, Some(network))
+        },
+        _ => (opt.to_owned(), None)
+    };
     if opt.reset_fraction.is_some(){
         assert!(opt.sub_dist.is_reset_fraction_allowed());
     }
@@ -582,7 +654,12 @@ where R: Rng + SeedableRng + 'static
                 
                 model_opt.seed = index as u64;
 
-                let model = SubstitutingMeanField::new(&model_opt);
+                let model = match &structure{
+                    NetworkStructure::RecursiveK5(_) =>  {
+                        SubstitutingMeanField::new_empty_index_sampler(&model_opt)
+                    },
+                    _ => SubstitutingMeanField::new(&model_opt)
+                };
                 let mut network_model = NetworkedSubFirms::new_empty(model);
                 match &structure{
                     NetworkStructure::Ring(offset) => network_model.make_ring(offset.offset),
@@ -603,6 +680,14 @@ where R: Rng + SeedableRng + 'static
                     },
                     NetworkStructure::TreeLikeVar(opt) => {
                         network_model.tree_like_network_var(&opt.ratios)
+                    },
+                    NetworkStructure::RecursiveK5(_) => {
+                        match &network{
+                            Some(network) => {
+                                network_model.network.clone_from(network);
+                            },
+                            None => unreachable!()
+                        }
                     }
                 }
 

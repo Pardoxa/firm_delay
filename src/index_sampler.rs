@@ -76,7 +76,9 @@ impl IndexSampler
             panic!("Abbort! len cant be cast as u32")
         }
 
-        if amount >= len {
+        if amount > len {
+            dbg!(amount);
+            dbg!(len);
             panic!("Amount to large!")
         }
 

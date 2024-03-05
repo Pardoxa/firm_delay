@@ -140,7 +140,7 @@ impl SelfLinks{
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SubstitutionVelocityVideoOpts{
     pub buffer: SampleRangeF64,
     pub substitution_prob: Option<SampleRangeF64>,
@@ -380,6 +380,31 @@ where R: Rng + SeedableRng{
             opt.n, 
             opt.k, 
             &mut rng
+        );
+        assert_eq!(opt.lambda, 1.0, "For optimization reasons other lamba are currently not implemented!");
+        // let exp = Exp::new(opt.lambda)
+        //    .unwrap();
+        let exp = Exp1;
+        Self{
+            current_delays,
+            next_delays,
+            buffers: opt.get_buffers(),
+            k: opt.k,
+            index_sampler,
+            substitution_prob: opt.get_substitution_prob(),
+            rng,
+            dist: exp
+        }
+    }
+
+    pub fn new_empty_index_sampler(opt: &SubstitutingMeanFieldOpts) -> Self
+    {
+        let current_delays = vec![0.0; opt.n];
+        let next_delays = vec![0.0; opt.n];
+        let rng = R::seed_from_u64(opt.seed);
+        let index_sampler = IndexSampler::new_inplace(
+            2,
+            1
         );
         assert_eq!(opt.lambda, 1.0, "For optimization reasons other lamba are currently not implemented!");
         // let exp = Exp::new(opt.lambda)
