@@ -1,5 +1,5 @@
 use {
-    super::{network_helper::{write_digraph, ImpactNetworkHelper}, substituting_firms::*}, crate::misc::*, camino::Utf8PathBuf, clap::{Parser, Subcommand}, indicatif::ParallelProgressIterator, itertools::Itertools, rand::{seq::SliceRandom, Rng, RngCore, SeedableRng}, rand_chacha::ChaCha20Rng, rand_distr::{Distribution, Uniform}, rand_pcg::{Pcg64, Pcg64Mcg}, rand_xoshiro::{SplitMix64, Xoshiro256PlusPlus}, rayon::prelude::*, std::{collections::BTreeSet, io::Write}
+    super::{network_helper::{write_digraph, ImpactNetworkHelper}, substituting_firms::*}, crate::misc::*, camino::Utf8PathBuf, clap::{Parser, Subcommand}, indicatif::ParallelProgressIterator, itertools::Itertools, rand::{seq::SliceRandom, Rng, RngCore, SeedableRng}, rand_chacha::ChaCha20Rng, rand_distr::{Distribution, Uniform}, rand_pcg::{Pcg64, Pcg64Mcg}, rand_xoshiro::{SplitMix64, Xoshiro256PlusPlus}, rayon::prelude::*, std::{collections::BTreeSet, io::Write, num::NonZeroUsize}
 };
 
 // Not actually what I originally planned, but it leads to interesting 
@@ -49,6 +49,33 @@ fn recursive_interweaving_k5(rec_count: u8) -> Vec<Vec<usize>>
             |(idx, adj)| adj.push(idx)
         );
     origin
+}
+
+fn create_center_network(
+    chain_len: NonZeroUsize, 
+    other_node_count: NonZeroUsize
+) -> Vec<Vec<usize>>
+{
+    let n = 1 + chain_len.get() * other_node_count.get();
+    let mut network = vec![Vec::new(); n];
+    let mut next_node_id = 1;
+    for _ in 0..other_node_count.get()
+    {
+        let mut last_node;
+        let mut current_node = next_node_id;
+        next_node_id += 1;
+        for _ in 1..chain_len.get()
+        {
+            last_node = current_node;
+            current_node = next_node_id;
+            next_node_id += 1;
+            network[last_node].push(current_node);
+            network[current_node].push(last_node);
+        }
+        network[current_node].push(0);
+        network[0].push(current_node);
+    }
+    network
 }
 
 fn get_heur_network(k: usize, n: usize, d: &DistHeur) -> Vec<Vec<usize>>
@@ -506,6 +533,19 @@ pub struct RecursiveK5{
     pub dot_file: Option<Utf8PathBuf>
 }
 
+#[derive(Debug, Clone, Parser, PartialEq)]
+pub struct CenterNetwork{
+    /// Length of chain
+    pub chain_len: NonZeroUsize,
+
+    /// How many nodes are connected to center?
+    pub other_node_count: NonZeroUsize,
+
+    /// write the network
+    #[arg(long, short)]
+    pub dot_file: Option<Utf8PathBuf>
+}
+
 
 #[derive(Debug, Clone, Copy, Parser, PartialEq)]
 pub struct LoopTest{
@@ -549,7 +589,9 @@ pub enum NetworkStructure{
     /// (except for layer 0, which is only connected to themselves)
     TreeLikeVar(TreeLikeNetwork),
     /// Recursively created highly connected graph. Ignores N. k has to be 5
-    RecursiveK5(RecursiveK5)
+    RecursiveK5(RecursiveK5),
+    /// Center network
+    CenterNetwork(CenterNetwork)
 }
 
 pub fn sample_ring_velocity_video(
@@ -619,6 +661,17 @@ where R: Rng + SeedableRng + 'static
             }
             (opt, Some(network))
         },
+        NetworkStructure::CenterNetwork(c) => {
+            let network = create_center_network(c.chain_len, c.other_node_count);
+            if let Some(path) = &c.dot_file 
+            {
+                let writer = create_buf_with_command_and_version(path);
+                write_digraph(writer, &network);
+            }
+            let mut opt: SubstitutionVelocityVideoOpts = opt.clone();
+            opt.opts.n = network.len();
+            (opt, Some(network))
+        }
         _ => (opt.to_owned(), None)
     };
     if opt.reset_fraction.is_some(){
@@ -663,7 +716,7 @@ where R: Rng + SeedableRng + 'static
                 model_opt.seed = index as u64;
 
                 let model = match &structure{
-                    NetworkStructure::RecursiveK5(_) =>  {
+                    NetworkStructure::RecursiveK5(_) | NetworkStructure::CenterNetwork(_) =>  {
                         SubstitutingMeanField::new_empty_index_sampler(&model_opt)
                     },
                     _ => SubstitutingMeanField::new(&model_opt)
@@ -689,7 +742,7 @@ where R: Rng + SeedableRng + 'static
                     NetworkStructure::TreeLikeVar(opt) => {
                         network_model.tree_like_network_var(&opt.ratios)
                     },
-                    NetworkStructure::RecursiveK5(_) => {
+                    NetworkStructure::RecursiveK5(_) | NetworkStructure::CenterNetwork(_) => {
                         match &network{
                             Some(network) => {
                                 network_model.network.clone_from(network);
