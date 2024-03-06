@@ -1,7 +1,8 @@
 use std::io::Write;
 
-pub fn write_digraph<W>(mut writer: W, network: &[Vec<usize>])
-where W: Write
+pub fn write_digraph<'a, W, I>(mut writer: W, network: &'a [I])
+where W: Write,
+    &'a I: IntoIterator<Item = &'a usize>
 {
     writeln!(
         writer,
