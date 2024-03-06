@@ -78,6 +78,66 @@ fn create_center_network(
     network
 }
 
+fn create_cycle_network(
+    chain_len: NonZeroUsize, 
+    in_count: usize,
+    out_count: usize,
+    undirected_count: usize
+) -> Vec<Vec<usize>>
+{
+    let n = 2 + chain_len.get() * (in_count + out_count + undirected_count);
+    let mut network = vec![Vec::new(); n];
+    let mut next_node_id = 2;
+    let mut last_node;
+    let mut current_node;
+    for _ in 0..out_count
+    {
+        current_node = next_node_id;
+        next_node_id += 1;
+        network[current_node].push(1);
+        for _ in 1..chain_len.get()
+        {
+            last_node = current_node;
+            current_node = next_node_id;
+            next_node_id += 1;
+            network[current_node].push(last_node);
+        }
+        network[0].push(current_node);
+    }
+    for _ in 0..out_count
+    {
+        current_node = next_node_id;
+        next_node_id += 1;
+        network[1].push(current_node);
+        network[current_node].push(1);
+        for _ in 1..chain_len.get()
+        {
+            last_node = current_node;
+            current_node = next_node_id;
+            next_node_id += 1;
+            network[last_node].push(current_node);
+            network[current_node].push(last_node);
+        }
+        network[current_node].push(0);
+        network[0].push(current_node);
+    }
+    for _ in 0..in_count
+    {
+        current_node = next_node_id;
+        next_node_id += 1;
+        network[1].push(current_node);
+        for _ in 1..chain_len.get()
+        {
+            last_node = current_node;
+            current_node = next_node_id;
+            next_node_id += 1;
+            network[last_node].push(current_node);
+        }
+        network[current_node].push(0);
+    }
+    network
+}
+
 fn get_heur_network(k: usize, n: usize, d: &DistHeur) -> Vec<Vec<usize>>
 {
     let mut impact = ImpactNetworkHelper::new_both_dirs(k, n);
@@ -547,6 +607,25 @@ pub struct CenterNetwork{
 }
 
 
+#[derive(Debug, Clone, Parser, PartialEq)]
+pub struct CycleNetwork{
+    /// Length of chain
+    pub chain_len: NonZeroUsize,
+
+    /// How many chains into top
+    pub in_count: usize,
+
+    /// How many chains out of top
+    pub out_count: usize,
+
+    /// Chains with undirected edges
+    pub undirected_count: usize,
+
+    /// write the network
+    #[arg(long, short)]
+    pub dot_file: Option<Utf8PathBuf>
+}
+
 #[derive(Debug, Clone, Copy, Parser, PartialEq)]
 pub struct LoopTest{
     p: f64
@@ -591,7 +670,9 @@ pub enum NetworkStructure{
     /// Recursively created highly connected graph. Ignores N. k has to be 5
     RecursiveK5(RecursiveK5),
     /// Center network
-    CenterNetwork(CenterNetwork)
+    CenterNetwork(CenterNetwork),
+    /// Testing Cycles
+    CycleNetwork(CycleNetwork)
 }
 
 pub fn sample_ring_velocity_video(
@@ -671,7 +752,23 @@ where R: Rng + SeedableRng + 'static
             let mut opt: SubstitutionVelocityVideoOpts = opt.clone();
             opt.opts.n = network.len();
             (opt, Some(network))
-        }
+        },
+        NetworkStructure::CycleNetwork(c) => {
+            let network = create_cycle_network(
+                c.chain_len, 
+                c.in_count, 
+                c.out_count, 
+                c.undirected_count
+            );
+            if let Some(path) = &c.dot_file 
+            {
+                let writer = create_buf_with_command_and_version(path);
+                write_digraph(writer, &network);
+            }
+            let mut opt: SubstitutionVelocityVideoOpts = opt.clone();
+            opt.opts.n = network.len();
+            (opt, Some(network))
+        },
         _ => (opt.to_owned(), None)
     };
     if opt.reset_fraction.is_some(){
@@ -716,7 +813,7 @@ where R: Rng + SeedableRng + 'static
                 model_opt.seed = index as u64;
 
                 let model = match &structure{
-                    NetworkStructure::RecursiveK5(_) | NetworkStructure::CenterNetwork(_) =>  {
+                    NetworkStructure::RecursiveK5(_) | NetworkStructure::CenterNetwork(_) | NetworkStructure::CycleNetwork(_) =>  {
                         SubstitutingMeanField::new_empty_index_sampler(&model_opt)
                     },
                     _ => SubstitutingMeanField::new(&model_opt)
@@ -742,7 +839,7 @@ where R: Rng + SeedableRng + 'static
                     NetworkStructure::TreeLikeVar(opt) => {
                         network_model.tree_like_network_var(&opt.ratios)
                     },
-                    NetworkStructure::RecursiveK5(_) | NetworkStructure::CenterNetwork(_) => {
+                    NetworkStructure::RecursiveK5(_) | NetworkStructure::CenterNetwork(_) | NetworkStructure::CycleNetwork(_) => {
                         match &network{
                             Some(network) => {
                                 network_model.network.clone_from(network);
