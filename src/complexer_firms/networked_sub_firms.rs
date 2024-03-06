@@ -104,7 +104,7 @@ fn create_cycle_network(
         }
         network[0].push(current_node);
     }
-    for _ in 0..out_count
+    for _ in 0..undirected_count
     {
         current_node = next_node_id;
         next_node_id += 1;
