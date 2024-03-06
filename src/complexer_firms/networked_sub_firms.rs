@@ -1,14 +1,13 @@
 use {
-    super::{network_helper::ImpactNetworkHelper, substituting_firms::*}, 
-    crate::misc::*, clap::{Parser, Subcommand}, 
-    indicatif::ParallelProgressIterator, 
-    itertools::Itertools, 
-    rand::{seq::SliceRandom, Rng, RngCore, SeedableRng}, 
-    rand_chacha::ChaCha20Rng, rand_distr::{Distribution, Uniform}, 
-    rand_pcg::{Pcg64, Pcg64Mcg}, rand_xoshiro::{SplitMix64, Xoshiro256PlusPlus}, 
-    rayon::prelude::*, std::{collections::BTreeSet, io::Write}
+    super::{network_helper::{write_digraph, ImpactNetworkHelper}, substituting_firms::*}, crate::misc::*, camino::Utf8PathBuf, clap::{Parser, Subcommand}, indicatif::ParallelProgressIterator, itertools::Itertools, rand::{seq::SliceRandom, Rng, RngCore, SeedableRng}, rand_chacha::ChaCha20Rng, rand_distr::{Distribution, Uniform}, rand_pcg::{Pcg64, Pcg64Mcg}, rand_xoshiro::{SplitMix64, Xoshiro256PlusPlus}, rayon::prelude::*, std::{collections::BTreeSet, io::Write}
 };
 
+// Not actually what I originally planned, but it leads to interesting 
+// results, so I'm keeping it.
+//
+// Note: Currently k != 5. Even if everything worked like I originally
+// planned it would have been k == 4, but the way it is implemented 
+// now, k is decreasing with rec_count.
 fn recursive_interweaving_k5(rec_count: u8) -> Vec<Vec<usize>>
 {
     let mut origin = (0_usize..4)
@@ -500,7 +499,11 @@ pub struct TreeLikeNetwork{
 
 #[derive(Debug, Clone, Parser, PartialEq)]
 pub struct RecursiveK5{
-    pub recursions: u8
+    pub recursions: u8,
+
+    /// write the network
+    #[arg(long, short)]
+    pub dot_file: Option<Utf8PathBuf>
 }
 
 
@@ -593,8 +596,8 @@ where R: Rng + SeedableRng + 'static
 {
     let (opt, network) = match &structure
     {
-        NetworkStructure::RecursiveK5(RecursiveK5{recursions}) => {
-            let n = 4_usize.pow(*recursions as u32 + 1);
+        NetworkStructure::RecursiveK5(r) => {
+            let n = 4_usize.pow(r.recursions as u32 + 1);
             let mut opt: SubstitutionVelocityVideoOpts = opt.clone();
             opt.opts.n = n;
             println!("Setting n to {n}");
@@ -603,12 +606,17 @@ where R: Rng + SeedableRng + 'static
                 5,
                 "K needs to be five here!"
             );
-            let network = recursive_interweaving_k5(*recursions);
+            let network = recursive_interweaving_k5(r.recursions);
             let total_edges = network.iter()
                 .map(|adj| adj.len())
                 .sum::<usize>();
             let average_edges = total_edges as f64 / network.len() as f64;
             println!("Average edges: {average_edges}");
+            if let Some(path) = &r.dot_file 
+            {
+                let writer = create_buf_with_command_and_version(path);
+                write_digraph(writer, &network);
+            }
             (opt, Some(network))
         },
         _ => (opt.to_owned(), None)
