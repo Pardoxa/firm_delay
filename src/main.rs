@@ -127,11 +127,16 @@ fn sub_chooser(opt: SubstitutingCommand)
             }
             
             let o: SubstitutionVelocityVideoOpts = parse_and_add_to_global(opt.json);
-            assert_eq!(
-                o.self_links,
-                SelfLinks::AllowSelfLinks,
-                "Other self links are unimplemented!"
-            );
+            if !matches!(o.self_links, SelfLinks::AllowSelfLinks)
+            {
+                assert_eq!(
+                    o.self_links,
+                    SelfLinks::AlwaysSelfLink
+                );
+                println!(
+                    "Careful: This is only implemented for cycle networks."
+                );
+            }
             let out = opt.out_stub.as_deref().unwrap();
             complexer_firms::sample_ring_velocity_video(
                 &o, 

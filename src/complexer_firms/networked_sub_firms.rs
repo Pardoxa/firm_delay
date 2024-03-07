@@ -82,7 +82,8 @@ fn create_cycle_network(
     chain_len: NonZeroUsize, 
     in_count: usize,
     out_count: usize,
-    undirected_count: usize
+    undirected_count: usize,
+    self_link: bool
 ) -> Vec<Vec<usize>>
 {
     let n = 2 + chain_len.get() * (in_count + out_count + undirected_count);
@@ -134,6 +135,16 @@ fn create_cycle_network(
             network[last_node].push(current_node);
         }
         network[current_node].push(0);
+    }
+    if self_link{
+        network.iter_mut()
+            .enumerate()
+            .for_each(
+                |(idx, adj)|
+                {
+                    adj.push(idx);
+                }
+            );
     }
     network
 }
@@ -754,11 +765,16 @@ where R: Rng + SeedableRng + 'static
             (opt, Some(network))
         },
         NetworkStructure::CycleNetwork(c) => {
+            let self_link = matches!(opt.self_links, SelfLinks::AlwaysSelfLink);
+            if self_link{
+                println!("Activated Self links");
+            }
             let network = create_cycle_network(
                 c.chain_len, 
                 c.in_count, 
                 c.out_count, 
-                c.undirected_count
+                c.undirected_count,
+                self_link
             );
             if let Some(path) = &c.dot_file 
             {
