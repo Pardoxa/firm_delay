@@ -117,6 +117,26 @@ pub fn test_demand()
     
 }
 
+pub fn test_demand_velocity()
+{
+    let mut buf = create_buf_with_command_and_version("test_demand_velocity_longer.dat");
+    for demand in 0..=100{
+        let demand = demand as f64 / 100.0;
+        let mut model = Model::new_chain(100, 203984579, demand);
+        for _ in 0..10000{
+            model.update_demand();
+            model.update_production();
+
+        }
+        writeln!(
+            buf,
+            "{demand} {}",
+            model.current_demand[0] / 10000.0
+        ).unwrap();
+    }
+    
+}
+
 impl Model{
     fn new_chain(size: usize, seed: u64, demand_at_root: f64) -> Self{
         let first = Node{

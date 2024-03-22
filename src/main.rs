@@ -185,7 +185,7 @@ fn main() {
             helper_chooser(helper_opt)
         },
         CmdChooser::Test => {
-            my_model::test_demand();
+            my_model::test_demand_velocity();
         }
 
     }
