@@ -1,6 +1,6 @@
 use std::process::exit;
 
-use complexer_firms::{auto, AutoOpts, SubstitutionVelocitySampleOpts};
+use complexer_firms::{auto, my_model, AutoOpts, SubstitutionVelocitySampleOpts};
 use correlations::calc_correlations;
 use global_opts::{Helper, SimpleCommand, SubstitutingCommand};
 
@@ -183,6 +183,9 @@ fn main() {
         },
         CmdChooser::Helper(helper_opt) => {
             helper_chooser(helper_opt)
+        },
+        CmdChooser::Test => {
+            my_model::test_demand();
         }
 
     }

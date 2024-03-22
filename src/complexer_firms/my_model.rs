@@ -1,8 +1,7 @@
-use std::collections::VecDeque;
-
+use std::io::Write;
 use itertools::Itertools;
 use rand::SeedableRng;
-use rand_distr::{Distribution, Exp, Uniform};
+use rand_distr::{Distribution, Uniform};
 use rand_pcg::Pcg64;
 
 use crate::create_buf_with_command_and_version;
@@ -15,12 +14,16 @@ pub struct IndexHelper{
     internal_idx: usize
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct StockAvailItem{
+    stock: f64,
+    currently_avail: f64,
+}
+
 #[derive(Debug, Clone)]
 pub struct Node{
     children: Vec<usize>,
-    parents: Vec<IndexHelper>,
-    available_product: Vec<f64>,
-    stock: Vec<f64>
+    parents: Vec<IndexHelper>
 }
 
 #[allow(non_snake_case)]
@@ -30,9 +33,10 @@ pub struct Model{
     current_demand: Vec<f64>,
     root_order: Vec<usize>,
     leaf_order: Vec<usize>,
-    leafs: Vec<usize>,
     current_limit: Vec<f64>,
-    rng: Pcg64
+    rng: Pcg64,
+    stock_avail: Vec<Vec<StockAvailItem>>,
+    demand_at_root: f64
 }
 
 #[inline]
@@ -42,7 +46,7 @@ fn set_const(slice: &mut [f64], c: f64)
         .for_each(|val| *val = c);
 }
 
-fn calc_leaf_order(slice: &[Node]) -> (Vec<usize>, Vec<usize>)
+fn calc_leaf_order(slice: &[Node]) -> Vec<usize>
 {
     // add leafs to stack
     let mut stack = slice.iter()
@@ -55,7 +59,6 @@ fn calc_leaf_order(slice: &[Node]) -> (Vec<usize>, Vec<usize>)
                     .then_some(idx)
             }
         ).collect_vec();
-    let leafs = stack.clone();
     let mut counter = vec![0; slice.len()];
 
     let mut order = Vec::new();
@@ -70,7 +73,7 @@ fn calc_leaf_order(slice: &[Node]) -> (Vec<usize>, Vec<usize>)
             }
         }
     }
-    (order, leafs)
+    order
 }
 
 fn calc_root_order(slice: &[Node]) -> Vec<usize>
@@ -94,44 +97,50 @@ fn calc_root_order(slice: &[Node]) -> Vec<usize>
     order
 }
 
-fn test_demand()
+pub fn test_demand()
 {
-    let mut model = Model::new_chain(50, 203984579);
-    let mut buf = create_buf_with_command_and_version("test.dat");
-    for i in 0..100{
-        model.update_demand();
-        model.update_production();
-
+    for demand in [0.2, 0.25, 0.3, 0.35, 0.4]{
+        let mut model = Model::new_chain(50, 203984579, demand);
+        let mut buf = create_buf_with_command_and_version(
+            format!("test_demand{demand}.dat")
+        );
+        for i in 1..10000{
+            model.update_demand();
+            model.update_production();
+            writeln!(
+                buf,
+                "{i} {}",
+                model.current_demand[0]
+            ).unwrap();
+        }
     }
+    
 }
 
 impl Model{
-    fn new_chain(size: usize, seed: u64) -> Self{
+    fn new_chain(size: usize, seed: u64, demand_at_root: f64) -> Self{
         let first = Node{
             children: vec![1],
-            parents: Vec::new(),
-            available_product: vec![0.0],
-            stock: vec![0.0]
+            parents: Vec::new()
         };
         let mut nodes = vec![first];
+        let mut stock_avail = vec![vec![StockAvailItem{currently_avail: 0.0, stock: 0.0}]];
         for i in 1..size-1{
             let node = Node{
                 children: vec![i + 1],
-                parents: vec![IndexHelper{internal_idx: 0, node_idx: i - 1}],
-                available_product: vec![0.0],
-                stock: vec![0.0]
+                parents: vec![IndexHelper{internal_idx: 0, node_idx: i - 1}]
             };
+            stock_avail.push(vec![StockAvailItem{currently_avail: 0.0, stock: 0.0}]);
             nodes.push(node);
         }
         let last = Node{
             children: Vec::new(),
-            parents: vec![IndexHelper{internal_idx: 0, node_idx: size - 2}],
-            available_product: Vec::new(),
-            stock: Vec::new()
+            parents: vec![IndexHelper{internal_idx: 0, node_idx: size - 2}]
         };
         nodes.push(last);
+        stock_avail.push(Vec::new());
         let root_order = calc_root_order(&nodes);
-        let (leaf_order, leafs) = calc_leaf_order(&nodes);
+        let leaf_order = calc_leaf_order(&nodes);
 
         let rng = Pcg64::seed_from_u64(seed);
 
@@ -143,7 +152,8 @@ impl Model{
             currently_produced: vec![0.0; size],
             root_order,
             leaf_order,
-            leafs
+            stock_avail,
+            demand_at_root
         }
     }
 
@@ -151,7 +161,7 @@ impl Model{
     fn update_demand(&mut self)
     {
         
-        self.current_demand[0] += 1.0;
+        self.current_demand[0] += self.demand_at_root;
         set_const(&mut self.current_demand[1..], 0.0);
 
         for &idx in self.root_order.iter()
@@ -166,13 +176,14 @@ impl Model{
     fn update_production(&mut self)
     {
  
-        self.nodes
+        self.stock_avail
             .iter_mut()
             .for_each(
-                |node|
+                |avail|
                 {
                     // only for now as a sanity check:
-                    set_const(&mut node.available_product, f64::NAN);
+                    avail.iter_mut()
+                        .for_each(|item| item.currently_avail = f64::NAN);
                 }
             );
         set_const(&mut self.currently_produced, 0.0);
@@ -190,21 +201,22 @@ impl Model{
             // firstly calculate actual production
             let production = &mut self.currently_produced[idx];
             *production = self.current_limit[idx];
-            let node = &mut self.nodes[idx];
-            let iter = node.available_product
-                .iter()
-                .zip(node.stock.iter());
-            for (&avail, &stock) in iter {
+            let iter = self.stock_avail[idx].iter();
+            for StockAvailItem{currently_avail: avail, stock} in iter {
                 *production = production.min(avail + stock);
             }
             // next calculate new stocks
-            let iter = node.available_product
-                .iter()
-                .zip(node.stock.iter_mut());
-            for (&avail, stock) in iter {
-                *stock = 1.0_f64.min(avail + *stock - *production);
+            let iter = self.stock_avail[idx]
+                .iter_mut();
+            for item in iter {
+                item.stock = 1.0_f64.min(item.currently_avail + item.stock - *production);
             }
 
+            for parent in self.nodes[idx].parents.iter(){
+                let passed_on = *production * self.current_demand[parent.node_idx] / self.current_demand[idx];
+                self.stock_avail[parent.node_idx][parent.internal_idx].currently_avail = passed_on;
+            }
         }
+        self.current_demand[0] = 0.0_f64.max(self.current_demand[0] - self.currently_produced[0]);
     }
 }

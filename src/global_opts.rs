@@ -204,7 +204,9 @@ pub enum CmdChooser{
     /// Various helper stuff
     #[command(subcommand)]
     #[clap(visible_alias="he")]
-    Helper(Helper)
+    Helper(Helper),
+
+    Test
 }
 
 #[derive(Subcommand, Debug)]
