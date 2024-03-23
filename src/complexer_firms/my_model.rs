@@ -119,10 +119,10 @@ pub fn test_demand()
 
 pub fn test_demand_velocity()
 {
-    let mut buf = create_buf_with_command_and_version("test_demand_velocity_longer.dat");
-    for demand in 0..=100{
-        let demand = demand as f64 / 100.0;
-        let mut model = Model::new_chain(100, 203984579, demand);
+    let mut buf = create_buf_with_command_and_version("test_demand_velocity2.dat");
+    for demand in 0..=10000{
+        let demand = demand as f64 / 10000.0;
+        let mut model = Model::new_chain(50, 203984579, demand);
         for _ in 0..10000{
             model.update_demand();
             model.update_production();
@@ -187,8 +187,8 @@ impl Model{
         for &idx in self.root_order.iter()
         {
             let demand = self.current_demand[idx];
-            for &child in self.nodes[idx].children.iter(){
-                self.current_demand[child] += demand;
+            for (&child, stock_item) in self.nodes[idx].children.iter().zip(self.stock_avail[idx].iter()){
+                self.current_demand[child] += (demand - stock_item.stock).max(0.0);
             }
         }
     }
