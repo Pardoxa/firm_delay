@@ -33,7 +33,6 @@ pub struct Model{
     current_demand: Vec<f64>,
     root_order: Vec<usize>,
     leaf_order: Vec<usize>,
-    current_limit: Vec<f64>,
     rng: Pcg64,
     stock_avail: Vec<Vec<StockAvailItem>>,
     demand_at_root: f64
@@ -119,9 +118,9 @@ pub fn test_demand()
 
 pub fn test_demand_velocity()
 {
-    let mut buf = create_buf_with_command_and_version("test_demand_velocity2.dat");
-    for demand in 0..=10000{
-        let demand = demand as f64 / 10000.0;
+    let mut buf = create_buf_with_command_and_version("test_demand_velocity3.dat");
+    for demand in 0..=1000{
+        let demand = demand as f64 / 1000.0;
         let mut model = Model::new_chain(50, 203984579, demand);
         for _ in 0..10000{
             model.update_demand();
@@ -131,7 +130,7 @@ pub fn test_demand_velocity()
         writeln!(
             buf,
             "{demand} {}",
-            model.current_demand[0] / 10000.0
+            model.current_demand[0] / 1000.0
         ).unwrap();
     }
     
@@ -168,7 +167,6 @@ impl Model{
             rng,
             nodes,
             current_demand: vec![0.0; size],
-            current_limit: vec![0.0; size],
             currently_produced: vec![0.0; size],
             root_order,
             leaf_order,
@@ -208,19 +206,12 @@ impl Model{
             );
         set_const(&mut self.currently_produced, 0.0);
         let uniform = Uniform::new_inclusive(0.0, 1.0);
-        self.current_limit
-            .iter_mut()
-            .zip(uniform.sample_iter(&mut self.rng))
-            .for_each(
-                |(limit, rand_val)|
-                {
-                    *limit = rand_val
-                }
-            );
-        for &idx in self.leaf_order.iter(){
+
+        for (&idx, rand) in self.leaf_order.iter().zip(uniform.sample_iter(&mut self.rng)){
             // firstly calculate actual production
             let production = &mut self.currently_produced[idx];
-            *production = self.current_limit[idx];
+            let this_demand = self.current_demand[idx];
+            *production = this_demand.min(rand);
             let iter = self.stock_avail[idx].iter();
             for StockAvailItem{currently_avail: avail, stock} in iter {
                 *production = production.min(avail + stock);
@@ -233,7 +224,11 @@ impl Model{
             }
 
             for parent in self.nodes[idx].parents.iter(){
-                let passed_on = *production * self.current_demand[parent.node_idx] / self.current_demand[idx];
+                let passed_on = if this_demand <= 0.0 {
+                    0.0
+                } else {
+                    *production * self.current_demand[parent.node_idx] / this_demand
+                };
                 self.stock_avail[parent.node_idx][parent.internal_idx].currently_avail = passed_on;
             }
         }
