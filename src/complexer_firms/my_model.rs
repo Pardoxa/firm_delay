@@ -119,18 +119,23 @@ pub fn test_demand()
 pub fn test_demand_velocity()
 {
     let mut buf = create_buf_with_command_and_version("test_demand_velocity3.dat");
-    for demand in 0..=1000{
-        let demand = demand as f64 / 1000.0;
-        let mut model = Model::new_chain(50, 203984579, demand);
-        for _ in 0..10000{
-            model.update_demand();
-            model.update_production();
-
+    for demand in 0..=100{
+        let demand = demand as f64 / 100.0;
+        let mut sum = 0.0;
+        for i in 0..10{
+            let mut model = Model::new_chain(100, 203984579 + i, demand);
+            for _ in 0..30000{
+                model.update_demand();
+                model.update_production();
+    
+            }
+            sum += model.current_demand[0] / 30000.0
         }
+        sum /= 10.0;
         writeln!(
             buf,
             "{demand} {}",
-            model.current_demand[0] / 1000.0
+            sum
         ).unwrap();
     }
     
@@ -138,18 +143,19 @@ pub fn test_demand_velocity()
 
 impl Model{
     fn new_chain(size: usize, seed: u64, demand_at_root: f64) -> Self{
+        const STOCK: f64 = 0.0;
         let first = Node{
             children: vec![1],
             parents: Vec::new()
         };
         let mut nodes = vec![first];
-        let mut stock_avail = vec![vec![StockAvailItem{currently_avail: 0.0, stock: 0.0}]];
+        let mut stock_avail = vec![vec![StockAvailItem{currently_avail: 0.0, stock: STOCK}]];
         for i in 1..size-1{
             let node = Node{
                 children: vec![i + 1],
                 parents: vec![IndexHelper{internal_idx: 0, node_idx: i - 1}]
             };
-            stock_avail.push(vec![StockAvailItem{currently_avail: 0.0, stock: 0.0}]);
+            stock_avail.push(vec![StockAvailItem{currently_avail: 0.0, stock: STOCK}]);
             nodes.push(node);
         }
         let last = Node{
