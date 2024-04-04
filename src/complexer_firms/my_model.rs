@@ -1,10 +1,14 @@
-use std::io::Write;
+use std::{io::Write, num::*};
+use camino::Utf8PathBuf;
 use itertools::Itertools;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Uniform};
 use rand_pcg::Pcg64;
+use derivative::Derivative;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use serde::{Deserialize, Serialize};
 
-use crate::create_buf_with_command_and_version;
+use crate::misc::*;
 
 
 #[derive(Debug, Clone, Copy)]
@@ -27,17 +31,7 @@ pub struct Node{
     parents: Vec<IndexHelper>
 }
 
-#[allow(non_snake_case)]
-pub struct Model{
-    nodes: Vec<Node>,
-    currently_produced: Vec<f64>,
-    current_demand: Vec<f64>,
-    root_order: Vec<usize>,
-    leaf_order: Vec<usize>,
-    rng: Pcg64,
-    stock_avail: Vec<Vec<StockAvailItem>>,
-    demand_at_root: f64
-}
+
 
 #[inline]
 fn set_const(slice: &mut [f64], c: f64)
@@ -139,11 +133,116 @@ pub fn test_demand_velocity()
             sum
         ).unwrap();
     }
-    
+}
+
+#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
+#[derivative(Default)]
+pub struct DemandVelocityOpt{
+    #[derivative(Default(value="0.0"))]
+    root_demand_rate_min: f64,
+    #[derivative(Default(value="1.0"))]
+    root_demand_rate_max: f64,
+    #[derivative(Default(value="NonZeroI64::new(100).unwrap()"))]
+    root_demand_samples: NonZeroI64,
+    #[derivative(Default(value="NonZeroU64::new(10000).unwrap()"))]
+    time: NonZeroU64,
+    #[derivative(Default(value="NonZeroUsize::new(100).unwrap()"))]
+    samples: NonZeroUsize,
+    #[derivative(Default(value="NonZeroUsize::new(10).unwrap()"))]
+    chain_length: NonZeroUsize,
+    seed: u64,
+    threads: Option<NonZeroUsize>
+}
+
+pub fn calc_demand_velocity(opt: DemandVelocityOpt, out: Utf8PathBuf){
+    if let Some(t) = opt.threads{
+        rayon::ThreadPoolBuilder::new().num_threads(t.get()).build_global().unwrap();
+    }
+    let mut rng = Pcg64::seed_from_u64(opt.seed);
+    let ratio = RatioIter::from_float(
+        opt.root_demand_rate_min, 
+        opt.root_demand_rate_max, 
+        opt.root_demand_samples
+    );
+    let ratios: Vec<_> = ratio.float_iter()
+        .map(
+            |ratio|
+            {
+                let rng = Pcg64::from_rng(&mut rng).unwrap();
+                Model::new_chain_from_rng(
+                    opt.chain_length.get(), 
+                    rng, 
+                    ratio
+                )
+            }
+        )
+        .collect();
+
+    let velocities: Vec<_> = ratios.into_par_iter()
+        .map(
+            |mut model|
+            {
+                let mut sum = 0.0;
+                for _ in 0..opt.samples.get(){
+                    model.reset_delays();
+                    for _ in 0..opt.time.get(){
+                        model.update_demand();
+                        model.update_production();
+                    }
+                    sum += model.current_demand[0] / 30000.0
+                }
+                sum /= opt.samples.get() as f64;
+                sum
+            }
+        ).collect();
+
+    let header = [
+        "root_demand",
+        "velocity"
+    ];
+
+    let mut buf = create_buf_with_command_and_version_and_header(out, header);
+    for (root_demand, velocity) in ratio.float_iter().zip(velocities)
+    {
+        writeln!(
+            buf,
+            "{root_demand} {velocity}"
+        ).unwrap();
+    }
+
+}
+
+#[allow(non_snake_case)]
+pub struct Model{
+    nodes: Vec<Node>,
+    currently_produced: Vec<f64>,
+    current_demand: Vec<f64>,
+    root_order: Vec<usize>,
+    leaf_order: Vec<usize>,
+    rng: Pcg64,
+    stock_avail: Vec<Vec<StockAvailItem>>,
+    demand_at_root: f64
 }
 
 impl Model{
-    fn new_chain(size: usize, seed: u64, demand_at_root: f64) -> Self{
+    pub fn reset_delays(&mut self) 
+    {
+        set_const(&mut self.current_demand, 0.0);
+        set_const(&mut self.currently_produced, 0.0);
+        self.stock_avail
+            .iter_mut()
+            .flat_map(|lists| lists.iter_mut())
+            .for_each(
+                |item|
+                {
+                    item.currently_avail = 0.0;
+                    item.demand_passed_on = 0.0;
+                    item.stock = 0.0;
+                }
+            );
+    }
+
+    fn new_chain_from_rng(size: usize, rng: Pcg64, demand_at_root: f64) -> Self{
         const STOCK: f64 = 0.0;
         let first = Node{
             children: vec![1],
@@ -168,8 +267,6 @@ impl Model{
         let root_order = calc_root_order(&nodes);
         let leaf_order = calc_leaf_order(&nodes);
 
-        let rng = Pcg64::seed_from_u64(seed);
-
         Self{
             rng,
             nodes,
@@ -180,6 +277,14 @@ impl Model{
             stock_avail,
             demand_at_root
         }
+    }
+
+    fn new_chain(size: usize, seed: u64, demand_at_root: f64) -> Self{
+        Self::new_chain_from_rng(
+            size,
+            Pcg64::seed_from_u64(seed), 
+            demand_at_root
+        )
     }
 
 

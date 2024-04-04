@@ -14,6 +14,11 @@ use {
     }
 };
 
+mod ratio_iters;
+pub use ratio_iters::*;
+mod sync_queue;
+pub use sync_queue::*;
+
 pub static GLOBAL_ADDITIONS: RwLock<Option<String>> = RwLock::new(None);
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -120,6 +125,17 @@ where P: AsRef<Path>
     let mut buf = create_buf(path);
     write_commands_and_version(&mut buf)
         .expect("Unable to write Version and Command in newly created file");
+    buf
+}
+
+pub fn create_buf_with_command_and_version_and_header<P, S, D>(path: P, header: S) -> BufWriter<File>
+where P: AsRef<Path>,
+    S: IntoIterator<Item=D>,
+    D: Display
+{
+    let mut buf = create_buf_with_command_and_version(path);
+    write_slice_head(&mut buf, header)
+        .expect("unable to write header");
     buf
 }
 

@@ -1,8 +1,8 @@
 use std::process::exit;
 
-use complexer_firms::{auto, my_model, AutoOpts, SubstitutionVelocitySampleOpts};
+use complexer_firms::{auto, my_model::{self, DemandVelocityOpt}, AutoOpts, SubstitutionVelocitySampleOpts};
 use correlations::calc_correlations;
-use global_opts::{Helper, SimpleCommand, SubstitutingCommand};
+use global_opts::{Helper, MyModelCommand, SimpleCommand, SubstitutingCommand};
 
 use crate::complexer_firms::{SelfLinks, SubstitutionVelocityVideoOpts};
 
@@ -187,6 +187,14 @@ fn main() {
         CmdChooser::Test => {
             my_model::test_demand();
             my_model::test_demand_velocity();
+        },
+        CmdChooser::MyModel(sub) => {
+            match sub {
+                MyModelCommand::Velocity(vel) => {
+                    let opts: DemandVelocityOpt = parse_and_add_to_global(vel.json);
+                    my_model::calc_demand_velocity(opts, vel.out.unwrap())
+                }
+            }
         }
 
     }

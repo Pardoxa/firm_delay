@@ -198,6 +198,11 @@ pub enum CmdChooser{
     /// Contains subcommands of substituting firms
     Substituting(SubstitutingCommand),
 
+    #[command(subcommand)]
+    #[clap(visible_alias="my")]
+    /// Contains subcommands of my model
+    MyModel(MyModelCommand),
+
     /// Calculate autocorrelation from a file
     Auto(CorOpts),
 
@@ -231,4 +236,23 @@ pub struct SubAutoBufSwaper{
     #[clap(visible_alias="sub")]
     /// Also change the substitution probability
     pub change_sub_prob: Option<f64>
+}
+
+#[derive(Parser, Debug)]
+pub struct PathAndOut{
+    #[arg(short, long, requires("out"))]
+    /// path to json file
+    pub json: Option<String>,
+
+    #[arg(short, long)]
+    /// print alternative json options
+    pub out: Option<Utf8PathBuf>
+
+}
+
+#[derive(Subcommand, Debug)]
+pub enum MyModelCommand{
+    /// Sample velocity with option to create plot
+    #[clap(visible_alias="vel")]
+    Velocity(PathAndOut)
 }
