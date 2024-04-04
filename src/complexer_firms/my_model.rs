@@ -1,5 +1,4 @@
-use std::{io::Write, num::*};
-use camino::Utf8PathBuf;
+use std::{io::Write, num::*, ops::RangeInclusive, path::Path};
 use itertools::Itertools;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Uniform};
@@ -9,6 +8,8 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 use crate::misc::*;
+
+use super::Cleaner;
 
 
 #[derive(Debug, Clone, Copy)]
@@ -137,6 +138,107 @@ pub fn test_demand_velocity()
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
 #[derivative(Default)]
+pub struct DemandVelocityCritOpt{
+    opts: DemandVelocityOpt,
+
+    #[derivative(Default(value="NonZeroUsize::new(2).unwrap()"))]
+    chain_start: NonZeroUsize,
+    #[derivative(Default(value="NonZeroUsize::new(100).unwrap()"))]
+    chain_end: NonZeroUsize,
+    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
+    chain_step: NonZeroUsize,
+
+    #[derivative(Default(value="Some(0.0..=1.0)"))]
+    y_range: Option<RangeInclusive<f64>>
+}
+
+
+pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
+{
+    let zeros = "000000000";
+    let mut current_chain_len = opt.chain_start.get();
+    let cleaner = Cleaner::new();
+
+    let header = [
+        "chain_len",
+        "a",
+        "b",
+        "critical_root_demand"
+    ];
+
+    let mut crit_buf = create_buf_with_command_and_version_and_header(out, header);
+
+    loop {
+        let i_name = current_chain_len.to_string();
+        let start = i_name.len();
+        let zeros = &zeros[start..];
+        let name = format!("TMP_{zeros}{i_name}{out}.dat");
+
+        let mut m_opt = opt.opts.clone();
+        m_opt.chain_length = NonZeroUsize::new(current_chain_len).unwrap();
+
+        chain_calc_demand_velocity(m_opt, &name);
+        let gp_name = format!("{name}.gp");
+
+        let mut gp_writer = create_gnuplot_buf(&gp_name);
+        let png = format!("{name}.png");
+        writeln!(gp_writer, "set t pngcairo").unwrap();
+        writeln!(gp_writer, "set output '{png}'").unwrap();
+        writeln!(gp_writer, "set ylabel 'v'").unwrap();
+        writeln!(gp_writer, "set xlabel 'B'").unwrap();
+        writeln!(gp_writer, "set fit quiet").unwrap();
+        writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
+        writeln!(gp_writer, "f(x)=a*x+b").unwrap();
+        writeln!(gp_writer, "fit f(x) '{name}' u 1:2:(t($2)) yerr via a,b").unwrap();
+        
+        if let Some(range) = &opt.y_range{
+            writeln!(gp_writer, "set yrange [{}:{}]", range.start(), range.end()).unwrap();
+        }
+        writeln!(gp_writer, "p '{name}' t '', f(x)").unwrap();
+        writeln!(gp_writer, "print(b)").unwrap();
+        writeln!(gp_writer, "print(a)").unwrap();
+        writeln!(gp_writer, "set output").unwrap();
+        drop(gp_writer);
+        let out = call_gnuplot(&gp_name);
+        if out.status.success(){
+            let s = String::from_utf8(out.stderr)
+                .unwrap();
+        
+            let mut iter = s.lines();
+                
+            let b: f64 = iter.next().unwrap().parse().unwrap();
+            let a: f64 = iter.next().unwrap().parse().unwrap();
+            let crit = -b/a;
+            
+            cleaner.add_multi([name, gp_name, png]);
+
+            writeln!(
+                crit_buf,
+                "{} {} {} {}",
+                current_chain_len,
+                a,
+                b,
+                crit
+            ).unwrap();
+        }
+
+        current_chain_len += opt.chain_step.get();
+        if current_chain_len > opt.chain_end.get(){
+            break;
+        }
+    }
+    create_video(
+        "TMP_*.png", 
+        out, 
+        15,
+        false
+    );
+
+    cleaner.clean();
+}
+
+#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
+#[derivative(Default)]
 pub struct DemandVelocityOpt{
     #[derivative(Default(value="0.0"))]
     root_demand_rate_min: f64,
@@ -154,7 +256,9 @@ pub struct DemandVelocityOpt{
     threads: Option<NonZeroUsize>
 }
 
-pub fn calc_demand_velocity(opt: DemandVelocityOpt, out: Utf8PathBuf){
+pub fn chain_calc_demand_velocity<P>(opt: DemandVelocityOpt, out: P)
+where P: AsRef<Path>
+{
     if let Some(t) = opt.threads{
         rayon::ThreadPoolBuilder::new().num_threads(t.get()).build_global().unwrap();
     }
@@ -189,7 +293,7 @@ pub fn calc_demand_velocity(opt: DemandVelocityOpt, out: Utf8PathBuf){
                         model.update_demand();
                         model.update_production();
                     }
-                    sum += model.current_demand[0] / 30000.0
+                    sum += model.current_demand[0] / opt.time.get() as f64;
                 }
                 sum /= opt.samples.get() as f64;
                 sum
@@ -202,14 +306,13 @@ pub fn calc_demand_velocity(opt: DemandVelocityOpt, out: Utf8PathBuf){
     ];
 
     let mut buf = create_buf_with_command_and_version_and_header(out, header);
-    for (root_demand, velocity) in ratio.float_iter().zip(velocities)
+    for (root_demand, velocity) in ratio.float_iter().zip(velocities.iter())
     {
         writeln!(
             buf,
             "{root_demand} {velocity}"
         ).unwrap();
     }
-
 }
 
 #[allow(non_snake_case)]

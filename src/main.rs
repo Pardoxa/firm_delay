@@ -1,6 +1,6 @@
 use std::process::exit;
 
-use complexer_firms::{auto, my_model::{self, DemandVelocityOpt}, AutoOpts, SubstitutionVelocitySampleOpts};
+use complexer_firms::{auto, my_model::{self, DemandVelocityCritOpt, DemandVelocityOpt}, AutoOpts, SubstitutionVelocitySampleOpts};
 use correlations::calc_correlations;
 use global_opts::{Helper, MyModelCommand, SimpleCommand, SubstitutingCommand};
 
@@ -190,9 +190,13 @@ fn main() {
         },
         CmdChooser::MyModel(sub) => {
             match sub {
-                MyModelCommand::Velocity(vel) => {
+                MyModelCommand::ChainVelocity(vel) => {
                     let opts: DemandVelocityOpt = parse_and_add_to_global(vel.json);
-                    my_model::calc_demand_velocity(opts, vel.out.unwrap())
+                    my_model::chain_calc_demand_velocity(opts, vel.out.unwrap());
+                },
+                MyModelCommand::ChainCrit(opt) => {
+                    let opts: DemandVelocityCritOpt = parse_and_add_to_global(opt.json);
+                    my_model::chain_crit_scan(opts, opt.out.unwrap().as_str());
                 }
             }
         }

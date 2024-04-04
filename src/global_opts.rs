@@ -252,7 +252,10 @@ pub struct PathAndOut{
 
 #[derive(Subcommand, Debug)]
 pub enum MyModelCommand{
-    /// Sample velocity with option to create plot
+    /// Sample velocity 
     #[clap(visible_alias="vel")]
-    Velocity(PathAndOut)
+    ChainVelocity(PathAndOut),
+    /// scan critical point for changing chain length
+    #[clap(visible_alias="chcrit")]
+    ChainCrit(PathAndOut)
 }
