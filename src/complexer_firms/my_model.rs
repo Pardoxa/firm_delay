@@ -19,7 +19,7 @@ pub struct IndexHelper{
     internal_idx: usize
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct StockAvailItem{
     stock: f64,
     currently_avail: f64,
@@ -95,7 +95,7 @@ fn calc_root_order(slice: &[Node]) -> Vec<usize>
 pub fn test_demand()
 {
     for demand in [0.2, 0.25, 0.3, 0.35, 0.4]{
-        let mut model = Model::new_chain(50, 203984579, demand);
+        let mut model = Model::new_chain(50, NonZeroUsize::new(1).unwrap(), 203984579, demand);
         let mut buf = create_buf_with_command_and_version(
             format!("test_demand{demand}.dat")
         );
@@ -119,7 +119,7 @@ pub fn test_demand_velocity()
         let demand = demand as f64 / 100.0;
         let mut sum = 0.0;
         for i in 0..10{
-            let mut model = Model::new_chain(50, 203984579 + i, demand);
+            let mut model = Model::new_chain(50, NonZeroUsize::new(1).unwrap(), 203984579 + i, demand);
             for _ in 0..30000{
                 model.update_demand();
                 model.update_production();
@@ -253,6 +253,8 @@ pub struct DemandVelocityOpt{
     samples: NonZeroUsize,
     #[derivative(Default(value="NonZeroUsize::new(10).unwrap()"))]
     chain_length: NonZeroUsize,
+    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
+    num_chains: NonZeroUsize,
     seed: u64,
     threads: Option<NonZeroUsize>
 }
@@ -274,8 +276,9 @@ where P: AsRef<Path>
             |ratio|
             {
                 let rng = Pcg64::from_rng(&mut rng).unwrap();
-                Model::new_chain_from_rng(
-                    opt.chain_length.get(), 
+                Model::new_multi_chain_from_rng(
+                    opt.num_chains,
+                    opt.chain_length.get() - 1, 
                     rng, 
                     ratio
                 )
@@ -346,48 +349,63 @@ impl Model{
             );
     }
 
-    fn new_chain_from_rng(size: usize, rng: Pcg64, demand_at_root: f64) -> Self{
-        if size == 1 {
+    fn new_multi_chain_from_rng(
+        num_chains: NonZeroUsize,
+        other_chain_len: usize, 
+        rng: Pcg64, 
+        demand_at_root: f64
+    ) -> Self{
+        if other_chain_len == 0 {
             return Self{
                 rng,
                 nodes: vec![Node{children: Vec::new(), parents: Vec::new()}],
-                current_demand: vec![0.0; size],
-                currently_produced: vec![0.0; size],
+                current_demand: vec![0.0],
+                currently_produced: vec![0.0],
                 root_order: vec![0],
                 leaf_order: vec![0],
                 stock_avail: vec![Vec::new()],
                 demand_at_root
             };
         }
-        const STOCK: f64 = 0.0;
+        let total_node_count = 1 + other_chain_len * num_chains.get();
+        let mut nodes = Vec::with_capacity(total_node_count);
         let first = Node{
-            children: vec![1],
+            children: Vec::new(),
             parents: Vec::new()
         };
-        let mut nodes = vec![first];
-        let mut stock_avail = vec![vec![StockAvailItem{currently_avail: 0.0, stock: STOCK, demand_passed_on: 0.0}]];
-        for i in 1..size-1{
-            let node = Node{
-                children: vec![i + 1],
-                parents: vec![IndexHelper{internal_idx: 0, node_idx: i - 1}]
+        nodes.push(first);
+        let mut stock_avail = vec![Vec::new(); total_node_count];
+        for _ in 0..num_chains.get(){
+            
+            let idx = nodes[0].children.len();
+            let chain_first = Node{
+                children: vec![],
+                parents: vec![IndexHelper{internal_idx: idx, node_idx: 0}]
             };
-            stock_avail.push(vec![StockAvailItem{currently_avail: 0.0, stock: STOCK, demand_passed_on: 0.0}]);
-            nodes.push(node);
+            let c_idx = nodes.len();
+            nodes.push(chain_first);
+            nodes[0].children.push(c_idx);
+            stock_avail[0].push(StockAvailItem::default());
+            for _ in 0..other_chain_len-1{
+                let last_idx = nodes.len() - 1;
+                let this_idx = nodes.len();
+                let node = Node{
+                    children: Vec::new(),
+                    parents: vec![IndexHelper{internal_idx: 0, node_idx: last_idx}]
+                };
+                nodes.push(node);
+                nodes[last_idx].children.push(this_idx);
+                stock_avail[last_idx].push(StockAvailItem::default());
+            }
         }
-        let last = Node{
-            children: Vec::new(),
-            parents: vec![IndexHelper{internal_idx: 0, node_idx: size - 2}]
-        };
-        nodes.push(last);
-        stock_avail.push(Vec::new());
         let root_order = calc_root_order(&nodes);
         let leaf_order = calc_leaf_order(&nodes);
 
         Self{
             rng,
             nodes,
-            current_demand: vec![0.0; size],
-            currently_produced: vec![0.0; size],
+            current_demand: vec![0.0; total_node_count],
+            currently_produced: vec![0.0; total_node_count],
             root_order,
             leaf_order,
             stock_avail,
@@ -395,9 +413,15 @@ impl Model{
         }
     }
 
-    fn new_chain(size: usize, seed: u64, demand_at_root: f64) -> Self{
-        Self::new_chain_from_rng(
-            size,
+    fn new_chain(
+        size: usize, 
+        num_chains: NonZeroUsize,
+        seed: u64, 
+        demand_at_root: f64,
+    ) -> Self{
+        Self::new_multi_chain_from_rng(
+            num_chains,
+            size - 1,
             Pcg64::seed_from_u64(seed), 
             demand_at_root
         )
