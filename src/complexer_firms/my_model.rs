@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::misc::*;
 
 use super::Cleaner;
-
+const STOCK_CAPACITY: f64 = 1.0;
 
 #[derive(Debug, Clone, Copy)]
 pub struct IndexHelper{
@@ -184,8 +184,9 @@ pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
         let png = format!("{name}.png");
         writeln!(gp_writer, "set t pngcairo").unwrap();
         writeln!(gp_writer, "set output '{png}'").unwrap();
+        writeln!(gp_writer, "set title 'N={current_chain_len}'").unwrap();
         writeln!(gp_writer, "set ylabel 'v'").unwrap();
-        writeln!(gp_writer, "set xlabel 'B'").unwrap();
+        writeln!(gp_writer, "set xlabel 'r'").unwrap();
         writeln!(gp_writer, "set fit quiet").unwrap();
         writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
         writeln!(gp_writer, "f(x)=a*x+b").unwrap();
@@ -231,7 +232,7 @@ pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
         "TMP_*.png", 
         out, 
         15,
-        false
+        true
     );
 
     cleaner.clean();
@@ -346,6 +347,18 @@ impl Model{
     }
 
     fn new_chain_from_rng(size: usize, rng: Pcg64, demand_at_root: f64) -> Self{
+        if size == 1 {
+            return Self{
+                rng,
+                nodes: vec![Node{children: Vec::new(), parents: Vec::new()}],
+                current_demand: vec![0.0; size],
+                currently_produced: vec![0.0; size],
+                root_order: vec![0],
+                leaf_order: vec![0],
+                stock_avail: vec![Vec::new()],
+                demand_at_root
+            };
+        }
         const STOCK: f64 = 0.0;
         let first = Node{
             children: vec![1],
@@ -436,7 +449,7 @@ impl Model{
             let iter = self.stock_avail[idx]
                 .iter_mut();
             for item in iter {
-                item.stock = 1.0_f64.min(item.currently_avail + item.stock - *production);
+                item.stock = STOCK_CAPACITY.min(item.currently_avail + item.stock - *production);
             }
 
             if this_demand <= 0.0 {
