@@ -92,47 +92,50 @@ fn calc_root_order(slice: &[Node]) -> Vec<usize>
     order
 }
 
-pub fn test_demand()
+pub fn test_profile()
 {
-    for demand in [0.2, 0.25, 0.3, 0.35, 0.4]{
-        let mut model = Model::new_chain(50, NonZeroUsize::new(1).unwrap(), 203984579, demand);
-        let mut buf = create_buf_with_command_and_version(
-            format!("test_demand{demand}.dat")
-        );
-        for i in 1..10000{
-            model.update_demand();
-            model.update_production();
-            writeln!(
+    let demand = 0.5;
+    let size = 12;
+    let mut model = Model::new_chain(
+        size, 
+        NonZeroUsize::new(1).unwrap(), 
+        234073, 
+        demand
+    );
+    let name = "test_profile.dat";
+    let mut header = vec!["time_step".to_string()];
+    for i in 0..size - 1{
+        header.push(format!("d_{i}"));
+        header.push(format!("I_{i}"));
+        header.push(format!("k_{i}"));
+        header.push(format!("a_{i}"));
+    }
+    header.push(format!("d_{}", size-1));
+    header.push(format!("I_{}", size-1));
+    let mut buf = create_buf_with_command_and_version_and_header(name, header);
+    for t in 1..200{
+
+        model.update_demand();
+        model.update_production();
+
+        write!(buf, "{t} ").unwrap();
+        for i in 0..size - 1{
+            write!(
                 buf,
-                "{i} {}",
-                model.current_demand[0]
+                "{} {} {} {} ",
+                model.current_demand[i],
+                model.currently_produced[i],
+                model.stock_avail[i][0].stock,
+                model.stock_avail[i][0].currently_avail,
             ).unwrap();
         }
-    }
-    
-}
-
-pub fn test_demand_velocity()
-{
-    let mut buf = create_buf_with_command_and_version("test_demand_velocity3.dat");
-    for demand in 0..=100{
-        let demand = demand as f64 / 100.0;
-        let mut sum = 0.0;
-        for i in 0..10{
-            let mut model = Model::new_chain(50, NonZeroUsize::new(1).unwrap(), 203984579 + i, demand);
-            for _ in 0..30000{
-                model.update_demand();
-                model.update_production();
-    
-            }
-            sum += model.current_demand[0] / 30000.0
-        }
-        sum /= 10.0;
         writeln!(
             buf,
-            "{demand} {}",
-            sum
+            "{} {}",
+            model.current_demand[size-1],
+            model.currently_produced[size-1]
         ).unwrap();
+        
     }
 }
 
@@ -433,7 +436,6 @@ impl Model{
         
         self.current_demand[0] += self.demand_at_root;
         set_const(&mut self.current_demand[1..], 0.0);
-
         for &idx in self.root_order.iter()
         {
             let demand = self.current_demand[idx];
