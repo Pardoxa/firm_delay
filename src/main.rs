@@ -22,7 +22,7 @@ pub mod misc;
 pub mod index_sampler;
 pub mod correlations;
 mod my_model;
-use my_model::{DemandVelocityCritOpt, DemandVelocityOpt};
+use my_model::{DemandVelocityCritOpt, DemandVelocityOpt, ChainProfileOpts};
 mod global_opts;
 mod simple_firm;
 mod any_dist;
@@ -187,7 +187,7 @@ fn main() {
             helper_chooser(helper_opt)
         },
         CmdChooser::Test => {
-            my_model::test_profile()
+            
         },
         CmdChooser::MyModel(sub) => {
             match sub {
@@ -198,6 +198,10 @@ fn main() {
                 MyModelCommand::ChainCrit(opt) => {
                     let opts: DemandVelocityCritOpt = parse_and_add_to_global(opt.json);
                     my_model::chain_crit_scan(opts, opt.out.unwrap().as_str());
+                },
+                MyModelCommand::ChainProfile(opt) => {
+                    let my_opt: ChainProfileOpts = parse_and_add_to_global(opt.json);
+                    my_model::test_profile(my_opt, opt.out.unwrap())
                 }
             }
         }

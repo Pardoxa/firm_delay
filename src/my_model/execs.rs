@@ -1,54 +1,76 @@
 use std::{io::Write, num::*, path::Path};
+use camino::Utf8PathBuf;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use super::{opts::*, model::*};
 use crate::misc::*;
 
-pub fn test_profile()
+pub fn test_profile(opt: ChainProfileOpts, out: Utf8PathBuf)
 {
-    let demand = 0.5;
-    let size = 12;
-    let mut model = Model::new_chain(
-        size, 
-        NonZeroUsize::new(1).unwrap(), 
-        234073, 
-        demand
+    let chain_len = opt.total_len.get() - 1;
+    let rng = Pcg64::seed_from_u64(opt.seed);
+    let mut model = Model::new_multi_chain_from_rng(
+        opt.num_chains,
+        chain_len,
+        rng, 
+        opt.root_demand, 
+        opt.max_stock
     );
-    let name = "test_profile.dat";
-    let mut header = vec!["time_step".to_string()];
-    for i in 0..size - 1{
-        header.push(format!("d_{i}"));
-        header.push(format!("I_{i}"));
-        header.push(format!("k_{i}"));
-        header.push(format!("a_{i}"));
+    let mut header = vec![
+        "time_step".to_string(),
+        "d0_c0".to_owned(),
+        "I0_c0".to_owned(),
+        "k0_c0".to_owned(),
+        "a0_c0".to_owned()
+    ];
+    for j in 1..opt.num_chains.get(){
+        header.push(format!("k0_c{j}"));
+        header.push(format!("a0_c{j}"));
     }
-    header.push(format!("d_{}", size-1));
-    header.push(format!("I_{}", size-1));
-    let mut buf = create_buf_with_command_and_version_and_header(name, header);
-    for t in 1..200{
+    for j in 0..opt.num_chains.get(){
+        let addition = format!("_c{j}");
+        for i in 0..chain_len{
+            header.push(format!("d{i}{addition}"));
+            header.push(format!("I{i}{addition}"));
+            header.push(format!("k{i}{addition}"));
+            header.push(format!("a{i}{addition}"));
+        }
+    }
+    
+    let mut buf = create_buf_with_command_and_version_and_header(out, header);
+
+    for t in 1..=opt.time_steps.get(){
 
         model.update_demand();
         model.update_production();
 
         write!(buf, "{t} ").unwrap();
-        for i in 0..size - 1{
+        for i in 0..model.stock_avail.len(){
             write!(
                 buf,
-                "{} {} {} {} ",
+                "{} {} ",
                 model.current_demand[i],
-                model.currently_produced[i],
-                model.stock_avail[i][0].stock,
-                model.stock_avail[i][0].currently_avail,
+                model.currently_produced[i]
             ).unwrap();
+            let slice = &model.stock_avail[i];
+            if slice.is_empty(){
+                write!(
+                    buf,
+                    "NAN NAN "
+                ).unwrap()
+            } else {
+                for s in slice {
+                    write!(
+                        buf,
+                        "{} {} ",
+                        s.stock,
+                        s.currently_avail
+                    ).unwrap()
+                }
+            }
         }
-        writeln!(
-            buf,
-            "{} {}",
-            model.current_demand[size-1],
-            model.currently_produced[size-1]
-        ).unwrap();
-        
+        writeln!(buf).unwrap();
     }
 }
 
@@ -161,7 +183,8 @@ where P: AsRef<Path>
                     opt.num_chains,
                     opt.chain_length.get() - 1, 
                     rng, 
-                    ratio
+                    ratio,
+                    opt.max_stock
                 )
             }
         )

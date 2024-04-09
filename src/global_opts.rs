@@ -251,11 +251,15 @@ pub struct PathAndOut{
 }
 
 #[derive(Subcommand, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum MyModelCommand{
     /// Sample velocity 
     #[clap(visible_alias="vel")]
     ChainVelocity(PathAndOut),
     /// scan critical point for changing chain length
     #[clap(visible_alias="chcrit")]
-    ChainCrit(PathAndOut)
+    ChainCrit(PathAndOut),
+    /// create profile of chain
+    #[clap(visible_alias="chprof")]
+    ChainProfile(PathAndOut),
 }

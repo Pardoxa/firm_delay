@@ -39,5 +39,23 @@ pub struct DemandVelocityOpt{
     #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
     pub num_chains: NonZeroUsize,
     pub seed: u64,
-    pub threads: Option<NonZeroUsize>
+    pub threads: Option<NonZeroUsize>,
+    #[derivative(Default(value="1.0"))]
+    pub max_stock: f64
+}
+
+#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
+#[derivative(Default)]
+pub struct ChainProfileOpts{
+    #[derivative(Default(value="NonZeroUsize::new(4).unwrap()"))]
+    pub total_len: NonZeroUsize,
+    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
+    pub num_chains: NonZeroUsize,
+    pub seed: u64,
+    #[derivative(Default(value="0.5"))]
+    pub root_demand: f64,
+    #[derivative(Default(value="1.0"))]
+    pub max_stock: f64,
+    #[derivative(Default(value="NonZeroU16::new(200).unwrap()"))]
+    pub time_steps: NonZeroU16
 }

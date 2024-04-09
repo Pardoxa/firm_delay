@@ -1,33 +1,7 @@
 use std::num::*;
 use itertools::Itertools;
-use rand::SeedableRng;
 use rand_distr::{Distribution, Uniform};
 use rand_pcg::Pcg64;
-
-const STOCK_CAPACITY: f64 = 1.0;
-
-#[derive(Debug, Clone, Copy)]
-pub struct IndexHelper{
-    pub node_idx: usize,
-    // Idx of stock and available product
-    pub internal_idx: usize
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct StockAvailItem{
-    pub stock: f64,
-    pub currently_avail: f64,
-    pub demand_passed_on: f64
-}
-
-#[derive(Debug, Clone)]
-pub struct Node{
-    pub children: Vec<usize>,
-    pub parents: Vec<IndexHelper>
-}
-
-
-
 
 #[allow(non_snake_case)]
 pub struct Model{
@@ -38,7 +12,8 @@ pub struct Model{
     pub leaf_order: Vec<usize>,
     pub rng: Pcg64,
     pub stock_avail: Vec<Vec<StockAvailItem>>,
-    pub demand_at_root: f64
+    pub demand_at_root: f64,
+    pub max_stock: f64
 }
 
 impl Model{
@@ -63,7 +38,8 @@ impl Model{
         num_chains: NonZeroUsize,
         other_chain_len: usize, 
         rng: Pcg64, 
-        demand_at_root: f64
+        demand_at_root: f64,
+        max_stock: f64
     ) -> Self{
         if other_chain_len == 0 {
             return Self{
@@ -74,7 +50,8 @@ impl Model{
                 root_order: vec![0],
                 leaf_order: vec![0],
                 stock_avail: vec![Vec::new()],
-                demand_at_root
+                demand_at_root,
+                max_stock
             };
         }
         let total_node_count = 1 + other_chain_len * num_chains.get();
@@ -119,24 +96,10 @@ impl Model{
             root_order,
             leaf_order,
             stock_avail,
-            demand_at_root
+            demand_at_root,
+            max_stock
         }
     }
-
-    pub fn new_chain(
-        size: usize, 
-        num_chains: NonZeroUsize,
-        seed: u64, 
-        demand_at_root: f64,
-    ) -> Self{
-        Self::new_multi_chain_from_rng(
-            num_chains,
-            size - 1,
-            Pcg64::seed_from_u64(seed), 
-            demand_at_root
-        )
-    }
-
 
     pub fn update_demand(&mut self)
     {
@@ -182,7 +145,7 @@ impl Model{
             let iter = self.stock_avail[idx]
                 .iter_mut();
             for item in iter {
-                item.stock = STOCK_CAPACITY.min(item.currently_avail + item.stock - *production);
+                item.stock = self.max_stock.min(item.currently_avail + item.stock - *production);
             }
 
             if this_demand <= 0.0 {
@@ -202,8 +165,25 @@ impl Model{
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct IndexHelper{
+    pub node_idx: usize,
+    // Idx of stock and available product
+    pub internal_idx: usize
+}
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StockAvailItem{
+    pub stock: f64,
+    pub currently_avail: f64,
+    pub demand_passed_on: f64
+}
 
+#[derive(Debug, Clone)]
+pub struct Node{
+    pub children: Vec<usize>,
+    pub parents: Vec<IndexHelper>
+}
 
 #[inline]
 fn set_const(slice: &mut [f64], c: f64)
