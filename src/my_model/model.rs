@@ -1,15 +1,14 @@
-use std::{io::Write, num::*, ops::RangeInclusive, path::Path};
+use std::{io::Write, num::*, path::Path};
 use itertools::Itertools;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Uniform};
 use rand_pcg::Pcg64;
-use derivative::Derivative;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use serde::{Deserialize, Serialize};
+use super::opts::*;
 
 use crate::misc::*;
 
-use super::Cleaner;
+use crate::Cleaner;
 const STOCK_CAPACITY: f64 = 1.0;
 
 #[derive(Debug, Clone, Copy)]
@@ -139,22 +138,6 @@ pub fn test_profile()
     }
 }
 
-#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
-#[derivative(Default)]
-pub struct DemandVelocityCritOpt{
-    opts: DemandVelocityOpt,
-
-    #[derivative(Default(value="NonZeroUsize::new(2).unwrap()"))]
-    chain_start: NonZeroUsize,
-    #[derivative(Default(value="NonZeroUsize::new(100).unwrap()"))]
-    chain_end: NonZeroUsize,
-    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
-    chain_step: NonZeroUsize,
-
-    #[derivative(Default(value="Some(0.0..=1.0)"))]
-    y_range: Option<RangeInclusive<f64>>
-}
-
 
 pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
 {
@@ -241,26 +224,7 @@ pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
     cleaner.clean();
 }
 
-#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
-#[derivative(Default)]
-pub struct DemandVelocityOpt{
-    #[derivative(Default(value="0.0"))]
-    root_demand_rate_min: f64,
-    #[derivative(Default(value="1.0"))]
-    root_demand_rate_max: f64,
-    #[derivative(Default(value="NonZeroI64::new(100).unwrap()"))]
-    root_demand_samples: NonZeroI64,
-    #[derivative(Default(value="NonZeroU64::new(10000).unwrap()"))]
-    time: NonZeroU64,
-    #[derivative(Default(value="NonZeroUsize::new(100).unwrap()"))]
-    samples: NonZeroUsize,
-    #[derivative(Default(value="NonZeroUsize::new(10).unwrap()"))]
-    chain_length: NonZeroUsize,
-    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
-    num_chains: NonZeroUsize,
-    seed: u64,
-    threads: Option<NonZeroUsize>
-}
+
 
 pub fn chain_calc_demand_velocity<P>(opt: DemandVelocityOpt, out: P)
 where P: AsRef<Path>

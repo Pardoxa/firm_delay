@@ -1,6 +1,6 @@
 use std::process::exit;
 
-use complexer_firms::{auto, my_model::{self, DemandVelocityCritOpt, DemandVelocityOpt}, AutoOpts, SubstitutionVelocitySampleOpts};
+use complexer_firms::{auto, AutoOpts, SubstitutionVelocitySampleOpts};
 use correlations::calc_correlations;
 use global_opts::{Helper, MyModelCommand, SimpleCommand, SubstitutingCommand};
 
@@ -21,6 +21,8 @@ pub mod complexer_firms;
 pub mod misc;
 pub mod index_sampler;
 pub mod correlations;
+mod my_model;
+use my_model::{DemandVelocityCritOpt, DemandVelocityOpt};
 mod global_opts;
 mod simple_firm;
 mod any_dist;
