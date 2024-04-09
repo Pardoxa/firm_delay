@@ -57,5 +57,7 @@ pub struct ChainProfileOpts{
     #[derivative(Default(value="1.0"))]
     pub max_stock: f64,
     #[derivative(Default(value="NonZeroU16::new(200).unwrap()"))]
-    pub time_steps: NonZeroU16
+    pub time_steps: NonZeroU16,
+    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
+    pub average_over_samples: NonZeroUsize
 }

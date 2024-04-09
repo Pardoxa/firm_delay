@@ -30,48 +30,54 @@ pub fn test_profile(opt: ChainProfileOpts, out: Utf8PathBuf)
     }
     for j in 0..opt.num_chains.get(){
         let addition = format!("_c{j}");
-        for i in 0..chain_len{
+        for i in 1..=chain_len{
             header.push(format!("d{i}{addition}"));
             header.push(format!("I{i}{addition}"));
             header.push(format!("k{i}{addition}"));
             header.push(format!("a{i}{addition}"));
         }
     }
+    let mut averages = vec![vec![0.0;header.len()-1]; opt.time_steps.get() as usize];
+
+    for _ in 0..opt.average_over_samples.get(){
+        model.reset_delays();
+        for av_slice in averages.iter_mut(){
+
+            model.update_demand();
+            model.update_production();
+
+            let mut iter = av_slice.iter_mut();
     
-    let mut buf = create_buf_with_command_and_version_and_header(out, header);
-
-    for t in 1..=opt.time_steps.get(){
-
-        model.update_demand();
-        model.update_production();
-
-        write!(buf, "{t} ").unwrap();
-        for i in 0..model.stock_avail.len(){
-            write!(
-                buf,
-                "{} {} ",
-                model.current_demand[i],
-                model.currently_produced[i]
-            ).unwrap();
-            let slice = &model.stock_avail[i];
-            if slice.is_empty(){
-                write!(
-                    buf,
-                    "NAN NAN "
-                ).unwrap()
-            } else {
-                for s in slice {
-                    write!(
-                        buf,
-                        "{} {} ",
-                        s.stock,
-                        s.currently_avail
-                    ).unwrap()
+            for i in 0..model.stock_avail.len(){
+                *iter.next().unwrap() += model.current_demand[i];
+                *iter.next().unwrap() += model.currently_produced[i];
+                let slice = &model.stock_avail[i];
+                if slice.is_empty(){
+                    *iter.next().unwrap() = f64::NAN;
+                    *iter.next().unwrap() = f64::NAN;
+                } else {
+                    for s in slice {
+                        *iter.next().unwrap() += s.stock;
+                        *iter.next().unwrap() += s.currently_avail;
+                    }
                 }
             }
         }
+    }
+
+
+    let mut buf = create_buf_with_command_and_version_and_header(out, header);
+    let factor = 1.0 / opt.average_over_samples.get() as f64;
+    for (line, t) in averages.iter().zip(1..)
+    {
+        write!(buf, "{t}").unwrap();
+        for val in line {
+            let val = val * factor;
+            write!(buf, " {val}").unwrap();
+        }
         writeln!(buf).unwrap();
     }
+    
 }
 
 
