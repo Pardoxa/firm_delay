@@ -6,6 +6,41 @@ use std::ops::RangeInclusive;
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
 #[derivative(Default)]
+pub struct TreeDemandVelocityCritOpt{
+    pub opts: TreeDemandVelocityOpt,
+
+    pub tree_depth_start: usize,
+    pub tree_depth_end: usize,
+
+    #[derivative(Default(value="Some(0.0..=1.0)"))]
+    pub y_range: Option<RangeInclusive<f64>>
+}
+
+#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
+#[derivative(Default)]
+pub struct TreeDemandVelocityOpt{
+    #[derivative(Default(value="0.0"))]
+    pub root_demand_rate_min: f64,
+    #[derivative(Default(value="1.0"))]
+    pub root_demand_rate_max: f64,
+    #[derivative(Default(value="NonZeroI64::new(100).unwrap()"))]
+    pub root_demand_samples: NonZeroI64,
+    #[derivative(Default(value="NonZeroU64::new(10000).unwrap()"))]
+    pub time: NonZeroU64,
+    #[derivative(Default(value="NonZeroUsize::new(100).unwrap()"))]
+    pub samples: NonZeroUsize,
+
+    pub tree_depth: usize,
+    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
+    pub num_children: NonZeroUsize,
+    pub seed: u64,
+    pub threads: Option<NonZeroUsize>,
+    #[derivative(Default(value="1.0"))]
+    pub max_stock: f64
+}
+
+#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
+#[derivative(Default)]
 pub struct DemandVelocityCritOpt{
     pub opts: DemandVelocityOpt,
 

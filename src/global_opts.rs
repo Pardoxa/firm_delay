@@ -262,4 +262,7 @@ pub enum MyModelCommand{
     /// create profile of chain
     #[clap(visible_alias="chprof")]
     ChainProfile(PathAndOut),
+    /// Sample crit for Trees
+    #[clap(visible_alias="trcrit")]
+    TreeCrit(PathAndOut)
 }

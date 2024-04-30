@@ -22,7 +22,7 @@ pub mod misc;
 pub mod index_sampler;
 pub mod correlations;
 mod my_model;
-use my_model::{DemandVelocityCritOpt, DemandVelocityOpt, ChainProfileOpts};
+use my_model::{ChainProfileOpts, DemandVelocityCritOpt, DemandVelocityOpt, TreeDemandVelocityCritOpt};
 mod global_opts;
 mod simple_firm;
 mod any_dist;
@@ -202,6 +202,10 @@ fn main() {
                 MyModelCommand::ChainProfile(opt) => {
                     let my_opt: ChainProfileOpts = parse_and_add_to_global(opt.json);
                     my_model::test_profile(my_opt, opt.out.unwrap())
+                },
+                MyModelCommand::TreeCrit(opt) => {
+                    let opts: TreeDemandVelocityCritOpt = parse_and_add_to_global(opt.json);
+                    my_model::tree_crit_scan(opts, opt.out.unwrap());
                 }
             }
         }
