@@ -207,13 +207,20 @@ fn main() {
                     let opts: TreeDemandVelocityCritOpt = parse_and_add_to_global(opt.json);
                     my_model::tree_crit_scan(opts, opt.out.unwrap());
                 },
-                MyModelCommand::PrintTree(opt) => {
-                    my_model::model::print_tree(
+                MyModelCommand::DotTree(opt) => {
+                    my_model::model::write_tree_dot(
                         opt.chilren_per_node, 
                         opt.depth, 
                         &opt.dot_out,
                         opt.reverse_direction
                     );
+                },
+                MyModelCommand::DotMultiChain(opt) => {
+                    my_model::model::write_multi_chain(
+                        opt.other_chain_len,
+                        opt.num_chains,
+                        &opt.dot_out
+                    )
                 }
             }
         }

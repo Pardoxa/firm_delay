@@ -23,7 +23,12 @@ pub struct Model{
     pub max_stock: f64
 }
 
-pub fn print_tree(child_count: NonZeroUsize, depth: usize, dot_name: &Utf8Path, parent_direction: bool)
+pub fn write_tree_dot(
+    child_count: NonZeroUsize, 
+    depth: usize, 
+    dot_name: &Utf8Path, 
+    parent_direction: bool
+)
 {
     let model = Model::create_tree(
         child_count, 
@@ -34,6 +39,26 @@ pub fn print_tree(child_count: NonZeroUsize, depth: usize, dot_name: &Utf8Path, 
     );
     let file = create_buf(dot_name);
     write_my_digraph(file, &model.nodes, parent_direction);
+}
+
+pub fn write_multi_chain(
+    other_chain_len: NonZeroUsize,
+    num_chains: NonZeroUsize,
+    dot_name: &Utf8Path
+){
+    let model = Model::new_closed_multi_chain_from_rng(
+        num_chains, 
+        other_chain_len, 
+        Pcg64::new(0, 0), 
+        0.0, 
+        0.0
+    );
+    let writer = create_buf(dot_name);
+    write_my_digraph(
+        writer, 
+        &model.nodes, 
+        false
+    )
 }
 
 impl Model{
@@ -165,6 +190,70 @@ impl Model{
                 nodes[last_idx].children.push(this_idx);
                 stock_avail[last_idx].push(StockAvailItem::default());
             }
+        }
+        let root_order = calc_root_order(&nodes);
+        let leaf_order = calc_leaf_order(&nodes);
+
+        Self{
+            rng,
+            nodes,
+            current_demand: vec![0.0; total_node_count],
+            currently_produced: vec![0.0; total_node_count],
+            root_order,
+            leaf_order,
+            stock_avail,
+            demand_at_root,
+            max_stock
+        }
+    }
+
+    pub fn new_closed_multi_chain_from_rng(
+        num_chains: NonZeroUsize,
+        other_chain_len: NonZeroUsize, 
+        rng: Pcg64, 
+        demand_at_root: f64,
+        max_stock: f64
+    ) -> Self{
+        let total_node_count = 2 + other_chain_len.get() * num_chains.get();
+        let mut nodes = Vec::with_capacity(total_node_count);
+        let first = Node::default();
+        nodes.push(first);
+        let last = Node::default();
+        nodes.push(last);
+        let mut stock_avail = vec![Vec::new(); total_node_count];
+        for _ in 0..num_chains.get(){
+            
+            let idx = nodes[0].children.len();
+            let chain_first = Node{
+                children: vec![],
+                parents: vec![IndexHelper{internal_idx: idx, node_idx: 0}]
+            };
+            let c_idx = nodes.len();
+            nodes.push(chain_first);
+            nodes[0].children.push(c_idx);
+            stock_avail[0].push(StockAvailItem::default());
+            for _ in 0..other_chain_len.get()-1{
+                let last_idx = nodes.len() - 1;
+                let this_idx = nodes.len();
+                let node = Node{
+                    children: Vec::new(),
+                    parents: vec![IndexHelper{internal_idx: 0, node_idx: last_idx}]
+                };
+                nodes.push(node);
+                nodes[last_idx].children.push(this_idx);
+                stock_avail[last_idx].push(StockAvailItem::default());
+            }
+
+            // now connect to last node!
+            let last_nodes_idx = nodes.len() - 1;
+            nodes[1].parents.push(
+                IndexHelper { 
+                    node_idx: last_nodes_idx, 
+                    internal_idx: 0 
+                }
+            );
+            nodes[last_nodes_idx].children.push(1);
+            stock_avail[last_nodes_idx].push(StockAvailItem::default());
         }
         let root_order = calc_root_order(&nodes);
         let leaf_order = calc_leaf_order(&nodes);

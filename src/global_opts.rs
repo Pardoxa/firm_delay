@@ -267,6 +267,19 @@ pub struct TreePrintOpts{
     pub reverse_direction: bool
 }
 
+#[derive(Parser, Debug)]
+pub struct ClosedChainPrintOpts{
+    #[arg(short, long)]
+    /// print alternative json options
+    pub dot_out: Utf8PathBuf,
+
+    /// How many children per node
+    pub num_chains: NonZeroUsize,
+
+    /// How deep should the tree go?
+    pub other_chain_len: NonZeroUsize
+}
+
 #[derive(Subcommand, Debug)]
 #[allow(clippy::enum_variant_names)]
 pub enum MyModelCommand{
@@ -283,5 +296,9 @@ pub enum MyModelCommand{
     #[clap(visible_alias="trcrit")]
     TreeCrit(PathAndOut),
     /// Print tree dot files
-    PrintTree(TreePrintOpts)
+    #[clap(visible_alias="dotT")]
+    DotTree(TreePrintOpts),
+    /// Print multi chain dot files
+    #[clap(visible_alias="dotms")]
+    DotMultiChain(ClosedChainPrintOpts)
 }
