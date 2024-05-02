@@ -260,7 +260,11 @@ pub struct TreePrintOpts{
     pub chilren_per_node: NonZeroUsize,
 
     /// How deep should the tree go?
-    pub depth: usize
+    pub depth: usize,
+
+    #[arg(long,short)]
+    /// Normaly parents point at children, this reverses the direction
+    pub reverse_direction: bool
 }
 
 #[derive(Subcommand, Debug)]

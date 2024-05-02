@@ -211,8 +211,9 @@ fn main() {
                     my_model::model::print_tree(
                         opt.chilren_per_node, 
                         opt.depth, 
-                        &opt.dot_out
-                    )
+                        &opt.dot_out,
+                        opt.reverse_direction
+                    );
                 }
             }
         }

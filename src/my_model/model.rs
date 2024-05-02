@@ -5,7 +5,13 @@ use rand::SeedableRng;
 use rand_distr::{Distribution, Uniform};
 use rand_pcg::Pcg64;
 
-use crate::{complexer_firms::network_helper::write_my_digraph, create_buf};
+use crate::{
+    complexer_firms::network_helper::{
+        write_my_digraph, 
+        write_my_digraph_dir_parent
+    }, 
+    create_buf
+};
 
 #[allow(non_snake_case)]
 pub struct Model{
@@ -20,7 +26,7 @@ pub struct Model{
     pub max_stock: f64
 }
 
-pub fn print_tree(child_count: NonZeroUsize, depth: usize, dot_name: &Utf8Path)
+pub fn print_tree(child_count: NonZeroUsize, depth: usize, dot_name: &Utf8Path, parent_direction: bool)
 {
     let model = Model::create_tree(
         child_count, 
@@ -30,7 +36,11 @@ pub fn print_tree(child_count: NonZeroUsize, depth: usize, dot_name: &Utf8Path)
         0.0
     );
     let file = create_buf(dot_name);
-    write_my_digraph(file, &model.nodes);
+    if parent_direction{
+        write_my_digraph_dir_parent(file, &model.nodes);
+    } else {
+        write_my_digraph(file, &model.nodes);
+    }
 }
 
 impl Model{

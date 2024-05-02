@@ -52,3 +52,28 @@ where W: Write
         "}}"
     ).unwrap();
 }
+
+pub fn write_my_digraph_dir_parent<W>(mut writer: W, nodes: &[Node])
+where W: Write
+{
+    writeln!(
+        writer,
+        "digraph {{"
+    ).unwrap();
+    for idx in 0..nodes.len(){
+        writeln!(writer, "{idx}").unwrap();
+    }
+    for (idx, node) in nodes.iter().enumerate(){
+        for parent in node.parents.iter(){
+            let parent = parent.node_idx;
+            writeln!(
+                writer,
+                "{idx} -> {parent}"
+            ).unwrap();
+        }
+    }
+    writeln!(
+        writer,
+        "}}"
+    ).unwrap();
+}
