@@ -206,6 +206,13 @@ fn main() {
                 MyModelCommand::TreeCrit(opt) => {
                     let opts: TreeDemandVelocityCritOpt = parse_and_add_to_global(opt.json);
                     my_model::tree_crit_scan(opts, opt.out.unwrap());
+                },
+                MyModelCommand::PrintTree(opt) => {
+                    my_model::model::print_tree(
+                        opt.chilren_per_node, 
+                        opt.depth, 
+                        &opt.dot_out
+                    )
                 }
             }
         }

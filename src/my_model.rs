@@ -1,4 +1,4 @@
-mod model;
+pub mod model;
 mod opts;
 pub use opts::*;
 mod execs;

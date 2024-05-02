@@ -1,5 +1,7 @@
 use std::io::Write;
 
+use crate::my_model::model::Node;
+
 pub fn write_digraph<'a, W, I>(mut writer: W, network: &'a [I])
 where W: Write,
     &'a I: IntoIterator<Item = &'a usize>
@@ -18,6 +20,30 @@ where W: Write,
             writeln!(
                 writer,
                 "{idx} -> {j}"
+            ).unwrap();
+        }
+    }
+    writeln!(
+        writer,
+        "}}"
+    ).unwrap();
+}
+
+pub fn write_my_digraph<W>(mut writer: W, nodes: &[Node])
+where W: Write
+{
+    writeln!(
+        writer,
+        "digraph {{"
+    ).unwrap();
+    for idx in 0..nodes.len(){
+        writeln!(writer, "{idx}").unwrap();
+    }
+    for (idx, node) in nodes.iter().enumerate(){
+        for child in node.children.iter(){
+            writeln!(
+                writer,
+                "{idx} -> {child}"
             ).unwrap();
         }
     }

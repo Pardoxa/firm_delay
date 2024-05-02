@@ -1,7 +1,11 @@
 use std::num::*;
+use camino::Utf8Path;
 use itertools::Itertools;
+use rand::SeedableRng;
 use rand_distr::{Distribution, Uniform};
 use rand_pcg::Pcg64;
+
+use crate::{complexer_firms::network_helper::write_my_digraph, create_buf};
 
 #[allow(non_snake_case)]
 pub struct Model{
@@ -14,6 +18,19 @@ pub struct Model{
     pub stock_avail: Vec<Vec<StockAvailItem>>,
     pub demand_at_root: f64,
     pub max_stock: f64
+}
+
+pub fn print_tree(child_count: NonZeroUsize, depth: usize, dot_name: &Utf8Path)
+{
+    let model = Model::create_tree(
+        child_count, 
+        depth, 
+        Pcg64::seed_from_u64(0), 
+        0.0, 
+        0.0
+    );
+    let file = create_buf(dot_name);
+    write_my_digraph(file, &model.nodes);
 }
 
 impl Model{

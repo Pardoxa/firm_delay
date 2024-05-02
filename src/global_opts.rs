@@ -250,6 +250,19 @@ pub struct PathAndOut{
 
 }
 
+#[derive(Parser, Debug)]
+pub struct TreePrintOpts{
+    #[arg(short, long)]
+    /// print alternative json options
+    pub dot_out: Utf8PathBuf,
+
+    /// How many children per node
+    pub chilren_per_node: NonZeroUsize,
+
+    /// How deep should the tree go?
+    pub depth: usize
+}
+
 #[derive(Subcommand, Debug)]
 #[allow(clippy::enum_variant_names)]
 pub enum MyModelCommand{
@@ -264,5 +277,7 @@ pub enum MyModelCommand{
     ChainProfile(PathAndOut),
     /// Sample crit for Trees
     #[clap(visible_alias="trcrit")]
-    TreeCrit(PathAndOut)
+    TreeCrit(PathAndOut),
+    /// Print tree dot files
+    PrintTree(TreePrintOpts)
 }
