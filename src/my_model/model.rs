@@ -6,10 +6,7 @@ use rand_distr::{Distribution, Uniform};
 use rand_pcg::Pcg64;
 
 use crate::{
-    complexer_firms::network_helper::{
-        write_my_digraph, 
-        write_my_digraph_dir_parent
-    }, 
+    complexer_firms::network_helper::write_my_digraph, 
     create_buf
 };
 
@@ -36,11 +33,7 @@ pub fn print_tree(child_count: NonZeroUsize, depth: usize, dot_name: &Utf8Path, 
         0.0
     );
     let file = create_buf(dot_name);
-    if parent_direction{
-        write_my_digraph_dir_parent(file, &model.nodes);
-    } else {
-        write_my_digraph(file, &model.nodes);
-    }
+    write_my_digraph(file, &model.nodes, parent_direction);
 }
 
 impl Model{

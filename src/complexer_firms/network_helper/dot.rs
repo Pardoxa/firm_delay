@@ -29,9 +29,14 @@ where W: Write,
     ).unwrap();
 }
 
-pub fn write_my_digraph<W>(mut writer: W, nodes: &[Node])
+pub fn write_my_digraph<W>(mut writer: W, nodes: &[Node], direction_parent: bool)
 where W: Write
 {
+    let fun = if direction_parent{
+        write_dir_parent
+    } else {
+        write_dir_child
+    };
     writeln!(
         writer,
         "digraph {{"
@@ -40,12 +45,7 @@ where W: Write
         writeln!(writer, "{idx}").unwrap();
     }
     for (idx, node) in nodes.iter().enumerate(){
-        for child in node.children.iter(){
-            writeln!(
-                writer,
-                "{idx} -> {child}"
-            ).unwrap();
-        }
+        fun(idx, node, &mut writer);
     }
     writeln!(
         writer,
@@ -53,27 +53,25 @@ where W: Write
     ).unwrap();
 }
 
-pub fn write_my_digraph_dir_parent<W>(mut writer: W, nodes: &[Node])
+fn write_dir_child<W>(idx: usize, node: &Node, writer: &mut W)
 where W: Write
 {
-    writeln!(
-        writer,
-        "digraph {{"
-    ).unwrap();
-    for idx in 0..nodes.len(){
-        writeln!(writer, "{idx}").unwrap();
+    for child in node.children.iter(){
+        writeln!(
+            writer,
+            "{idx} -> {child}"
+        ).unwrap();
     }
-    for (idx, node) in nodes.iter().enumerate(){
-        for parent in node.parents.iter(){
-            let parent = parent.node_idx;
-            writeln!(
-                writer,
-                "{idx} -> {parent}"
-            ).unwrap();
-        }
+}
+
+fn write_dir_parent<W>(idx: usize, node: &Node, writer: &mut W)
+where W: Write
+{
+    for parent in node.parents.iter(){
+        let parent = parent.node_idx;
+        writeln!(
+            writer,
+            "{idx} -> {parent}"
+        ).unwrap();
     }
-    writeln!(
-        writer,
-        "}}"
-    ).unwrap();
 }
