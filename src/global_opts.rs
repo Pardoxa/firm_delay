@@ -298,7 +298,7 @@ pub enum MyModelCommand{
     /// Print tree dot files
     #[clap(visible_alias="dotT")]
     DotTree(TreePrintOpts),
-    /// Print multi chain dot files
-    #[clap(visible_alias="dotms")]
-    DotMultiChain(ClosedChainPrintOpts)
+    /// Print closed multi chain dot files
+    #[clap(visible_alias="dotcms")]
+    DotClosedMultiChain(ClosedChainPrintOpts)
 }

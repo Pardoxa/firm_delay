@@ -41,7 +41,7 @@ pub fn write_tree_dot(
     write_my_digraph(file, &model.nodes, parent_direction);
 }
 
-pub fn write_multi_chain(
+pub fn write_closed_multi_chain(
     other_chain_len: NonZeroUsize,
     num_chains: NonZeroUsize,
     dot_name: &Utf8Path

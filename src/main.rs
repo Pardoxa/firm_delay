@@ -215,8 +215,8 @@ fn main() {
                         opt.reverse_direction
                     );
                 },
-                MyModelCommand::DotMultiChain(opt) => {
-                    my_model::model::write_multi_chain(
+                MyModelCommand::DotClosedMultiChain(opt) => {
+                    my_model::model::write_closed_multi_chain(
                         opt.other_chain_len,
                         opt.num_chains,
                         &opt.dot_out
