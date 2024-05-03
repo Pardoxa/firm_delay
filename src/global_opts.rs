@@ -300,5 +300,8 @@ pub enum MyModelCommand{
     DotTree(TreePrintOpts),
     /// Print closed multi chain dot files
     #[clap(visible_alias="dotcms")]
-    DotClosedMultiChain(ClosedChainPrintOpts)
+    DotClosedMultiChain(ClosedChainPrintOpts),
+    /// Measure criticallity for closed chains
+    #[clap(visible_alias="cmscrit")]
+    ClosedMultiChainCrit(PathAndOut)
 }

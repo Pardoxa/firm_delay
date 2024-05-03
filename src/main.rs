@@ -22,7 +22,7 @@ pub mod misc;
 pub mod index_sampler;
 pub mod correlations;
 mod my_model;
-use my_model::{ChainProfileOpts, DemandVelocityCritOpt, DemandVelocityOpt, TreeDemandVelocityCritOpt};
+use my_model::{ChainProfileOpts, ClosedMultiChainCritOpts, DemandVelocityCritOpt, DemandVelocityOpt, TreeDemandVelocityCritOpt};
 mod global_opts;
 mod simple_firm;
 mod any_dist;
@@ -221,7 +221,15 @@ fn main() {
                         opt.num_chains,
                         &opt.dot_out
                     )
+                },
+                MyModelCommand::ClosedMultiChainCrit(opt) => {
+                    let my_opt: ClosedMultiChainCritOpts = parse_and_add_to_global(opt.json);
+                    my_model::closed_multi_chain_crit_scan(
+                        my_opt,
+                        opt.out.unwrap()
+                    )
                 }
+
             }
         }
 
