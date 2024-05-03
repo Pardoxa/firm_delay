@@ -314,6 +314,7 @@ pub fn tree_crit_scan(opt: TreeDemandVelocityCritOpt, out: Utf8PathBuf)
     cleaner.clean();
 }
 
+/// scans through chain length
 pub fn closed_multi_chain_crit_scan(opt: ClosedMultiChainCritOpts, out: Utf8PathBuf)
 {
     assert!(
@@ -390,6 +391,96 @@ pub fn closed_multi_chain_crit_scan(opt: ClosedMultiChainCritOpts, out: Utf8Path
 
         current_chain_len += 1;
         if current_chain_len > opt.chain_len_end.get(){
+            break;
+        }
+    }
+    create_video(
+        "TMP_*.png", 
+        out.as_str(), 
+        15,
+        true
+    );
+
+    cleaner.clean();
+}
+
+/// Scans through num_chains
+pub fn closed_multi_chain_crit_scan2(opt: ClosedMultiChainCritOpts2, out: Utf8PathBuf)
+{
+    assert!(
+        opt.num_chains_end >= opt.num_chains_start,
+        "num chain start needs to be smaller than num chain end"
+    );
+    let mut current_num_chains = opt.num_chains_start.get();
+    let cleaner = Cleaner::new();
+
+    let header = [
+        "num_chains",
+        "N",
+        "a",
+        "b",
+        "critical_root_demand"
+    ];
+
+    let mut crit_buf = create_buf_with_command_and_version_and_header(out.as_path(), header);
+
+    loop {
+        let i_name = current_num_chains.to_string();
+        let start = i_name.len();
+        let zeros = &ZEROS[start..];
+        let name = format!("TMP_{zeros}{i_name}{}.dat", out.as_str());
+
+        let mut m_opt = opt.opts.clone();
+        m_opt.other_chain_len = NonZeroUsize::new(current_num_chains).unwrap();
+
+        let n = closed_multi_chain_velocity_scan(m_opt, &name);
+        let gp_name = format!("{name}.gp");
+
+        let mut gp_writer = create_gnuplot_buf(&gp_name);
+        let png = format!("{name}.png");
+        writeln!(gp_writer, "set t pngcairo").unwrap();
+        writeln!(gp_writer, "set output '{png}'").unwrap();
+        writeln!(gp_writer, "set title 'num chains = {current_num_chains}'").unwrap();
+        writeln!(gp_writer, "set ylabel 'v'").unwrap();
+        writeln!(gp_writer, "set xlabel 'r'").unwrap();
+        writeln!(gp_writer, "set fit quiet").unwrap();
+        writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
+        writeln!(gp_writer, "f(x)=a*x+b").unwrap();
+        writeln!(gp_writer, "fit f(x) '{name}' u 1:2:(t($2)) yerr via a,b").unwrap();
+        
+        if let Some(range) = &opt.y_range{
+            writeln!(gp_writer, "set yrange [{}:{}]", range.start(), range.end()).unwrap();
+        }
+        writeln!(gp_writer, "p '{name}' t '', f(x)").unwrap();
+        writeln!(gp_writer, "print(b)").unwrap();
+        writeln!(gp_writer, "print(a)").unwrap();
+        writeln!(gp_writer, "set output").unwrap();
+        drop(gp_writer);
+        let out = call_gnuplot(&gp_name);
+        if out.status.success(){
+            let s = String::from_utf8(out.stderr)
+                .unwrap();
+        
+            let mut iter = s.lines();
+                
+            let b: f64 = iter.next().unwrap().parse().unwrap();
+            let a: f64 = iter.next().unwrap().parse().unwrap();
+            let crit = -b/a;
+            
+            cleaner.add_multi([name, gp_name, png]);
+
+            writeln!(
+                crit_buf,
+                "{} {n} {} {} {}",
+                current_num_chains,
+                a,
+                b,
+                crit
+            ).unwrap();
+        }
+
+        current_num_chains += 1;
+        if current_num_chains > opt.num_chains_end.get(){
             break;
         }
     }

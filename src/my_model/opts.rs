@@ -55,6 +55,21 @@ pub struct ClosedMultiChainCritOpts{
     pub y_range: Option<RangeInclusive<f64>>
 }
 
+
+#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
+#[derivative(Default)]
+pub struct ClosedMultiChainCritOpts2{
+    pub opts: ClosedMultiChainVelocityOpts,
+
+    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
+    pub num_chains_start: NonZeroUsize,
+    #[derivative(Default(value="NonZeroUsize::new(2).unwrap()"))]
+    pub num_chains_end: NonZeroUsize,
+
+    #[derivative(Default(value="Some(0.0..=1.0)"))]
+    pub y_range: Option<RangeInclusive<f64>>
+}
+
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
 #[derivative(Default)]
 pub struct ClosedMultiChainVelocityOpts{

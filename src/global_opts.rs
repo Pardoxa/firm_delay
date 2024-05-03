@@ -301,7 +301,10 @@ pub enum MyModelCommand{
     /// Print closed multi chain dot files
     #[clap(visible_alias="dotcms")]
     DotClosedMultiChain(ClosedChainPrintOpts),
-    /// Measure criticallity for closed chains
+    /// Measure criticallity for closed chains by scanning through chain len
     #[clap(visible_alias="cmscrit")]
-    ClosedMultiChainCrit(PathAndOut)
+    ClosedMultiChainCrit(PathAndOut),
+    /// Measure criticallity for closed chains by scanning through num chains
+    #[clap(visible_alias="cmscrit2")]
+    ClosedMultiChainCrit2(PathAndOut)
 }
