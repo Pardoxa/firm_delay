@@ -168,7 +168,7 @@ pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
     cleaner.clean();
 }
 
-pub fn tree_calc_demand_velocity<P>(opt: TreeDemandVelocityOpt, out: P)
+pub fn tree_calc_demand_velocity<P>(opt: TreeDemandVelocityOpt, out: P) -> usize
 where P: AsRef<Path>
 {
     if let Some(t) = opt.threads{
@@ -195,6 +195,7 @@ where P: AsRef<Path>
             }
         )
         .collect_vec();
+    let n = ratios[0].nodes.len();
 
     let velocities: Vec<_> = ratios.into_par_iter()
         .map(
@@ -227,6 +228,7 @@ where P: AsRef<Path>
             "{root_demand} {velocity}"
         ).unwrap();
     }
+    n
 }
 
 pub fn tree_crit_scan(opt: TreeDemandVelocityCritOpt, out: Utf8PathBuf)
@@ -239,7 +241,8 @@ pub fn tree_crit_scan(opt: TreeDemandVelocityCritOpt, out: Utf8PathBuf)
         "tree_depth",
         "a",
         "b",
-        "critical_root_demand"
+        "critical_root_demand",
+        "N"
     ];
 
     let mut crit_buf = create_buf_with_command_and_version_and_header(out.as_path(), header);
@@ -253,7 +256,7 @@ pub fn tree_crit_scan(opt: TreeDemandVelocityCritOpt, out: Utf8PathBuf)
         let mut m_opt = opt.opts.clone();
         m_opt.tree_depth = current_tree_depth;
 
-        tree_calc_demand_velocity(m_opt, &name);
+        let n = tree_calc_demand_velocity(m_opt, &name);
         let gp_name = format!("{name}.gp");
 
         let mut gp_writer = create_gnuplot_buf(&gp_name);
@@ -291,7 +294,7 @@ pub fn tree_crit_scan(opt: TreeDemandVelocityCritOpt, out: Utf8PathBuf)
 
             writeln!(
                 crit_buf,
-                "{} {} {} {}",
+                "{} {} {} {} {n}",
                 current_tree_depth,
                 a,
                 b,
