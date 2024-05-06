@@ -209,6 +209,7 @@ pub fn create_video(
     if also_convert{
         let mut c = Command::new(program);
         let new_name = format!("{out_stub}_conv.mp4");
+        let _ = std::fs::remove_file(&new_name);
         let args = [
             "-i",
             &out,
