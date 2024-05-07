@@ -434,7 +434,7 @@ pub fn closed_multi_chain_crit_scan2(opt: ClosedMultiChainCritOpts2, out: Utf8Pa
         let name = format!("TMP_{zeros}{i_name}{}.dat", out.as_str());
 
         let mut m_opt = opt.opts.clone();
-        m_opt.other_chain_len = NonZeroUsize::new(current_num_chains).unwrap();
+        m_opt.num_chains = NonZeroUsize::new(current_num_chains).unwrap();
 
         let n = closed_multi_chain_velocity_scan(m_opt, &name);
         let gp_name = format!("{name}.gp");

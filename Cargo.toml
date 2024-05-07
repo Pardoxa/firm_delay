@@ -1,6 +1,6 @@
 [package]
 name = "firm_delay"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 authors = ["Yannick Feld"]
 build = "src/build.rs"
