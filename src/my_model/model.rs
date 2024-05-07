@@ -333,6 +333,52 @@ impl Model{
         }
         self.current_demand[0] = 0.0_f64.max(self.current_demand[0] - self.currently_produced[0]);
     }
+
+    pub fn update_production_quenched(&mut self, production_quenched_rand: &[f64])
+    {
+        self.stock_avail
+            .iter_mut()
+            .for_each(
+                |avail|
+                {
+                    // only for now as a sanity check:
+                    avail.iter_mut()
+                        .for_each(|item| item.currently_avail = f64::NAN);
+                }
+            );
+        set_const(&mut self.currently_produced, 0.0);
+
+        for (&idx, &rand) in self.leaf_order.iter().zip(production_quenched_rand){
+            // firstly calculate actual production
+            let production = &mut self.currently_produced[idx];
+            let this_demand = self.current_demand[idx];
+            *production = this_demand.min(rand);
+            let iter = self.stock_avail[idx].iter();
+            for StockAvailItem{currently_avail: avail, stock, ..} in iter {
+                *production = production.min(avail + stock);
+            }
+            // next calculate new stocks
+            let iter = self.stock_avail[idx]
+                .iter_mut();
+            for item in iter {
+                item.stock = self.max_stock.min(item.currently_avail + item.stock - *production);
+            }
+
+            if this_demand <= 0.0 {
+                for parent in self.nodes[idx].parents.iter(){
+                    let stock = &mut self.stock_avail[parent.node_idx][parent.internal_idx];
+                    stock.currently_avail = 0.0;
+                }   
+            } else {
+                for parent in self.nodes[idx].parents.iter(){
+                    let stock = &mut self.stock_avail[parent.node_idx][parent.internal_idx];
+                    stock.currently_avail = *production * stock.demand_passed_on / this_demand;
+                }
+            }
+            
+        }
+        self.current_demand[0] = 0.0_f64.max(self.current_demand[0] - self.currently_produced[0]);
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -289,6 +289,8 @@ pub enum MyModelCommand{
     /// scan critical point for changing chain length
     #[clap(visible_alias="chcrit")]
     ChainCrit(PathAndOut),
+    /// quenched m: scan critical point for changing chain length
+    QuenchedChainCrit(PathAndOut),
     /// create profile of chain
     #[clap(visible_alias="chprof")]
     ChainProfile(PathAndOut),
