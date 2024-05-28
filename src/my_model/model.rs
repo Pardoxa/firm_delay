@@ -7,7 +7,7 @@ use rand_pcg::Pcg64;
 
 use crate::{
     complexer_firms::network_helper::write_my_digraph, 
-    create_buf
+    create_buf, MyDistr
 };
 
 #[allow(non_snake_case)]
@@ -61,6 +61,13 @@ pub fn write_closed_multi_chain(
     )
 }
 
+// Used internaly in the model impl
+// for a stack 
+struct HelpInfos{
+    level: usize,
+    id: usize
+}
+
 impl Model{
     pub fn reset_delays(&mut self) 
     {
@@ -79,6 +86,66 @@ impl Model{
             );
     }
 
+    pub fn create_rand_tree(
+        max_depth: usize,
+        mut rng: Pcg64,
+        demand_at_root: f64,
+        max_stock: f64,
+        distr: Box<dyn MyDistr>
+    ) -> Self
+    {
+        let mut nodes = vec![Node::default()];
+        let mut stack = Vec::new();
+        if max_depth > 0 {
+            stack.push(
+                HelpInfos{
+                    level: 0,
+                    id: 0
+                }
+            );
+        }
+        let mut stock_avail = vec![Vec::new()];
+        while let Some(infos) = stack.pop(){
+            let next_level = infos.level + 1;
+            let num_children = distr.rand_amount(&mut rng);
+            for i in 0..num_children{
+                let node = Node{
+                    parents: vec![IndexHelper{node_idx: infos.id, internal_idx: i}], 
+                    children: Vec::new()
+                };
+                let this_id = nodes.len();
+                nodes.push(node);
+                nodes[infos.id].children.push(this_id);
+                stock_avail[infos.id].push(StockAvailItem::default());
+                stock_avail.push(Vec::new());
+                if next_level < max_depth{
+                    stack.push(
+                        HelpInfos{
+                            level: next_level,
+                            id: this_id
+                        }
+                    );
+                }
+            }
+        }
+
+        let total_node_count = nodes.len();
+        let root_order = calc_root_order(&nodes);
+        let leaf_order = calc_leaf_order(&nodes);
+
+        Self{
+            rng,
+            nodes,
+            current_demand: vec![0.0; total_node_count],
+            currently_produced: vec![0.0; total_node_count],
+            root_order,
+            leaf_order,
+            stock_avail,
+            demand_at_root,
+            max_stock
+        }
+    }
+
     pub fn create_tree(
         num_children: NonZeroUsize,
         depth: usize,
@@ -88,10 +155,7 @@ impl Model{
     ) -> Self
     {
         let mut nodes = vec![Node::default()];
-        struct HelpInfos{
-            level: usize,
-            id: usize
-        }
+        
         let mut stack = Vec::new();
         if depth > 0 {
             stack.push(
