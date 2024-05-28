@@ -219,6 +219,16 @@ fn main() {
                         opt.reverse_direction
                     );
                 },
+                MyModelCommand::DotRandTree(opt) => {
+                    let distr = opt.get_distr();
+                    my_model::model::write_rand_tree_dot(
+                        opt.max_depth,
+                        &opt.dot_out,
+                        opt.reverse_direction,
+                        opt.seed.unwrap_or_default(),
+                        distr
+                    );
+                },
                 MyModelCommand::DotClosedMultiChain(opt) => {
                     my_model::model::write_closed_multi_chain(
                         opt.other_chain_len,

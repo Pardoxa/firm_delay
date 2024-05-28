@@ -2,8 +2,9 @@ use std::num::*;
 
 use camino::Utf8PathBuf;
 use clap::{Parser, ValueEnum, Subcommand};
+use rand_distr::Uniform;
 
-use crate::{complexer_firms::NetworkStructure, config_helper::AutoBufSubJobOpts, correlations::CorOpts};
+use crate::{complexer_firms::NetworkStructure, config_helper::AutoBufSubJobOpts, correlations::CorOpts, MyDistr};
 
 
 #[derive(Parser, Debug)]
@@ -268,6 +269,44 @@ pub struct TreePrintOpts{
 }
 
 #[derive(Parser, Debug)]
+pub struct RandTreePrintOpts{
+    #[arg(short, long)]
+    /// print alternative json options
+    pub dot_out: Utf8PathBuf,
+
+    /// How deep should the tree go? Counting from 0
+    pub max_depth: usize,
+
+    /// Seed for the tree
+    #[arg(long, short)]
+    pub seed: Option<u64>,
+
+    #[arg(long,short)]
+    /// Normaly parents point at children, this reverses the direction
+    pub reverse_direction: bool,
+
+    /// Which distribution to use for childcount
+    #[command(subcommand)]
+    pub which: WhichDistr
+}
+
+impl RandTreePrintOpts{
+    pub fn get_distr(&self) -> Box<dyn MyDistr>
+    {
+        match &self.which{
+            WhichDistr::Uniform(u) => {
+                Box::new(
+                    Uniform::new_inclusive(u.start, u.end)
+                )
+            },
+            WhichDistr::Constant(c) => {
+                Box::new(c.value)
+            }
+        }
+    }
+}
+
+#[derive(Parser, Debug)]
 pub struct ClosedChainPrintOpts{
     #[arg(short, long)]
     /// print alternative json options
@@ -278,6 +317,15 @@ pub struct ClosedChainPrintOpts{
 
     /// How deep should the tree go?
     pub other_chain_len: NonZeroUsize
+}
+
+#[derive(Subcommand, Debug)]
+#[allow(clippy::enum_variant_names)]
+pub enum WhichDistr{
+    /// Uniform
+    Uniform(UniformParser),
+    /// Constant
+    Constant(ConstantParser)
 }
 
 #[derive(Subcommand, Debug)]
@@ -300,6 +348,9 @@ pub enum MyModelCommand{
     /// Print tree dot files
     #[clap(visible_alias="dotT")]
     DotTree(TreePrintOpts),
+    /// Print dot file for random tree
+    #[clap(visible_alias="dotrT")]
+    DotRandTree(RandTreePrintOpts),
     /// Print closed multi chain dot files
     #[clap(visible_alias="dotcms")]
     DotClosedMultiChain(ClosedChainPrintOpts),
@@ -309,4 +360,25 @@ pub enum MyModelCommand{
     /// Measure criticallity for closed chains by scanning through num chains
     #[clap(visible_alias="cmscrit2")]
     ClosedMultiChainCrit2(PathAndOut)
+}
+
+#[derive(Parser, Debug)]
+/// Create a uniform distribution
+pub struct UniformParser{
+    #[arg(short, long)]
+    /// inclusive lower bound
+    pub start: usize,
+
+    #[arg(short, long)]
+    /// inclusive upper bound
+    pub end: usize
+
+}
+
+#[derive(Parser, Debug)]
+/// Use a constant as distribution
+pub struct ConstantParser{
+    /// the value
+    pub value: usize
+
 }

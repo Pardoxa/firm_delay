@@ -41,6 +41,25 @@ pub fn write_tree_dot(
     write_my_digraph(file, &model.nodes, parent_direction);
 }
 
+pub fn write_rand_tree_dot(
+    max_depth: usize, 
+    dot_name: &Utf8Path, 
+    parent_direction: bool,
+    seed: u64,
+    distr: Box<dyn MyDistr>
+)
+{
+    let model = Model::create_rand_tree(
+        max_depth,
+        Pcg64::seed_from_u64(seed),
+        0.0,
+        0.0,
+        distr
+    );
+    let file = create_buf(dot_name);
+    write_my_digraph(file, &model.nodes, parent_direction);
+}
+
 pub fn write_closed_multi_chain(
     other_chain_len: NonZeroUsize,
     num_chains: NonZeroUsize,
