@@ -4,7 +4,7 @@ use itertools::Itertools;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Uniform};
 use rand_pcg::Pcg64;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use super::{opts::*, model::*};
 use crate::misc::*;
 
@@ -402,23 +402,78 @@ pub fn tree_crit_scan(opt: TreeDemandVelocityCritOpt, out: Utf8PathBuf)
     cleaner.clean();
 }
 
+pub fn rand_tree_calc_demand_velocity_samples<P>(opt: RandTreeDemandVelocityOpt, out: P)
+where P: AsRef<Path>
+{
+    if let Some(t) = opt.threads{
+        rayon::ThreadPoolBuilder::new().num_threads(t.get()).build_global().unwrap();
+    }
+    let mut rng = Pcg64::seed_from_u64(opt.seed);
 
+    let mut trees = (0..opt.samples.get())
+        .map(
+            |_|
+            {
+                let m_rng = Pcg64::from_rng(&mut rng).unwrap();
+                Model::create_rand_tree(
+                    opt.max_depth,
+                    m_rng, 
+                    opt.root_demand_rate_min, 
+                    opt.max_stock,
+                    opt.distr.get_distr()
+                )
+            }
+        ).collect_vec();
+    
+
+    let ratios = RatioIter::from_float(
+        opt.root_demand_rate_min, 
+        opt.root_demand_rate_max, 
+        opt.root_demand_samples
+    );
+
+    let header = [
+        "Demand",
+        "Velocity"
+    ];
+
+    let out_str = out.as_ref().as_os_str().to_str().unwrap();
+    trees.par_iter_mut()
+        .enumerate()
+        .for_each(
+            |(idx, tree)|
+            {
+                let out_name = format!("Tree{idx}_{out_str}");
+                let mut buf = create_buf_with_command_and_version_and_header(out_name, header);
+                for demand in ratios.float_iter(){
+                    tree.demand_at_root = demand;
+                    let mut sum = 0.0;
+                    for _ in 0..opt.samples_per_tree.get(){
+                        tree.reset_delays();
+                        for _ in 0..opt.time.get() {
+                            tree.update_demand();
+                            tree.update_production();
+                        }
+                        sum += tree.current_demand[0];
+                    }
+                    sum /= (opt.time.get() * opt.samples_per_tree.get()) as f64;
+                    let velocity = sum;
+                    writeln!(
+                        buf,
+                        "{demand} {velocity}"
+                    ).unwrap();
+                }
+            }
+        );
+}
 
 pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
 {
     
-    /*let mut current_tree_depth = opt.tree_depth_start;
-    let cleaner = Cleaner::new();
+    let mut current_tree_depth = opt.tree_depth_start;
+    //let cleaner = Cleaner::new();
 
-    let header = [
-        "tree_depth",
-        "a",
-        "b",
-        "critical_root_demand",
-        "N"
-    ];
-
-    let mut crit_buf = create_buf_with_command_and_version_and_header(out.as_path(), header);
+    //let mut crit_buf = create_buf_with_command_and_version_and_header(out.as_path(), header);
 
     loop {
         let i_name = current_tree_depth.to_string();
@@ -427,67 +482,15 @@ pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
         let name = format!("TMP_{zeros}{i_name}{}.dat", out.as_str());
 
         let mut m_opt = opt.opts.clone();
-        m_opt.tree_depth = current_tree_depth;
+        m_opt.max_depth = current_tree_depth;
 
-        let n = tree_calc_demand_velocity(m_opt, &name);
-        let gp_name = format!("{name}.gp");
-
-        let mut gp_writer = create_gnuplot_buf(&gp_name);
-        let png = format!("{name}.png");
-        writeln!(gp_writer, "set t pngcairo").unwrap();
-        writeln!(gp_writer, "set output '{png}'").unwrap();
-        writeln!(gp_writer, "set title 'DEPTH={current_tree_depth}'").unwrap();
-        writeln!(gp_writer, "set ylabel 'v'").unwrap();
-        writeln!(gp_writer, "set xlabel 'r'").unwrap();
-        writeln!(gp_writer, "set fit quiet").unwrap();
-        writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
-        writeln!(gp_writer, "f(x)=a*x+b").unwrap();
-        writeln!(gp_writer, "fit f(x) '{name}' u 1:2:(t($2)) yerr via a,b").unwrap();
-        
-        if let Some(range) = &opt.y_range{
-            writeln!(gp_writer, "set yrange [{}:{}]", range.start(), range.end()).unwrap();
-        }
-        writeln!(gp_writer, "p '{name}' t '', f(x)").unwrap();
-        writeln!(gp_writer, "print(b)").unwrap();
-        writeln!(gp_writer, "print(a)").unwrap();
-        writeln!(gp_writer, "set output").unwrap();
-        drop(gp_writer);
-        let out = call_gnuplot(&gp_name);
-        if out.status.success(){
-            let s = String::from_utf8(out.stderr)
-                .unwrap();
-        
-            let mut iter = s.lines();
-                
-            let b: f64 = iter.next().unwrap().parse().unwrap();
-            let a: f64 = iter.next().unwrap().parse().unwrap();
-            let crit = -b/a;
-            
-            cleaner.add_multi([name, gp_name, png]);
-
-            writeln!(
-                crit_buf,
-                "{} {} {} {} {n}",
-                current_tree_depth,
-                a,
-                b,
-                crit
-            ).unwrap();
-        }
+        rand_tree_calc_demand_velocity_samples(m_opt, &name);
 
         current_tree_depth += 1;
-        if current_tree_depth > opt.tree_depth_end{
+        if current_tree_depth > opt.tree_depth_end {
             break;
         }
     }
-    create_video(
-        "TMP_*.png", 
-        out.as_str(), 
-        15,
-        true
-    );
-
-    cleaner.clean();*/
 }
 
 /// scans through chain length

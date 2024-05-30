@@ -70,8 +70,8 @@ pub struct RandTreeDemandVelocityOpt{
     pub root_demand_rate_max: f64,
     #[derivative(Default(value="NonZeroI64::new(100).unwrap()"))]
     pub root_demand_samples: NonZeroI64,
-    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
-    pub samples_per_tree: NonZeroUsize,
+    #[derivative(Default(value="NonZeroU64::new(1).unwrap()"))]
+    pub samples_per_tree: NonZeroU64,
 
     #[derivative(Default(value="NonZeroU64::new(10000).unwrap()"))]
     pub time: NonZeroU64,
@@ -82,6 +82,8 @@ pub struct RandTreeDemandVelocityOpt{
     pub threads: Option<NonZeroUsize>,
     #[derivative(Default(value="1.0"))]
     pub max_stock: f64,
+
+    pub max_depth: usize,
 
     #[derivative(Default(value="WhichDistr::Uniform(UniformParser{start: 0, end: 1})"))]
     pub distr: WhichDistr
@@ -123,8 +125,12 @@ pub fn print_jsons_rand_tree_crit_scan() -> !
         distr: which, 
         ..Default::default() 
     };
+    let crit = RandTreeDemandVelocityCritOpt{
+        opts: opt,
+        ..Default::default()
+    };
     
-    serde_json::to_writer_pretty(stdout(), &opt).unwrap();
+    serde_json::to_writer_pretty(stdout(), &crit).unwrap();
 
     println!("\nDo you want to save this to a file? If so, write filename. Otherwise just press enter");
     buffer.clear();
@@ -132,7 +138,7 @@ pub fn print_jsons_rand_tree_crit_scan() -> !
     let trimmed = buffer.trim();
     if !trimmed.is_empty(){
         let buf = create_buf(trimmed);
-        serde_json::to_writer_pretty(buf, &opt).unwrap();
+        serde_json::to_writer_pretty(buf, &crit).unwrap();
     }
     exit(0)
 }

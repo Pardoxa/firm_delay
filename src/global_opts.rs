@@ -291,22 +291,6 @@ pub struct RandTreePrintOpts{
     pub which: WhichDistr
 }
 
-impl RandTreePrintOpts{
-    pub fn get_distr(&self) -> Box<dyn MyDistr>
-    {
-        match &self.which{
-            WhichDistr::Uniform(u) => {
-                Box::new(
-                    Uniform::new_inclusive(u.start, u.end)
-                )
-            },
-            WhichDistr::Constant(c) => {
-                Box::new(c.value)
-            }
-        }
-    }
-}
-
 #[derive(Parser, Debug)]
 pub struct ClosedChainPrintOpts{
     #[arg(short, long)]
@@ -322,11 +306,28 @@ pub struct ClosedChainPrintOpts{
 
 #[derive(Subcommand, Debug, Serialize, Deserialize, Clone)]
 #[allow(clippy::enum_variant_names)]
+#[non_exhaustive]
 pub enum WhichDistr{
     /// Uniform
     Uniform(UniformParser),
     /// Constant
     Constant(ConstantParser)
+}
+
+impl WhichDistr{
+    pub fn get_distr(&self) -> Box<dyn MyDistr>
+    {
+        match self{
+            WhichDistr::Uniform(u) => {
+                Box::new(
+                    Uniform::new_inclusive(u.start, u.end)
+                )
+            },
+            WhichDistr::Constant(c) => {
+                Box::new(c.value)
+            }
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]

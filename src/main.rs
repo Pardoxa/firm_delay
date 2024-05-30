@@ -228,7 +228,7 @@ fn main() {
                     );
                 },
                 MyModelCommand::DotRandTree(opt) => {
-                    let distr = opt.get_distr();
+                    let distr = opt.which.get_distr();
                     my_model::model::write_rand_tree_dot(
                         opt.max_depth,
                         &opt.dot_out,
