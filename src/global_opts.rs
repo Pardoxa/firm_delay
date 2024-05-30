@@ -3,6 +3,7 @@ use std::num::*;
 use camino::Utf8PathBuf;
 use clap::{Parser, ValueEnum, Subcommand};
 use rand_distr::Uniform;
+use serde::{Deserialize, Serialize};
 
 use crate::{complexer_firms::NetworkStructure, config_helper::AutoBufSubJobOpts, correlations::CorOpts, MyDistr};
 
@@ -319,7 +320,7 @@ pub struct ClosedChainPrintOpts{
     pub other_chain_len: NonZeroUsize
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Serialize, Deserialize, Clone)]
 #[allow(clippy::enum_variant_names)]
 pub enum WhichDistr{
     /// Uniform
@@ -345,6 +346,9 @@ pub enum MyModelCommand{
     /// Sample crit for Trees
     #[clap(visible_alias="trcrit")]
     TreeCrit(PathAndOut),
+    /// Sample crit for random Trees
+    #[clap(visible_alias="rtrcrit")]
+    RandTreeCrit(PathAndOut),
     /// Print tree dot files
     #[clap(visible_alias="dotT")]
     DotTree(TreePrintOpts),
@@ -362,7 +366,7 @@ pub enum MyModelCommand{
     ClosedMultiChainCrit2(PathAndOut)
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Serialize, Deserialize, Clone)]
 /// Create a uniform distribution
 pub struct UniformParser{
     #[arg(short, long)]
@@ -375,7 +379,7 @@ pub struct UniformParser{
 
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Serialize, Deserialize, Clone)]
 /// Use a constant as distribution
 pub struct ConstantParser{
     /// the value

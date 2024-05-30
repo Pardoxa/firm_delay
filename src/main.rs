@@ -211,6 +211,14 @@ fn main() {
                     let opts: TreeDemandVelocityCritOpt = parse_and_add_to_global(opt.json);
                     my_model::tree_crit_scan(opts, opt.out.unwrap());
                 },
+                MyModelCommand::RandTreeCrit(opt) => {
+                    let opts: RandTreeDemandVelocityCritOpt = match opt.json {
+                        None => print_jsons_rand_tree_crit_scan(),
+                        Some(_) => parse_and_add_to_global(opt.json)
+                    };
+                     
+                    my_model::rand_tree_crit_scan(opts, opt.out.unwrap());
+                },
                 MyModelCommand::DotTree(opt) => {
                     my_model::model::write_tree_dot(
                         opt.chilren_per_node, 
