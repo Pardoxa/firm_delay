@@ -54,6 +54,8 @@ pub struct TreeDemandVelocityOpt{
 pub struct RandTreeDemandVelocityCritOpt{
     pub opts: RandTreeDemandVelocityOpt,
 
+    pub dont_delete_tmps: bool,
+
     pub tree_depth_start: usize,
     pub tree_depth_end: usize,
 

@@ -402,7 +402,10 @@ pub fn tree_crit_scan(opt: TreeDemandVelocityCritOpt, out: Utf8PathBuf)
     cleaner.clean();
 }
 
-pub fn rand_tree_calc_demand_velocity_samples<P>(opt: RandTreeDemandVelocityOpt, out: P)
+pub fn rand_tree_calc_demand_velocity_samples<P>(
+    opt: RandTreeDemandVelocityOpt, 
+    out: P
+) -> Vec<String>
 where P: AsRef<Path>
 {
     if let Some(t) = opt.threads{
@@ -440,11 +443,15 @@ where P: AsRef<Path>
     let out_str = out.as_ref().as_os_str().to_str().unwrap();
     trees.par_iter_mut()
         .enumerate()
-        .for_each(
+        .map(
             |(idx, tree)|
             {
                 let out_name = format!("Tree{idx}_{out_str}");
-                let mut buf = create_buf_with_command_and_version_and_header(out_name, header);
+                let path: &Path = out_name.as_ref();
+                let mut buf = create_buf_with_command_and_version_and_header(
+                    path, 
+                    header
+                );
                 for demand in ratios.float_iter(){
                     tree.demand_at_root = demand;
                     let mut sum = 0.0;
@@ -463,34 +470,133 @@ where P: AsRef<Path>
                         "{demand} {velocity}"
                     ).unwrap();
                 }
+                out_name
             }
-        );
+        ).collect()
 }
 
 pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
 {
     
     let mut current_tree_depth = opt.tree_depth_start;
-    //let cleaner = Cleaner::new();
+    let cleaner = Cleaner::new();
 
-    //let mut crit_buf = create_buf_with_command_and_version_and_header(out.as_path(), header);
+    let header = [
+        "Max_tree_depth",
+        "average_crit",
+        "variance_crit"
+    ];
+
+    let mut result_buffer = create_buf_with_command_and_version_and_header(
+        &out, 
+        header
+    );
+
+    let all_samples_name = format!(
+        "all_{}",
+        out.as_str()
+    );
+    let header = [
+        "max_tree_depth",
+        "crit_sample"
+    ];
+    let mut result_samples = create_buf_with_command_and_version_and_header(
+        all_samples_name, 
+        header
+    );
+
 
     loop {
         let i_name = current_tree_depth.to_string();
         let start = i_name.len();
         let zeros = &ZEROS[start..];
         let name = format!("TMP_{zeros}{i_name}{}.dat", out.as_str());
+        let mut samples = Vec::new();
 
         let mut m_opt = opt.opts.clone();
         m_opt.max_depth = current_tree_depth;
 
-        rand_tree_calc_demand_velocity_samples(m_opt, &name);
+        let files = rand_tree_calc_demand_velocity_samples(m_opt, &name);
+
+        for file in files.iter(){
+            let gp_name = format!("{file}.gp");
+            let png = format!("{file}.png");
+            let mut gp = create_gnuplot_buf(&gp_name);
+
+            writeln!(gp, "set t pngcairo").unwrap();
+            writeln!(gp, "set output '{png}'").unwrap();
+            writeln!(gp, "set title 'max tree depth = {current_tree_depth}'").unwrap();
+            writeln!(gp, "set ylabel 'v'").unwrap();
+            writeln!(gp, "set xlabel 'r'").unwrap();
+            writeln!(gp, "set fit quiet").unwrap();
+            writeln!(gp, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
+            writeln!(gp, "f(x)=a*x+b").unwrap();
+            writeln!(gp, "fit f(x) '{file}' u 1:2:(t($2)) yerr via a,b").unwrap();
+            
+            if let Some(range) = &opt.y_range{
+                writeln!(gp, "set yrange [{}:{}]", range.start(), range.end()).unwrap();
+            }
+            writeln!(gp, "p '{file}' t '', f(x)").unwrap();
+            writeln!(gp, "print(b)").unwrap();
+            writeln!(gp, "print(a)").unwrap();
+            writeln!(gp, "set output").unwrap();
+
+            drop(gp);
+            let out = call_gnuplot(&gp_name);
+            if out.status.success(){
+                let s = String::from_utf8(out.stderr)
+                    .unwrap();
+            
+                let mut iter = s.lines();
+
+                let b: f64 = iter.next().unwrap().parse().unwrap();
+                let a: f64 = iter.next().unwrap().parse().unwrap();
+                let crit = -b/a;
+
+                if !opt.dont_delete_tmps{
+                    cleaner.add_multi([gp_name, png]);
+                }
+
+                samples.push(crit);
+            }
+        }
+
+
+        if !opt.dont_delete_tmps{
+            cleaner.add_multi(files);
+        }
+
+        let mut sum = 0.0;
+        let mut sum_sq = 0.0;
+        writeln!(
+            result_samples,
+            "# depth change"
+        ).unwrap();
+        for &sample in samples.iter()
+        {
+            sum += sample;
+            sum_sq += sample * sample;
+            writeln!(
+                result_samples,
+                "{current_tree_depth} {sample}"
+            ).unwrap();
+        }
+        let average = sum / samples.len() as f64;
+        let var = sum_sq / samples.len() as f64 - average * average;
+
+        writeln!(
+            result_buffer,
+            "{current_tree_depth} {average} {var}"
+        ).unwrap();
+
 
         current_tree_depth += 1;
         if current_tree_depth > opt.tree_depth_end {
             break;
         }
     }
+    
+    cleaner.clean();
 }
 
 /// scans through chain length
