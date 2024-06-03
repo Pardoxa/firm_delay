@@ -49,7 +49,7 @@ pub fn write_rand_tree_dot(
     distr: Box<dyn MyDistr>
 )
 {
-    let model = Model::create_rand_tree(
+    let (model, _) = Model::create_rand_tree(
         max_depth,
         Pcg64::seed_from_u64(seed),
         0.0,
@@ -105,13 +105,14 @@ impl Model{
             );
     }
 
+    /// Returns random tree and its depth
     pub fn create_rand_tree(
         max_depth: usize,
         mut rng: Pcg64,
         demand_at_root: f64,
         max_stock: f64,
         distr: Box<dyn MyDistr>
-    ) -> Self
+    ) -> (Self, usize)
     {
         let mut nodes = vec![Node::default()];
         let mut stack = Vec::new();
@@ -124,7 +125,9 @@ impl Model{
             );
         }
         let mut stock_avail = vec![Vec::new()];
+        let mut max_depth_reached = 0;
         while let Some(infos) = stack.pop(){
+            max_depth_reached = max_depth_reached.max(infos.level);
             let next_level = infos.level + 1;
             let num_children = distr.rand_amount(&mut rng);
             for i in 0..num_children{
@@ -152,17 +155,21 @@ impl Model{
         let root_order = calc_root_order(&nodes);
         let leaf_order = calc_leaf_order(&nodes);
 
-        Self{
-            rng,
-            nodes,
-            current_demand: vec![0.0; total_node_count],
-            currently_produced: vec![0.0; total_node_count],
-            root_order,
-            leaf_order,
-            stock_avail,
-            demand_at_root,
-            max_stock
-        }
+        (
+            Self{
+                rng,
+                nodes,
+                current_demand: vec![0.0; total_node_count],
+                currently_produced: vec![0.0; total_node_count],
+                root_order,
+                leaf_order,
+                stock_avail,
+                demand_at_root,
+                max_stock
+            },
+            max_depth_reached
+        )
+        
     }
 
     pub fn create_tree(

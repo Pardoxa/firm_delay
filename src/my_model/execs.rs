@@ -4,7 +4,8 @@ use itertools::Itertools;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Uniform};
 use rand_pcg::Pcg64;
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
+use sampling::HistF64;
 use super::{opts::*, model::*};
 use crate::misc::*;
 
@@ -402,10 +403,16 @@ pub fn tree_crit_scan(opt: TreeDemandVelocityCritOpt, out: Utf8PathBuf)
     cleaner.clean();
 }
 
+pub struct RandTreeSample{
+    pub filename: String,
+    pub num_nodes: usize,
+    pub max_depth_reached: usize
+}
+
 pub fn rand_tree_calc_demand_velocity_samples<P>(
     opt: RandTreeDemandVelocityOpt, 
     out: P
-) -> Vec<String>
+) -> Vec<RandTreeSample>
 where P: AsRef<Path>
 {
     if let Some(t) = opt.threads{
@@ -444,7 +451,7 @@ where P: AsRef<Path>
     trees.par_iter_mut()
         .enumerate()
         .map(
-            |(idx, tree)|
+            |(idx, (tree, max_depth_reached))|
             {
                 let out_name = format!("Tree{idx}_{out_str}");
                 let path: &Path = out_name.as_ref();
@@ -470,7 +477,12 @@ where P: AsRef<Path>
                         "{demand} {velocity}"
                     ).unwrap();
                 }
-                out_name
+
+                RandTreeSample{
+                    filename: out_name,
+                    num_nodes: tree.nodes.len(),
+                    max_depth_reached: *max_depth_reached
+                }
             }
         ).collect()
 }
@@ -492,22 +504,32 @@ pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
         header
     );
 
-    let all_samples_name = format!(
-        "all_{}",
-        out.as_str()
-    );
+
     let header = [
-        "max_tree_depth",
-        "crit_sample"
+        "max_allowed_tree_depth",
+        "crit_sample",
+        "num_nodes",
+        "max_tree_depth_reached"
     ];
-    let mut result_samples = create_buf_with_command_and_version_and_header(
-        all_samples_name, 
-        header
-    );
+
+
+    struct Sample{
+        crit: f64,
+        num_nodes: usize,
+        max_tree_depth_reached: usize
+    }
 
 
     loop {
         let i_name = current_tree_depth.to_string();
+        let all_samples_name = format!(
+            "all_depth{i_name}_{}",
+            out.as_str()
+        );
+        let mut result_samples = create_buf_with_command_and_version_and_header(
+            all_samples_name, 
+            header
+        );
         let start = i_name.len();
         let zeros = &ZEROS[start..];
         let name = format!("TMP_{zeros}{i_name}{}.dat", out.as_str());
@@ -518,52 +540,87 @@ pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
 
         let files = rand_tree_calc_demand_velocity_samples(m_opt, &name);
 
-        for file in files.iter(){
-            let gp_name = format!("{file}.gp");
-            let png = format!("{file}.png");
-            let mut gp = create_gnuplot_buf(&gp_name);
+        let hist_name = format!("Depth{i_name}{}.hist", out.as_str());
+        let mut hist = HistF64::new(
+            0.0, 
+            1.0, 
+            opt.hist_bins.get()
+        ).unwrap();
 
-            writeln!(gp, "set t pngcairo").unwrap();
-            writeln!(gp, "set output '{png}'").unwrap();
-            writeln!(gp, "set title 'max tree depth = {current_tree_depth}'").unwrap();
-            writeln!(gp, "set ylabel 'v'").unwrap();
-            writeln!(gp, "set xlabel 'r'").unwrap();
-            writeln!(gp, "set fit quiet").unwrap();
-            writeln!(gp, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
-            writeln!(gp, "f(x)=a*x+b").unwrap();
-            writeln!(gp, "fit f(x) '{file}' u 1:2:(t($2)) yerr via a,b").unwrap();
-            
-            if let Some(range) = &opt.y_range{
-                writeln!(gp, "set yrange [{}:{}]", range.start(), range.end()).unwrap();
-            }
-            writeln!(gp, "p '{file}' t '', f(x)").unwrap();
-            writeln!(gp, "print(b)").unwrap();
-            writeln!(gp, "print(a)").unwrap();
-            writeln!(gp, "set output").unwrap();
-
-            drop(gp);
-            let out = call_gnuplot(&gp_name);
-            if out.status.success(){
-                let s = String::from_utf8(out.stderr)
-                    .unwrap();
-            
-                let mut iter = s.lines();
-
-                let b: f64 = iter.next().unwrap().parse().unwrap();
-                let a: f64 = iter.next().unwrap().parse().unwrap();
-                let crit = -b/a;
-
-                if !opt.dont_delete_tmps{
-                    cleaner.add_multi([gp_name, png]);
+        files.par_iter()
+            .map(
+                |sample|
+                {   
+                    let file = &sample.filename;
+                    let gp_name = format!("{file}.gp");
+                    let png = format!("{file}.png");
+                    let mut gp = create_gnuplot_buf(&gp_name);
+        
+                    writeln!(gp, "set t pngcairo").unwrap();
+                    writeln!(gp, "set output '{png}'").unwrap();
+                    writeln!(gp, "set title 'max tree depth = {current_tree_depth}'").unwrap();
+                    writeln!(gp, "set ylabel 'v'").unwrap();
+                    writeln!(gp, "set xlabel 'r'").unwrap();
+                    writeln!(gp, "set fit quiet").unwrap();
+                    writeln!(gp, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
+                    writeln!(gp, "f(x)=a*x+b").unwrap();
+                    writeln!(gp, "fit f(x) '{file}' u 1:2:(t($2)) yerr via a,b").unwrap();
+                    
+                    if let Some(range) = &opt.y_range{
+                        writeln!(gp, "set yrange [{}:{}]", range.start(), range.end()).unwrap();
+                    }
+                    writeln!(gp, "p '{file}' t '', f(x)").unwrap();
+                    writeln!(gp, "print(b)").unwrap();
+                    writeln!(gp, "print(a)").unwrap();
+                    writeln!(gp, "set output").unwrap();
+        
+                    drop(gp);
+                    let out = call_gnuplot(&gp_name);
+                    if out.status.success(){
+                        let s = String::from_utf8(out.stderr)
+                            .unwrap();
+                    
+                        let mut iter = s.lines();
+        
+                        let b: f64 = iter.next().unwrap().parse().unwrap();
+                        let a: f64 = iter.next().unwrap().parse().unwrap();
+                        let crit = -b/a;
+        
+                        if !opt.dont_delete_tmps{
+                            cleaner.add_multi([gp_name, png]);
+                        }
+                        Sample{
+                            crit,
+                            num_nodes: sample.num_nodes,
+                            max_tree_depth_reached: sample.max_depth_reached
+                        }
+                    } else {
+                        Sample{
+                            crit: f64::NAN,
+                            num_nodes: sample.num_nodes,
+                            max_tree_depth_reached: sample.max_depth_reached
+                        }
+                    }
                 }
+            ).collect_into_vec(&mut samples);
 
-                samples.push(crit);
-            }
+        if opt.ffmpeg{
+            let globbing = format!("Tree*_{name}.png");
+            let out = format!("Trees_Depth{current_tree_depth}");
+            crate::misc::create_video(
+                &globbing,
+                &out,
+                15,
+                false
+            );
         }
 
 
         if !opt.dont_delete_tmps{
-            cleaner.add_multi(files);
+            cleaner.add_multi(
+                files.into_iter()
+                    .map(|sample| sample.filename)
+            );
         }
 
         let mut sum = 0.0;
@@ -572,14 +629,18 @@ pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
             result_samples,
             "# depth change"
         ).unwrap();
-        for &sample in samples.iter()
+        for sample in samples.iter()
         {
-            sum += sample;
-            sum_sq += sample * sample;
+            let crit = sample.crit;
+            sum += crit;
+            sum_sq += crit * crit;
             writeln!(
                 result_samples,
-                "{current_tree_depth} {sample}"
+                "{current_tree_depth} {crit} {} {}",
+                sample.num_nodes,
+                sample.max_tree_depth_reached
             ).unwrap();
+            hist.increment_quiet(crit);
         }
         let average = sum / samples.len() as f64;
         let var = sum_sq / samples.len() as f64 - average * average;
@@ -588,6 +649,24 @@ pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
             result_buffer,
             "{current_tree_depth} {average} {var}"
         ).unwrap();
+
+        let header = [
+            "bin_left",
+            "bin_right",
+            "hits"
+        ];
+
+        let mut hist_buf = create_buf_with_command_and_version_and_header(hist_name, header);
+
+        for (bin, hits) in hist.bin_hits_iter(){
+            writeln!(
+                hist_buf,
+                "{} {} {}",
+                bin[0],
+                bin[1],
+                hits
+            ).unwrap();
+        }
 
 
         current_tree_depth += 1;

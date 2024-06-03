@@ -55,10 +55,11 @@ pub struct RandTreeDemandVelocityCritOpt{
     pub opts: RandTreeDemandVelocityOpt,
 
     pub dont_delete_tmps: bool,
-
+    #[derivative(Default(value="NonZeroUsize::new(100).unwrap()"))]
+    pub hist_bins: NonZeroUsize,
     pub tree_depth_start: usize,
     pub tree_depth_end: usize,
-
+    pub ffmpeg: bool,
     #[derivative(Default(value="Some(0.0..=1.0)"))]
     pub y_range: Option<RangeInclusive<f64>>
 }
