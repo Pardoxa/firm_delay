@@ -127,9 +127,11 @@ impl Model{
         let mut stock_avail = vec![Vec::new()];
         let mut max_depth_reached = 0;
         while let Some(infos) = stack.pop(){
-            max_depth_reached = max_depth_reached.max(infos.level);
             let next_level = infos.level + 1;
             let num_children = distr.rand_amount(&mut rng);
+            if num_children > 0 {
+                max_depth_reached = max_depth_reached.max(next_level);
+            }
             for i in 0..num_children{
                 let node = Node{
                     parents: vec![IndexHelper{node_idx: infos.id, internal_idx: i}], 

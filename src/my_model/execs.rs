@@ -406,7 +406,8 @@ pub fn tree_crit_scan(opt: TreeDemandVelocityCritOpt, out: Utf8PathBuf)
 pub struct RandTreeSample{
     pub filename: String,
     pub num_nodes: usize,
-    pub max_depth_reached: usize
+    pub max_depth_reached: usize,
+    pub leaf_count: usize
 }
 
 pub fn rand_tree_calc_demand_velocity_samples<P>(
@@ -478,10 +479,16 @@ where P: AsRef<Path>
                     ).unwrap();
                 }
 
+                let leaf_count = tree.nodes
+                    .iter()
+                    .filter(|node| node.children.is_empty())
+                    .count();
+
                 RandTreeSample{
                     filename: out_name,
                     num_nodes: tree.nodes.len(),
-                    max_depth_reached: *max_depth_reached
+                    max_depth_reached: *max_depth_reached,
+                    leaf_count
                 }
             }
         ).collect()
@@ -509,14 +516,16 @@ pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
         "max_allowed_tree_depth",
         "crit_sample",
         "num_nodes",
-        "max_tree_depth_reached"
+        "max_tree_depth_reached",
+        "leaf_count"
     ];
 
 
     struct Sample{
         crit: f64,
         num_nodes: usize,
-        max_tree_depth_reached: usize
+        max_tree_depth_reached: usize,
+        leaf_count: usize
     }
 
 
@@ -538,7 +547,7 @@ pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
         let mut m_opt = opt.opts.clone();
         m_opt.max_depth = current_tree_depth;
 
-        let files = rand_tree_calc_demand_velocity_samples(m_opt, &name);
+        let tree_samples = rand_tree_calc_demand_velocity_samples(m_opt, &name);
 
         let hist_name = format!("Depth{i_name}{}.hist", out.as_str());
         let mut hist = HistF64::new(
@@ -547,7 +556,7 @@ pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
             opt.hist_bins.get()
         ).unwrap();
 
-        files.par_iter()
+        tree_samples.par_iter()
             .map(
                 |sample|
                 {   
@@ -592,13 +601,16 @@ pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
                         Sample{
                             crit,
                             num_nodes: sample.num_nodes,
-                            max_tree_depth_reached: sample.max_depth_reached
+                            max_tree_depth_reached: sample.max_depth_reached,
+                            leaf_count: sample.leaf_count
                         }
                     } else {
+                        eprintln!("WARNING: INVALID CRIT ENCOUNTERED!");
                         Sample{
                             crit: f64::NAN,
                             num_nodes: sample.num_nodes,
-                            max_tree_depth_reached: sample.max_depth_reached
+                            max_tree_depth_reached: sample.max_depth_reached,
+                            leaf_count: sample.leaf_count
                         }
                     }
                 }
@@ -618,7 +630,7 @@ pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
 
         if !opt.dont_delete_tmps{
             cleaner.add_multi(
-                files.into_iter()
+                tree_samples.into_iter()
                     .map(|sample| sample.filename)
             );
         }
@@ -636,9 +648,10 @@ pub fn rand_tree_crit_scan(opt: RandTreeDemandVelocityCritOpt, out: Utf8PathBuf)
             sum_sq += crit * crit;
             writeln!(
                 result_samples,
-                "{current_tree_depth} {crit} {} {}",
+                "{current_tree_depth} {crit} {} {} {}",
                 sample.num_nodes,
-                sample.max_tree_depth_reached
+                sample.max_tree_depth_reached,
+                sample.leaf_count
             ).unwrap();
             hist.increment_quiet(crit);
         }
