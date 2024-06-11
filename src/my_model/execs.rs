@@ -70,18 +70,45 @@ pub fn test_profile(opt: ChainProfileOpts, out: Utf8PathBuf)
         }
     }
 
-
-    let mut buf = create_buf_with_command_and_version_and_header(out, header);
     let factor = 1.0 / opt.average_over_samples.get() as f64;
-    for (line, t) in averages.iter().zip(1..)
-    {
-        write!(buf, "{t}").unwrap();
-        for val in line {
-            let val = val * factor;
-            write!(buf, " {val}").unwrap();
+    if !opt.output_only_production_profile{
+        let mut buf = create_buf_with_command_and_version_and_header(&out, header);
+        
+        for (line, t) in averages.iter().zip(1..)
+        {
+            write!(buf, "{t}").unwrap();
+            for val in line {
+                let val = val * factor;
+                write!(buf, " {val}").unwrap();
+            }
+            writeln!(buf).unwrap();
         }
-        writeln!(buf).unwrap();
     }
+
+    let header = [
+        "Distance_from_leaf",
+        "I",
+        "k",
+        "D"
+    ];
+    let name = format!("{out}.profile");
+    let mut buf = create_buf_with_command_and_version_and_header(
+        name, 
+        header
+    );
+
+    let last_line = averages.last_mut().unwrap();
+    last_line.reverse();
+    for (leaf_distance, chunk) in last_line.chunks_exact(4).enumerate(){
+        let k = chunk[1] * factor;
+        let i = chunk[2] * factor;
+        let d = chunk[3] * factor;
+        writeln!(
+            buf,
+            "{leaf_distance} {i} {k} {d}"
+        ).unwrap();
+    }
+    
     
 }
 

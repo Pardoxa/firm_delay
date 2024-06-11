@@ -254,5 +254,6 @@ pub struct ChainProfileOpts{
     #[derivative(Default(value="NonZeroU32::new(200).unwrap()"))]
     pub time_steps: NonZeroU32,
     #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
-    pub average_over_samples: NonZeroUsize
+    pub average_over_samples: NonZeroUsize,
+    pub output_only_production_profile: bool
 }
