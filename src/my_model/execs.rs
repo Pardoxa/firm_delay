@@ -204,6 +204,7 @@ pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
 
     let header = [
         "chain_len",
+        "N",
         "a",
         "b",
         "critical_root_demand"
@@ -220,7 +221,7 @@ pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
         let mut m_opt = opt.opts.clone();
         m_opt.chain_length = NonZeroUsize::new(current_chain_len).unwrap();
 
-        chain_calc_demand_velocity(m_opt, &name);
+        let n = chain_calc_demand_velocity(m_opt, &name);
         let gp_name = format!("{name}.gp");
 
         let mut gp_writer = create_gnuplot_buf(&gp_name);
@@ -258,7 +259,7 @@ pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
 
             writeln!(
                 crit_buf,
-                "{} {} {} {}",
+                "{} {n} {} {} {}",
                 current_chain_len,
                 a,
                 b,
@@ -898,7 +899,8 @@ pub fn closed_multi_chain_crit_scan2(opt: ClosedMultiChainCritOpts2, out: Utf8Pa
     cleaner.clean();
 }
 
-pub fn chain_calc_demand_velocity<P>(opt: DemandVelocityOpt, out: P)
+/// Returns number of nodes in chain
+pub fn chain_calc_demand_velocity<P>(opt: DemandVelocityOpt, out: P) -> usize
 where P: AsRef<Path>
 {
     if let Some(t) = opt.threads{
@@ -925,6 +927,8 @@ where P: AsRef<Path>
             }
         )
         .collect();
+
+    let n = ratios[0].nodes.len();
 
     let velocities: Vec<_> = ratios.into_par_iter()
         .map(
@@ -957,6 +961,7 @@ where P: AsRef<Path>
             "{root_demand} {velocity}"
         ).unwrap();
     }
+    n
 }
 
 
