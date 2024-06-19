@@ -68,11 +68,11 @@ impl IndexSampler
 
     pub fn new_inplace(len: usize, amount: usize) -> Self{
 
-        if amount > std::u32::MAX as usize {
+        if amount > u32::MAX as usize {
             panic!("Abbort! amount cant be cast as u32")
         }
 
-        if len > std::u32::MAX as usize {
+        if len > u32::MAX as usize {
             panic!("Abbort! len cant be cast as u32")
         }
 
@@ -100,11 +100,11 @@ impl IndexSampler
     #[allow(dead_code)]
     pub fn new_reject(len: usize, amount: usize) -> Self{
 
-        if amount > std::u32::MAX as usize {
+        if amount > u32::MAX as usize {
             panic!("Abbort! amount cant be cast as u32")
         }
 
-        if len > std::u32::MAX as usize {
+        if len > u32::MAX as usize {
             panic!("Abbort! len cant be cast as u32")
         }
 

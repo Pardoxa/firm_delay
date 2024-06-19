@@ -197,7 +197,11 @@ fn main() {
                 },
                 MyModelCommand::ChainCrit(opt) => {
                     let opts: DemandVelocityCritOpt = parse_and_add_to_global(opt.json);
-                    my_model::chain_crit_scan(opts, opt.out.unwrap().as_str());
+                    my_model::chain_crit_scan(
+                        opts, 
+                        opt.out.unwrap().as_str(),
+                        opt.no_video
+                    );
                 },
                 MyModelCommand::QuenchedChainCrit(opt) => {
                     let opts: DemandVelocityCritOpt = parse_and_add_to_global(opt.json);

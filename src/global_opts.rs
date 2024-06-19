@@ -252,6 +252,23 @@ pub struct PathAndOut{
 
 }
 
+
+#[derive(Parser, Debug)]
+pub struct PathAndOutVideo{
+    #[arg(short, long, requires("out"))]
+    /// path to json file
+    pub json: Option<String>,
+
+    #[arg(short, long)]
+    /// print alternative json options
+    pub out: Option<Utf8PathBuf>,
+
+    /// Use this flag to skip ffmpeg
+    #[arg(short, long)]
+    pub no_video: bool
+
+}
+
 #[derive(Parser, Debug)]
 pub struct TreePrintOpts{
     #[arg(short, long)]
@@ -338,7 +355,7 @@ pub enum MyModelCommand{
     ChainVelocity(PathAndOut),
     /// scan critical point for changing chain length
     #[clap(visible_alias="chcrit")]
-    ChainCrit(PathAndOut),
+    ChainCrit(PathAndOutVideo),
     /// quenched m: scan critical point for changing chain length
     QuenchedChainCrit(PathAndOut),
     /// create profile of chain

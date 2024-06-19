@@ -197,7 +197,7 @@ pub fn quenched_chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
 }
 
 
-pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
+pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str, skip_video: bool)
 {
     let mut current_chain_len = opt.chain_start.get();
     let cleaner = Cleaner::new();
@@ -272,12 +272,14 @@ pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
             break;
         }
     }
-    create_video(
-        "TMP_*.png", 
-        out, 
-        15,
-        true
-    );
+    if !skip_video{
+        create_video(
+            "TMP_*.png", 
+            out, 
+            15,
+            true
+        );
+    }
 
     cleaner.clean();
 }

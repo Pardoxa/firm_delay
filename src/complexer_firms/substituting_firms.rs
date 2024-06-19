@@ -329,13 +329,7 @@ where R: Rng + SeedableRng{
             .for_each(
                 |(sub, rand_val)|
                 {
-                    *sub = rand_val;
-                    if *sub < 0.0 {
-                        *sub = 0.0;
-                    }
-                    if *sub > 1.0 {
-                        *sub = 1.0;
-                    }
+                    *sub = rand_val.clamp(0.0, 1.0);
                 }
             )
     }
