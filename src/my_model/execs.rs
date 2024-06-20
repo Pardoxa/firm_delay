@@ -914,21 +914,36 @@ where P: AsRef<Path>
         opt.root_demand_rate_max, 
         opt.root_demand_samples
     );
+    let model = Model::new_multi_chain_from_rng(
+        opt.num_chains,
+        opt.chain_length.get() - 1, 
+        Pcg64::from_rng(&mut rng).unwrap(), 
+        1.0,
+        opt.max_stock
+    );
+
     let ratios: Vec<_> = ratio.float_iter()
         .map(
             |ratio|
             {
                 let rng = Pcg64::from_rng(&mut rng).unwrap();
-                Model::new_multi_chain_from_rng(
-                    opt.num_chains,
-                    opt.chain_length.get() - 1, 
-                    rng, 
-                    ratio,
-                    opt.max_stock
-                )
+                let mut m = model.clone();
+                m.rng = rng;
+                m.demand_at_root = ratio;
+                m
             }
         )
         .collect();
+
+    // iterate the model a few times to later be 
+    // able to initiate the model with a better 
+    // stock pattern
+    let mut tmp = model;
+    for _ in 0..opt.time.get()*10{
+        tmp.update_demand();
+        tmp.update_production();
+    }
+    let stocks = tmp.stock_avail;
 
     let n = ratios[0].nodes.len();
 
@@ -937,8 +952,10 @@ where P: AsRef<Path>
             |mut model|
             {
                 let mut sum = 0.0;
+
                 for _ in 0..opt.samples.get(){
                     model.reset_delays();
+                    model.stock_avail.clone_from(&stocks);
                     for _ in 0..opt.time.get(){
                         model.update_demand();
                         model.update_production();

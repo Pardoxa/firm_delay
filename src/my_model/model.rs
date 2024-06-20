@@ -11,6 +11,7 @@ use crate::{
 };
 
 #[allow(non_snake_case)]
+#[derive(Clone)]
 pub struct Model{
     pub nodes: Vec<Node>,
     pub currently_produced: Vec<f64>,

@@ -1,6 +1,6 @@
 [package]
 name = "firm_delay"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 authors = ["Yannick Feld"]
 build = "src/build.rs"
@@ -11,10 +11,10 @@ build = "src/build.rs"
 rand_pcg = { version = "0.3.1", features = ["serde1"]}
 rand = "0.8.5"
 rand_distr = "0.4.3"
-serde={version="^1.0.196", features = ["derive"] }
-serde_json="^1.0.113"
+serde={version="^1.0.203", features = ["derive"] }
+serde_json="^1.0.117"
 indicatif={version = "^0.17.8", features=["rayon"]}
-clap = {version = "^4.5.0", features=["derive", "cargo", "color", "help"]}
+clap = {version = "^4.5.7", features=["derive", "cargo", "color", "help"]}
 rayon="^1.8.1"
 sampling = { git = "https://github.com/Pardoxa/sampling.git", rev = "c5dc731ce2b0bb45efe2cec76553e9bdf49cb02d", default-features = false  }
 humantime = "2.1.0"
@@ -23,16 +23,16 @@ rand_xoshiro = "0.6.0"
 rand_chacha = "0.3.1"
 camino = "1.1.6"
 fs-err = "2.11.0"
-flate2 = "1.0.28"
+flate2 = "1.0.30"
 kahan = "0.1.4"
-itertools = "^0.12.1"
+itertools = "^0.13.0"
 derivative = "^2.2.0"
-num-traits = "0.2.18"
-num-rational = "0.4.1"
+num-traits = "0.2.19"
+num-rational = "0.4.2"
 
 
 [build-dependencies]
-chrono = "0.4.34"
+chrono = "0.4.38"
 
 
 [profile.release]
