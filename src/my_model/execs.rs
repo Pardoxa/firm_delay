@@ -212,7 +212,7 @@ pub fn alternative_quenched_chain_crit_scan(opt: DemandVelocityCritOpt, out: &st
         let mut m_opt = opt.opts.clone();
         m_opt.chain_length = NonZeroUsize::new(current_chain_len).unwrap();
 
-        let crit_vals = alternative_quenched_chain_calc_demand_velocity(m_opt);
+        let crit_vals = alternative_quenched_chain_calc_demand_velocity(m_opt, out);
         let samples = crit_vals.len() as f64;
         let mut sum = 0.0;
         let mut sum_sq = 0.0;
@@ -1160,7 +1160,7 @@ where P: AsRef<Path>
 }
 
 /// Here I average differently. This is what should be used for the paper
-pub fn alternative_quenched_chain_calc_demand_velocity(opt: DemandVelocityOpt) -> Vec<f64>
+pub fn alternative_quenched_chain_calc_demand_velocity(opt: DemandVelocityOpt, out: &str) -> Vec<f64>
 {
     if let Some(t) = opt.threads{
         rayon::ThreadPoolBuilder::new().num_threads(t.get()).build_global().unwrap();
@@ -1240,7 +1240,7 @@ pub fn alternative_quenched_chain_calc_demand_velocity(opt: DemandVelocityOpt) -
         .map(
             |(mut model, quenched_production, i)|
             {
-                let name = format!("TMP_sample{i}.dat");
+                let name = format!("TMP_sample{i}_{out}.dat");
                 let gp_name = format!("{name}.gp");
                 let mut buf = create_buf_with_command_and_version_and_header(
                     &name, 
