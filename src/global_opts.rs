@@ -315,10 +315,16 @@ pub struct ClosedChainPrintOpts{
     pub dot_out: Utf8PathBuf,
 
     /// How many children per node
+    #[arg(short, long)]
     pub num_chains: NonZeroUsize,
 
     /// How deep should the tree go?
-    pub other_chain_len: NonZeroUsize
+    #[arg(short, long)]
+    pub other_chain_len: NonZeroUsize,
+
+    /// Nodes after connection point
+    #[arg(short, long)]
+    pub appendix_nodes: usize
 }
 
 #[derive(Subcommand, Debug, Serialize, Deserialize, Clone)]

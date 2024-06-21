@@ -196,7 +196,8 @@ pub struct ClosedMultiChainVelocityOpts{
     pub seed: u64,
     pub threads: Option<NonZeroUsize>,
     #[derivative(Default(value="1.0"))]
-    pub max_stock: f64
+    pub max_stock: f64,
+    pub appendix_nodes: usize
 }
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]

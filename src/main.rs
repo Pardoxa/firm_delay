@@ -245,6 +245,7 @@ fn main() {
                     my_model::model::write_closed_multi_chain(
                         opt.other_chain_len,
                         opt.num_chains,
+                        opt.appendix_nodes,
                         &opt.dot_out
                     )
                 },

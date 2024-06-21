@@ -64,6 +64,7 @@ pub fn write_rand_tree_dot(
 pub fn write_closed_multi_chain(
     other_chain_len: NonZeroUsize,
     num_chains: NonZeroUsize,
+    appendix: usize,
     dot_name: &Utf8Path
 ){
     let model = Model::new_closed_multi_chain_from_rng(
@@ -71,7 +72,8 @@ pub fn write_closed_multi_chain(
         other_chain_len, 
         Pcg64::new(0, 0), 
         0.0, 
-        0.0
+        0.0,
+        appendix
     );
     let writer = create_buf(dot_name);
     write_my_digraph(
@@ -305,14 +307,15 @@ impl Model{
         other_chain_len: NonZeroUsize, 
         rng: Pcg64, 
         demand_at_root: f64,
-        max_stock: f64
+        max_stock: f64,
+        appendix_nodes: usize
     ) -> Self{
-        let total_node_count = 2 + other_chain_len.get() * num_chains.get();
+        let total_node_count = 2 + other_chain_len.get() * num_chains.get() + appendix_nodes;
         let mut nodes = Vec::with_capacity(total_node_count);
         let first = Node::default();
         nodes.push(first);
-        let last = Node::default();
-        nodes.push(last);
+        let connection_node = Node::default();
+        nodes.push(connection_node);
         let mut stock_avail = vec![Vec::new(); total_node_count];
         for _ in 0..num_chains.get(){
             
@@ -337,7 +340,7 @@ impl Model{
                 stock_avail[last_idx].push(StockAvailItem::default());
             }
 
-            // now connect to last node!
+            // now connect to connection node!
             let last_nodes_idx = nodes.len() - 1;
             nodes[1].parents.push(
                 IndexHelper { 
@@ -348,6 +351,24 @@ impl Model{
             nodes[last_nodes_idx].children.push(1);
             stock_avail[last_nodes_idx].push(StockAvailItem::default());
         }
+
+        let mut idx_parent = 1;
+        for _ in 0..appendix_nodes{
+            let mut node = Node::default();
+            node.parents.push(
+                IndexHelper{
+                    internal_idx: 0,
+                    node_idx: idx_parent
+                }
+            );
+            let child_id = nodes.len();
+            nodes[idx_parent].children.push(child_id);
+            stock_avail[idx_parent].push(StockAvailItem::default());
+            idx_parent = child_id;
+            nodes.push(node);
+        }
+
+
         let root_order = calc_root_order(&nodes);
         let leaf_order = calc_leaf_order(&nodes);
 

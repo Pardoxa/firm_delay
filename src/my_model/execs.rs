@@ -1133,27 +1133,35 @@ where P: AsRef<Path>
         opt.root_demand_rate_max, 
         opt.root_demand_samples
     );
+
+    let model = Model::new_closed_multi_chain_from_rng(
+        opt.num_chains,
+        opt.other_chain_len, 
+        Pcg64::from_rng(&mut rng).unwrap(), 
+        0.0,
+        opt.max_stock,
+        opt.appendix_nodes
+    );
+
     let ratios = ratio.float_iter()
         .map(
             |ratio|
             {
                 let rng = Pcg64::from_rng(&mut rng).unwrap();
-                Model::new_closed_multi_chain_from_rng(
-                    opt.num_chains,
-                    opt.other_chain_len, 
-                    rng, 
-                    ratio,
-                    opt.max_stock
-                )
+                (ratio, rng)
+                
             }
         )
         .collect_vec();
-    let n = ratios[0].nodes.len();
+    let n = model.nodes.len();
 
     let velocities: Vec<_> = ratios.into_par_iter()
         .map(
-            |mut model|
+            |(ratio, rng)|
             {
+                let mut model = model.clone();
+                model.demand_at_root = ratio;
+                model.rng = rng;
                 let mut sum = 0.0;
                 for _ in 0..opt.samples.get(){
                     model.reset_delays();
