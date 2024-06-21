@@ -364,6 +364,8 @@ pub enum MyModelCommand{
     ChainCrit(PathAndOutVideo),
     /// quenched m: scan critical point for changing chain length
     QuenchedChainCrit(PathAndOut),
+    /// Paper version of quenched scan, averages differently
+    AlternativeQuenchedChainCrit(PathAndOut),
     /// create profile of chain
     #[clap(visible_alias="chprof")]
     ChainProfile(PathAndOut),

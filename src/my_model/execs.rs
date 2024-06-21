@@ -196,6 +196,45 @@ pub fn quenched_chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
     cleaner.clean();
 }
 
+pub fn alternative_quenched_chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
+{
+    let mut current_chain_len = opt.chain_start.get();
+
+    let header = [
+        "chain_len",
+        "crit_r",
+        "variance"
+    ];
+
+    let mut crit_buf = create_buf_with_command_and_version_and_header(out, header);
+
+    loop {
+        let mut m_opt = opt.opts.clone();
+        m_opt.chain_length = NonZeroUsize::new(current_chain_len).unwrap();
+
+        let crit_vals = alternative_quenched_chain_calc_demand_velocity(m_opt);
+        let samples = crit_vals.len() as f64;
+        let mut sum = 0.0;
+        let mut sum_sq = 0.0;
+        for val in crit_vals{
+            sum += val;
+            sum_sq += val*val;
+        }
+        let average = sum / samples;
+        let variance = sum_sq / samples - average * average;
+
+        writeln!(
+            crit_buf,
+            "{current_chain_len} {average} {variance}"
+        ).unwrap();
+
+        current_chain_len += opt.chain_step.get();
+        if current_chain_len > opt.chain_end.get(){
+            break;
+        }
+    }
+}
+
 
 pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str, skip_video: bool)
 {
@@ -1119,6 +1158,153 @@ where P: AsRef<Path>
         ).unwrap();
     }
 }
+
+/// Here I average differently. This is what should be used for the paper
+pub fn alternative_quenched_chain_calc_demand_velocity(opt: DemandVelocityOpt) -> Vec<f64>
+{
+    if let Some(t) = opt.threads{
+        rayon::ThreadPoolBuilder::new().num_threads(t.get()).build_global().unwrap();
+    }
+    let mut rng = Pcg64::seed_from_u64(opt.seed);
+    let ratio = RatioIter::from_float(
+        opt.root_demand_rate_min, 
+        opt.root_demand_rate_max, 
+        opt.root_demand_samples
+    );
+
+    let quenched_models = (0..opt.samples.get())
+        .map(
+            |i|
+            {
+                let model_rng = Pcg64::from_rng(&mut rng).unwrap();
+
+                let mut model = Model::new_multi_chain_from_rng(
+                    opt.num_chains,
+                    opt.chain_length.get() - 1, 
+                    model_rng, 
+                    0.0,
+                    opt.max_stock
+                );
+                let quenched_production = Uniform::new_inclusive(0.0, 1.0)
+                        .sample_iter(&mut model.rng)
+                        .take(model.nodes.len())
+                        .collect_vec();
+                (model, quenched_production, i)
+            }
+        ).collect_vec();
+
+    #[allow(clippy::type_complexity)]
+    let fun: Box<dyn Fn(&mut Vec<Vec<StockAvailItem>>) + Sync> = match opt.initial_stock{
+        InitialStock::Empty => {
+            Box::new(
+                |stock|
+                {
+                    stock.iter_mut()
+                        .for_each(
+                            |list| 
+                            list.iter_mut()
+                                .for_each(
+                                    |item|
+                                    item.stock = 0.0
+                                )
+                        );
+                }
+            )
+        },
+        InitialStock::Full => {
+            Box::new(
+                |stock|
+                {
+                    stock.iter_mut()
+                        .for_each(
+                            |list| 
+                            list.iter_mut()
+                                .for_each(
+                                    |item|
+                                    item.stock = opt.max_stock
+                                )
+                        );
+                }
+            )
+        },
+        InitialStock::Iter => unimplemented!()
+    };
+
+    let header = [
+        "root_demand",
+        "velocity"
+    ];
+    let cleaner = Cleaner::new();
+
+    let crit_samples: Vec<_> = quenched_models.into_par_iter()
+        .map(
+            |(mut model, quenched_production, i)|
+            {
+                let name = format!("TMP_sample{i}.dat");
+                let gp_name = format!("{name}.gp");
+                let mut buf = create_buf_with_command_and_version_and_header(
+                    &name, 
+                    header
+                );
+                ratio.float_iter()
+                    .for_each(
+                        |ratio|
+                        {
+                            model.demand_at_root = ratio;
+                            model.reset_delays();
+                            fun(&mut model.stock_avail);
+                            for _ in 0..opt.time.get(){
+                                model.update_demand();
+                                model.update_production_quenched(&quenched_production);
+                            }
+                            let velocity = model.current_demand[0] / opt.time.get() as f64;
+                            writeln!(
+                                buf, 
+                                "{ratio} {velocity}"
+                            ).unwrap();
+                        }
+                    );
+                drop(buf);
+
+                
+                
+                let mut gp_writer = create_gnuplot_buf(&gp_name);
+                let png = format!("{name}.png");
+                writeln!(gp_writer, "set t pngcairo").unwrap();
+                writeln!(gp_writer, "set output '{png}'").unwrap();
+                writeln!(gp_writer, "set ylabel 'v'").unwrap();
+                writeln!(gp_writer, "set xlabel 'r'").unwrap();
+                writeln!(gp_writer, "set fit quiet").unwrap();
+                writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
+                writeln!(gp_writer, "f(x)=a*x+b").unwrap();
+                writeln!(gp_writer, "fit f(x) '{name}' u 1:2:(t($2)) yerr via a,b").unwrap();
+                
+                writeln!(gp_writer, "p '{name}' t '', f(x)").unwrap();
+                writeln!(gp_writer, "print(b)").unwrap();
+                writeln!(gp_writer, "print(a)").unwrap();
+                writeln!(gp_writer, "set output").unwrap();
+                drop(gp_writer);
+                let out = call_gnuplot(&gp_name);
+                assert!(out.status.success());
+                let s = String::from_utf8(out.stderr)
+                        .unwrap();
+                
+                let mut iter = s.lines();
+                        
+                let b: f64 = iter.next().unwrap().parse().unwrap();
+                let a: f64 = iter.next().unwrap().parse().unwrap();
+                let crit = -b/a;
+                    
+                cleaner.add_multi([name, gp_name, png]);
+        
+                crit
+            }
+        ).collect();
+
+    cleaner.clean();
+    crit_samples
+}
+
 
 /// returns N
 pub fn closed_multi_chain_velocity_scan<P>(opt: ClosedMultiChainVelocityOpts, out: P) -> usize
