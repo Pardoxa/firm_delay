@@ -296,27 +296,34 @@ where P: AsRef<Path>
         opt.root_demand_rate_max, 
         opt.root_demand_samples
     );
-    let ratios = ratio.float_iter()
+
+    let model = Model::create_tree(
+        opt.num_children,
+        opt.tree_depth, 
+        Pcg64::from_rng(&mut rng).unwrap(), 
+        0.0,
+        opt.max_stock
+    );
+
+    let ratios_and_rng = ratio
+        .float_iter()
         .map(
             |ratio|
             {
                 let rng = Pcg64::from_rng(&mut rng).unwrap();
-                Model::create_tree(
-                    opt.num_children,
-                    opt.tree_depth, 
-                    rng, 
-                    ratio,
-                    opt.max_stock
-                )
+                (ratio, rng)
             }
         )
         .collect_vec();
-    let n = ratios[0].nodes.len();
+    let n = model.nodes.len();
 
-    let velocities: Vec<_> = ratios.into_par_iter()
+    let velocities: Vec<_> = ratios_and_rng.into_par_iter()
         .map(
-            |mut model|
+            |(ratio, rng)|
             {
+                let mut model = model.clone();
+                model.demand_at_root = ratio;
+                model.rng = rng;
                 let mut sum = 0.0;
                 for _ in 0..opt.samples.get(){
                     model.reset_delays();
