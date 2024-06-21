@@ -935,15 +935,39 @@ where P: AsRef<Path>
         )
         .collect();
 
-    // iterate the model a few times to later be 
-    // able to initiate the model with a better 
-    // stock pattern
     let mut tmp = model;
-    for _ in 0..opt.time.get()*10{
-        tmp.update_demand();
-        tmp.update_production();
-    }
-    let stocks = tmp.stock_avail;
+    let stocks = match opt.initial_stock{
+        InitialStock::Empty => {
+            tmp.reset_delays();
+            tmp.stock_avail
+        },
+        InitialStock::Full => {
+            tmp.stock_avail.iter_mut()
+            .for_each(
+                |stocks|
+                {
+                    stocks.iter_mut()
+                        .for_each(
+                            |entry|
+                            {
+                                entry.stock = tmp.max_stock;
+                            }
+                        )
+                }
+            );
+            tmp.stock_avail
+        },
+        InitialStock::Iter => {
+            // iterate the model a few times to later be 
+            // able to initiate the model with a better 
+            // stock pattern
+            for _ in 0..opt.time.get()*10{
+                tmp.update_demand();
+                tmp.update_production();
+            }
+            tmp.stock_avail
+        }
+    };
 
     let n = ratios[0].nodes.len();
 
@@ -1014,6 +1038,43 @@ where P: AsRef<Path>
         )
         .collect();
 
+    #[allow(clippy::type_complexity)]
+    let fun: Box<dyn Fn(&mut Vec<Vec<StockAvailItem>>) + Sync> = match opt.initial_stock{
+        InitialStock::Empty => {
+            Box::new(
+                |stock|
+                {
+                    stock.iter_mut()
+                        .for_each(
+                            |list| 
+                            list.iter_mut()
+                                .for_each(
+                                    |item|
+                                    item.stock = 0.0
+                                )
+                        );
+                }
+            )
+        },
+        InitialStock::Full => {
+            Box::new(
+                |stock|
+                {
+                    stock.iter_mut()
+                        .for_each(
+                            |list| 
+                            list.iter_mut()
+                                .for_each(
+                                    |item|
+                                    item.stock = opt.max_stock
+                                )
+                        );
+                }
+            )
+        },
+        InitialStock::Iter => unimplemented!()
+    };
+
     let velocities: Vec<_> = ratios.into_par_iter()
         .map(
             |mut model|
@@ -1021,6 +1082,7 @@ where P: AsRef<Path>
                 let mut sum = 0.0;
                 for _ in 0..opt.samples.get(){
                     model.reset_delays();
+                    fun(&mut model.stock_avail);
                     let quenched_production = Uniform::new_inclusive(0.0, 1.0)
                         .sample_iter(&mut model.rng)
                         .take(model.nodes.len())

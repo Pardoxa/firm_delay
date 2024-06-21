@@ -215,6 +215,17 @@ pub struct DemandVelocityCritOpt{
     pub y_range: Option<RangeInclusive<f64>>
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub enum InitialStock{
+    /// Initial stock is full
+    Full,
+    /// Iniztial Stock is empty
+    #[default]
+    Empty,
+    /// Initial stock will be set through iteration
+    Iter
+}
+
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
 #[derivative(Default)]
@@ -236,7 +247,8 @@ pub struct DemandVelocityOpt{
     pub seed: u64,
     pub threads: Option<NonZeroUsize>,
     #[derivative(Default(value="1.0"))]
-    pub max_stock: f64
+    pub max_stock: f64,
+    pub initial_stock: InitialStock
 }
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
