@@ -1,4 +1,4 @@
-use std::{io::Write, num::*, path::Path};
+use std::{f64, io::Write, num::*, path::Path, sync::atomic::AtomicUsize};
 use camino::Utf8PathBuf;
 use itertools::Itertools;
 use rand::SeedableRng;
@@ -221,12 +221,14 @@ pub fn alternative_quenched_chain_crit_scan(opt: DemandVelocityCritOpt, out: &st
             sum_sq += val*val;
         }
         let average = sum / samples;
+        println!("average crit: {average}");
         let variance = sum_sq / samples - average * average;
 
         writeln!(
             crit_buf,
             "{current_chain_len} {average} {variance}"
         ).unwrap();
+        crit_buf.flush().unwrap();
 
         current_chain_len += opt.chain_step.get();
         if current_chain_len > opt.chain_end.get(){
@@ -1159,6 +1161,32 @@ where P: AsRef<Path>
     }
 }
 
+pub struct ThreeLargestValues{
+    arr: [f64; 3]
+}
+
+impl ThreeLargestValues{
+    pub fn new() -> Self {
+        Self { arr: [f64::NEG_INFINITY; 3] }
+    }
+
+    pub fn add(&mut self, val: f64) {
+        for i in 0..3 {
+            if val > self.arr[i] {
+                for j in (i+1..3).rev() {
+                    self.arr[j] = self.arr[j-1]
+                }
+                self.arr[i] = val;
+                break;
+            }
+        }
+    }
+
+    pub fn get_third_largest(&self) -> f64{
+        *self.arr.last().unwrap()
+    }
+}
+
 /// Here I average differently. This is what should be used for the paper
 pub fn alternative_quenched_chain_calc_demand_velocity(opt: DemandVelocityOpt, out: &str) -> Vec<f64>
 {
@@ -1178,18 +1206,14 @@ pub fn alternative_quenched_chain_calc_demand_velocity(opt: DemandVelocityOpt, o
             {
                 let model_rng = Pcg64::from_rng(&mut rng).unwrap();
 
-                let mut model = Model::new_multi_chain_from_rng(
+                let model = Model::new_multi_chain_from_rng(
                     opt.num_chains,
                     opt.chain_length.get() - 1, 
                     model_rng, 
                     0.0,
                     opt.max_stock
                 );
-                let quenched_production = Uniform::new_inclusive(0.0, 1.0)
-                        .sample_iter(&mut model.rng)
-                        .take(model.nodes.len())
-                        .collect_vec();
-                (model, quenched_production, i)
+                (model, i)
             }
         ).collect_vec();
 
@@ -1236,9 +1260,10 @@ pub fn alternative_quenched_chain_calc_demand_velocity(opt: DemandVelocityOpt, o
     ];
     let cleaner = Cleaner::new();
 
+    let error_counter = AtomicUsize::new(0);
     let crit_samples: Vec<_> = quenched_models.into_par_iter()
         .map(
-            |(mut model, quenched_production, i)|
+            |(mut model, i)|
             {
                 let name = format!("TMP_sample{i}_{out}.dat");
                 let gp_name = format!("{name}.gp");
@@ -1246,6 +1271,11 @@ pub fn alternative_quenched_chain_calc_demand_velocity(opt: DemandVelocityOpt, o
                     &name, 
                     header
                 );
+                let quenched_production = Uniform::new_inclusive(0.0, 1.0)
+                    .sample_iter(&mut model.rng)
+                    .take(model.nodes.len())
+                    .collect_vec();
+                let mut third = ThreeLargestValues::new();
                 ratio.float_iter()
                     .for_each(
                         |ratio|
@@ -1258,6 +1288,7 @@ pub fn alternative_quenched_chain_calc_demand_velocity(opt: DemandVelocityOpt, o
                                 model.update_production_quenched(&quenched_production);
                             }
                             let velocity = model.current_demand[0] / opt.time.get() as f64;
+                            third.add(velocity);
                             writeln!(
                                 buf, 
                                 "{ratio} {velocity}"
@@ -1266,41 +1297,75 @@ pub fn alternative_quenched_chain_calc_demand_velocity(opt: DemandVelocityOpt, o
                     );
                 drop(buf);
 
+                let val = match third.get_third_largest(){
+                    (f64::NEG_INFINITY..=0.0) => {
+                        None
+                    },
+                    (0.0..=0.1) => {
+                        Some(third.get_third_largest())
+                    },
+                    _ => {
+                        Some(0.1)
+                    }
+                };
                 
-                
-                let mut gp_writer = create_gnuplot_buf(&gp_name);
-                let png = format!("{name}.png");
-                writeln!(gp_writer, "set t pngcairo").unwrap();
-                writeln!(gp_writer, "set output '{png}'").unwrap();
-                writeln!(gp_writer, "set ylabel 'v'").unwrap();
-                writeln!(gp_writer, "set xlabel 'r'").unwrap();
-                writeln!(gp_writer, "set fit quiet").unwrap();
-                writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
-                writeln!(gp_writer, "f(x)=a*x+b").unwrap();
-                writeln!(gp_writer, "fit f(x) '{name}' u 1:2:(t($2)) yerr via a,b").unwrap();
-                
-                writeln!(gp_writer, "p '{name}' t '', f(x)").unwrap();
-                writeln!(gp_writer, "print(b)").unwrap();
-                writeln!(gp_writer, "print(a)").unwrap();
-                writeln!(gp_writer, "set output").unwrap();
-                drop(gp_writer);
-                let out = call_gnuplot(&gp_name);
-                assert!(out.status.success());
-                let s = String::from_utf8(out.stderr)
-                        .unwrap();
-                
-                let mut iter = s.lines();
+                let crit = match val {
+                    Some(v) => {
+                        let mut gp_writer = create_gnuplot_buf(&gp_name);
+                        let png = format!("{name}.png");
+                        writeln!(gp_writer, "set t pngcairo").unwrap();
+                        writeln!(gp_writer, "set output '{png}'").unwrap();
+                        writeln!(gp_writer, "set ylabel 'v'").unwrap();
+                        writeln!(gp_writer, "set xlabel 'r'").unwrap();
+                        writeln!(gp_writer, "set fit quiet").unwrap();
+                        writeln!(gp_writer, "t(x)=x>{v}?0.00000000001:10000000").unwrap();
+                        writeln!(gp_writer, "f(x)=a*x+b").unwrap();
+                        writeln!(gp_writer, "fit f(x) '{name}' u 1:2:(t($2)) yerr via a,b").unwrap();
                         
-                let b: f64 = iter.next().unwrap().parse().unwrap();
-                let a: f64 = iter.next().unwrap().parse().unwrap();
-                let crit = -b/a;
+                        writeln!(gp_writer, "p '{name}' t '', f(x)").unwrap();
+                        writeln!(gp_writer, "print(b)").unwrap();
+                        writeln!(gp_writer, "print(a)").unwrap();
+                        writeln!(gp_writer, "set output").unwrap();
+                        drop(gp_writer);
+                        let out = call_gnuplot(&gp_name);
+                        assert!(out.status.success());
+                        let s = String::from_utf8(out.stderr)
+                                .unwrap();
+                        
+                        let mut iter = s.lines();
+                                
+                        let b: f64 = iter.next().unwrap().parse().unwrap();
+                        let a: f64 = iter.next().unwrap().parse().unwrap();
+                        cleaner.add(png);
+                        -b/a // crit value
+                    },
+                    None => {
+                        error_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let mut min = f64::INFINITY;
+                        quenched_production.iter()
+                            .for_each(
+                                |&v|
+                                {
+                                    if v < min {
+                                        min = v;
+                                    }
+                                }
+                            );
+                        min
+                    }
+                };
                     
-                cleaner.add_multi([name, gp_name, png]);
-        
+                cleaner.add_multi([name, gp_name]);
                 crit
             }
         ).collect();
-
+    let error_count = error_counter.into_inner();
+    if error_count > 0 {
+        eprintln!(
+            "WARNING: Chain Len {}: Encountered {error_count} fit errors - substituted with min value",
+            opt.chain_length
+        );
+    }
     cleaner.clean();
     crit_samples
 }
