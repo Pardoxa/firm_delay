@@ -274,8 +274,9 @@ pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str, skip_video: bool)
         writeln!(gp_writer, "set xlabel 'r'").unwrap();
         writeln!(gp_writer, "set fit quiet").unwrap();
         writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
+        writeln!(gp_writer, "a=1").unwrap();
         writeln!(gp_writer, "f(x)=a*x+b").unwrap();
-        writeln!(gp_writer, "fit f(x) '{name}' u 1:2:(t($2)) yerr via a,b").unwrap();
+        writeln!(gp_writer, "fit f(x) '{name}' u 1:2:(t($2)) yerr via b").unwrap();
         
         if let Some(range) = &opt.y_range{
             writeln!(gp_writer, "set yrange [{}:{}]", range.start(), range.end()).unwrap();
