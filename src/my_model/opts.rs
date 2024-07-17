@@ -270,3 +270,20 @@ pub struct ChainProfileOpts{
     pub average_over_samples: NonZeroUsize,
     pub output_only_production_profile: bool
 }
+
+#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
+#[derivative(Default)]
+pub struct ChainProfileHistOpts{
+    #[derivative(Default(value="NonZeroUsize::new(4).unwrap()"))]
+    pub total_len: NonZeroUsize,
+    pub seed: u64,
+    #[derivative(Default(value="1.0"))]
+    pub root_demand: f64,
+    #[derivative(Default(value="1.0"))]
+    pub s: f64,
+    #[derivative(Default(value="NonZeroU32::new(200).unwrap()"))]
+    pub time_steps: NonZeroU32,
+    pub warmup_samples: usize,
+    #[derivative(Default(value="NonZeroUsize::new(1000).unwrap()"))]
+    pub bins: NonZeroUsize
+}

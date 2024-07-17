@@ -369,6 +369,9 @@ pub enum MyModelCommand{
     /// create profile of chain
     #[clap(visible_alias="chprof")]
     ChainProfile(PathAndOut),
+    /// create profile Hist for a chain
+    #[clap(visible_alias="chprof")]
+    ChainProfileHist(ProfileHistCmd),
     /// Sample crit for Trees
     #[clap(visible_alias="trcrit")]
     TreeCrit(PathAndOut),
@@ -410,5 +413,21 @@ pub struct UniformParser{
 pub struct ConstantParser{
     /// the value
     pub value: usize
+
+}
+
+#[derive(Parser, Debug)]
+pub struct ProfileHistCmd{
+    #[arg(short, long, requires("out"))]
+    /// path to json file
+    pub json: Option<String>,
+
+    #[arg(short, long)]
+    /// Path for output
+    pub out: Option<Utf8PathBuf>,
+
+    /// only include hists of the following indices
+    #[arg(long, short)]
+    pub list: Option<Vec<isize>>
 
 }

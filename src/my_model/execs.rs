@@ -1,15 +1,125 @@
 use std::{f64, io::Write, num::*, path::Path, sync::atomic::AtomicUsize};
 use camino::Utf8PathBuf;
+use indicatif::ProgressIterator;
 use itertools::Itertools;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Uniform};
 use rand_pcg::Pcg64;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
-use sampling::HistF64;
+use sampling::{HistF64, Histogram};
 use super::{opts::*, model::*};
 use crate::misc::*;
 
 const ZEROS: &str = "000000000";
+
+pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Option<Vec<isize>>)
+{
+    let chain_len = opt.total_len.get() - 1;
+    let rng = Pcg64::seed_from_u64(opt.seed);
+    let mut model = Model::new_multi_chain_from_rng(
+        NonZeroUsize::new(1).unwrap(),
+        chain_len,
+        rng, 
+        opt.root_demand, 
+        opt.s
+    );
+
+    let len = model.nodes.len();
+
+    let num_bins = opt.bins.get();
+    let left = 0.0;
+    let right = 1.0001;
+    let bin_width = (right - left) / num_bins as f64;
+
+    let mut hists = (0..len)
+        .map(
+            |_| HistF64::new(left, right, num_bins).unwrap()
+        ).collect_vec();
+
+    model.reset_delays();
+    let bar = crate::misc::indication_bar(opt.warmup_samples as u64);
+    for _ in (0..opt.warmup_samples).progress_with(bar){
+        model.update_demand();
+        model.update_production();
+    }
+    let bar = crate::misc::indication_bar(opt.time_steps.get() as u64);
+    for _ in (0..opt.time_steps.get()).progress_with(bar){
+        model.update_demand();
+        model.update_production();
+        
+        model.currently_produced.iter()
+            .zip(hists.iter_mut())
+            .for_each(
+                |(produced, hist)|
+                {
+                    hist.increment_quiet(produced);
+                }
+            )
+    }
+
+    let header = [
+        "i",
+        "median"
+    ];
+
+    let name = format!("median_s{}.dat", opt.s);
+    let mut median_buf = create_buf_with_command_and_version_and_header(name, header);
+
+    let mut i: isize = -1;
+    let header = [
+        "mid",
+        "normalized",
+        "cumulative",
+        "left",
+        "right",
+        "hits"
+    ];
+    for hist in hists.iter().rev(){
+        if let Some(list) = &print_list{
+            if !list.contains(&-i) {
+                continue;
+            }
+        }
+        let name = format!("{}{i}.hist", out.as_str());
+        let mut buf = create_buf_with_command_and_version_and_header(name, header);
+        writeln!(buf, "# Node N{i}").unwrap();
+        
+
+        let total_hits: usize = hist.hist().iter().sum();
+        let factor = (total_hits as f64).recip();
+        let mut sum = 0;
+        let mut old_sum;
+        let half = total_hits as f64 / 2.0;
+        for (bin, hits) in hist.bin_hits_iter(){
+            old_sum = sum;
+            sum += hits;
+            if sum as f64 > half && old_sum as f64 <=half {
+                let m = (sum + old_sum) as f64/(bin[1]-bin[0]);
+                // something is not entirely correct with the interpolation
+                // The results are kind of blocky
+                let interpolated = (half - sum as f64) / m + bin[1];
+                writeln!(
+                    median_buf,
+                    "{} {interpolated}",
+                    -i
+                ).unwrap();
+            }
+            let cumulative = sum as f64 * factor;
+            let normalized = hits as f64 * factor / bin_width;
+            let mid = 0.5 * (bin[0] + bin[1]);
+            writeln!(
+                buf,
+                "{mid} {normalized} {cumulative} {} {} {}",
+                bin[0],
+                bin[1],
+                hits
+            ).unwrap();
+        }
+        i -= 1;
+    }
+    
+    
+}
 
 pub fn test_profile(opt: ChainProfileOpts, out: Utf8PathBuf)
 {

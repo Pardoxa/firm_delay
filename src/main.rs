@@ -215,6 +215,10 @@ fn main() {
                     let my_opt: ChainProfileOpts = parse_and_add_to_global(opt.json);
                     my_model::test_profile(my_opt, opt.out.unwrap())
                 },
+                MyModelCommand::ChainProfileHist(opt) => {
+                    let my_opt: ChainProfileHistOpts = parse_and_add_to_global(opt.json);
+                    my_model::profile_hist(my_opt, opt.out.unwrap(), opt.list);
+                },
                 MyModelCommand::TreeCrit(opt) => {
                     let opts: TreeDemandVelocityCritOpt = parse_and_add_to_global(opt.json);
                     my_model::tree_crit_scan(opts, opt.out.unwrap());
