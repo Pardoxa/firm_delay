@@ -3,8 +3,7 @@ use itertools::*;
 use serde::{Serialize, Deserialize};
 use derivative::Derivative;
 use std::io::Write;
-
-use crate::create_buf;
+use crate::create_buf_with_command_and_version_and_header;
 
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
@@ -25,13 +24,57 @@ pub fn line_test(input: &ModelInput)
     let uniform = vec![1.0; input.precision.get()];
     // uniform is I_-1
     // now one up
-    calc_k(&uniform, input.s);
+    let pk = calc_k(&uniform, input.s, 1e-12);
 
+    pk.write_files("N-2");
+
+}
+
+pub struct Pk{
+    delta_left: f64,
+    delta_right: f64,
+    function: Vec<f64>,
+    bin_size: f64,
+    s: f64
+}
+
+impl Pk{
+    pub fn write_files(self, stub: &str)
+    {
+        let header = [
+            "k",
+            "P(k)"
+        ];
+        let name = format!("s{}{stub}.dat", self.s);
+        let mut buf_fun = create_buf_with_command_and_version_and_header(name, header);
+        let header = [
+            "k",
+            "delta P(k)"
+        ];
+        let name = format!("s{}{stub}_delta.dat", self.s);
+        let mut buf_delta: std::io::BufWriter<fs_err::File> = create_buf_with_command_and_version_and_header(name, header);
+    
+        for (i, val) in self.function.iter().enumerate(){
+            let k = i as f64 * self.bin_size + self.bin_size / 2.0;
+            writeln!(
+                buf_fun,
+                "{k} {val}"
+            ).unwrap();
+        }
+    
+        writeln!(
+            buf_delta,
+            "0 {}\n{} {}",
+            self.delta_left,
+            self.s,
+            self.delta_right
+        ).unwrap();
+    }
 }
 
 // for now I think this only works for 0 < s < 1, 
 // but I should be able to adjust this so it works for all s.
-fn calc_k(a: &[f64], s: f64)
+fn calc_k(a: &[f64], s: f64, threshold: f64) -> Pk
 {
     let len = a.len();
     let index_s = (s * (len - 1) as f64).round() as usize;
@@ -68,7 +111,6 @@ fn calc_k(a: &[f64], s: f64)
 
     let mut k_result = k_guess.clone();
 
-    let mut counter = 0;
     loop{
         
         k_result.iter_mut()
@@ -128,39 +170,19 @@ fn calc_k(a: &[f64], s: f64)
         let delta_right_diff = (delta_right - tmp_delta_right).abs();
         delta_right = tmp_delta_right;
 
-        let mut buf = create_buf(format!("test_{counter}.dat"));
-    
-        k_result.iter().enumerate()
-            .for_each(
-                |(index, val)|
-                {
-                    writeln!(
-                        buf,
-                        "{} {} {}",
-                        index as f64 * bin_size,
-                        (index + 1) as f64 * bin_size,
-                        val
-                    ).unwrap();
-                }
-            );
-
-        let mut buf = create_buf(format!("test_{counter}_impuls.dat"));
-
-        writeln!(
-            buf,
-            "0 {}\n{} {}",
-            delta_left,
-            s,
-            delta_right
-        ).unwrap();
 
         let sum_of_differences = diff + delta_left_diff + delta_right_diff;
-        println!("sum_of_differences: {sum_of_differences}");
-        if counter == 100{
 
-            break
+        if sum_of_differences <= threshold{
+
+            return Pk{
+                delta_left,
+                delta_right,
+                function: k_result,
+                bin_size,
+                s
+            };
         }
-        counter +=1;
 
         // break before this!
         std::mem::swap(
@@ -168,26 +190,5 @@ fn calc_k(a: &[f64], s: f64)
             &mut k_result
         );
     }
-    // result of the delta functions
-
-
-    
-
-    let mut buf = create_buf("pam.dat");
-    p_am.iter().enumerate()
-        .for_each(
-            |(index, val)|
-            {
-                writeln!(
-                    buf,
-                    "{} {} {}",
-                    index as f64 * bin_size - 1.0,
-                    (index + 1) as f64 * bin_size - 1.0,
-                    val
-                ).unwrap();
-            }
-        );
-    //offset should be
-    //let result = delta_left * pam[x] + delta_right * pam[x-s];
 
 }
