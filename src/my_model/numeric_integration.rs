@@ -25,21 +25,18 @@ pub fn line_test(input: &ModelInput)
     let uniform = vec![1.0; input.precision.get()];
     // uniform is I_-1
     // now one up
-    calc_k(&uniform, &uniform, input.s);
+    calc_k(&uniform, input.s);
 
 }
 
 // for now I think this only works for 0 < s < 1, 
 // but I should be able to adjust this so it works for all s.
-fn calc_k(uniform: &[f64], a: &[f64], s: f64)
+fn calc_k(a: &[f64], s: f64)
 {
-    let len = uniform.len();
+    let len = a.len();
     let index_s = (s * (len - 1) as f64).round() as usize;
     let bin_size = (len as f64).recip();
-    assert_eq!(
-        len,
-        a.len()
-    );
+
     let i_len = len as isize;
 
     let a_mul = a.iter()
@@ -96,7 +93,7 @@ fn calc_k(uniform: &[f64], a: &[f64], s: f64)
         
         let mut tmp_delta_left = 0.0;
         
-        for x in (0..len).rev() {
+        for x in 0..len {
             // f(x):
             let mut f_x = 0.0;
             for (x_prime, k_val) in k_guess.iter().enumerate() {
@@ -110,38 +107,26 @@ fn calc_k(uniform: &[f64], a: &[f64], s: f64)
             }
             tmp_delta_left += f_x * bin_size;
         }
-        println!("{tmp_delta_left}");
-        let tmp_delta_right = tmp_delta_left;
-        
+
+        let delta_left_diff = (delta_left - tmp_delta_left).abs();
         delta_left = tmp_delta_left;
-        delta_right = tmp_delta_right;
 
-
-
-
-
-        // only for testing: normalization
-        let mut total: f64 = k_result.iter()
-            .map(
-            |val|
-            {
-                val * bin_size
-            }
-        ).sum();
-        total += delta_left + delta_right;
-        let factor = total.recip();
-        delta_left *= factor;
-        delta_right *= factor;
-
-        k_result.iter_mut()
+        let mut total = 0.0;
+        let mut diff = 0.0;
+        k_result.iter()
+            .zip(k_guess.iter())
             .for_each(
-                |val| *val *= factor
-            );
+            |(new_val, old_val)|
+            {
+                total +=new_val * bin_size;
+                diff += (old_val - new_val).abs();
+            }
+        );
+        total += delta_left;
+        let tmp_delta_right = 1.0 - total;
 
-        println!("{delta_left} vs  {delta_right} difference {} total: {total}", delta_left - 0.197884939465682);
-
-        /*k_result.iter_mut()
-            .for_each(|val| *val *= (1.0-delta_left-delta_right) / total);*/
+        let delta_right_diff = (delta_right - tmp_delta_right).abs();
+        delta_right = tmp_delta_right;
 
         let mut buf = create_buf(format!("test_{counter}.dat"));
     
@@ -169,7 +154,9 @@ fn calc_k(uniform: &[f64], a: &[f64], s: f64)
             delta_right
         ).unwrap();
 
-        if counter == 20{
+        let sum_of_differences = diff + delta_left_diff + delta_right_diff;
+        println!("sum_of_differences: {sum_of_differences}");
+        if counter == 100{
 
             break
         }
