@@ -252,6 +252,14 @@ pub struct PathAndOut{
 
 }
 
+#[derive(Parser, Debug)]
+pub struct OnlyPath{
+    #[arg(short, long)]
+    /// path to json file
+    pub json: Option<String>
+
+}
+
 
 #[derive(Parser, Debug)]
 pub struct PathAndOutVideo{
@@ -392,7 +400,9 @@ pub enum MyModelCommand{
     ClosedMultiChainCrit(PathAndOut),
     /// Measure criticallity for closed chains by scanning through num chains
     #[clap(visible_alias="cmscrit2")]
-    ClosedMultiChainCrit2(PathAndOut)
+    ClosedMultiChainCrit2(PathAndOut),
+    /// Testing numeric integration
+    Num(OnlyPath)
 }
 
 #[derive(Parser, Debug, Serialize, Deserialize, Clone)]

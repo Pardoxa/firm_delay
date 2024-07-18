@@ -3,6 +3,7 @@ use std::process::exit;
 use complexer_firms::{auto, AutoOpts, SubstitutionVelocitySampleOpts};
 use correlations::calc_correlations;
 use global_opts::{Helper, MyModelCommand, SimpleCommand, SubstitutingCommand};
+use numeric_integration::ModelInput;
 
 use crate::complexer_firms::{SelfLinks, SubstitutionVelocityVideoOpts};
 
@@ -270,6 +271,10 @@ fn main() {
                         my_opt,
                         opt.out.unwrap()
                     )
+                },
+                MyModelCommand::Num(test) => {
+                    let input: ModelInput = parse_and_add_to_global(test.json);
+                    my_model::numeric_integration::line_test(&input);
                 }
 
             }
