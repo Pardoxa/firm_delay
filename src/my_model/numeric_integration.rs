@@ -109,7 +109,7 @@ fn calc_k(a: &[f64], s: f64, threshold: f64, counter: usize) -> Pk
             }
         ).collect_vec();
 
-    let name = format!("p_am{counter}.dat");
+    let name = format!("s{s}p_am{counter}.dat");
     let mut buf = create_buf(name);
     for (index, val) in p_am.iter().enumerate()
     {
@@ -260,7 +260,7 @@ fn calc_I(pk: &Pk, a_ij: &[f64], counter: usize) -> Vec<f64>
             }
         ).collect_vec();
 
-    let name = format!("p_km_{counter}.dat");
+    let name = format!("s{}p_km_{counter}.dat", pk.s);
     let mut buf = create_buf(name);
     for (index, val) in p_km.iter().enumerate()
     {
@@ -284,7 +284,7 @@ fn calc_I(pk: &Pk, a_ij: &[f64], counter: usize) -> Vec<f64>
             }
         ).collect_vec();
 
-    let name = format!("prob_{counter}.dat");
+    let name = format!("s{}prob_{counter}.dat", pk.s);
     let mut buf = create_buf(name);
 
     let error = prob[0];
@@ -315,7 +315,7 @@ fn calc_I(pk: &Pk, a_ij: &[f64], counter: usize) -> Vec<f64>
             }
         );
 
-    let name = format!("cum_prob_{counter}.dat");
+    let name = format!("s{}cum_prob_{counter}.dat", pk.s);
 
     let mut buf = create_buf(name);
     for (index, val) in prob.iter().enumerate()
@@ -340,7 +340,7 @@ fn calc_I(pk: &Pk, a_ij: &[f64], counter: usize) -> Vec<f64>
             }
         );
 
-    let name = format!("derivative_{counter}.dat");
+    let name = format!("s{}derivative_{counter}.dat", pk.s);
     let mut buf = create_buf(name);
     for (index, val) in derivative.iter().enumerate()
     {

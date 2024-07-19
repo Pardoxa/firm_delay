@@ -12,6 +12,41 @@ use crate::misc::*;
 
 const ZEROS: &str = "000000000";
 
+pub struct KHist{
+    hist: HistF64,
+    delta_left_hits: usize,
+    delta_right_hits: usize,
+    s: f64
+}
+
+impl KHist{
+    pub fn new(s: f64, num_bins: usize) -> Self
+    {
+        let hist = HistF64::new(
+            0.0, 
+            s, 
+            num_bins
+        ).unwrap();
+
+        Self { 
+            hist, 
+            delta_left_hits: 0, 
+            delta_right_hits: 0,
+            s
+        }
+    }
+
+    pub fn increment(&mut self, k: f64){
+        if k <= 0.0 {
+            self.delta_left_hits += 1;
+        } else if k>= self.s{
+            self.delta_right_hits += 1;
+        } else {
+            self.hist.increment_quiet(k)
+        }
+    }
+}
+
 pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Option<Vec<isize>>)
 {
     let chain_len = opt.total_len.get() - 1;
@@ -36,6 +71,11 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
             |_| HistF64::new(left, right, num_bins).unwrap()
         ).collect_vec();
 
+    let mut k_hists = (0..len)
+        .map(
+            |_| KHist::new(opt.s, num_bins)
+        ).collect_vec();
+
     model.reset_delays();
     let bar = crate::misc::indication_bar(opt.warmup_samples as u64);
     for _ in (0..opt.warmup_samples).progress_with(bar){
@@ -53,6 +93,18 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
                 |(produced, hist)|
                 {
                     hist.increment_quiet(produced);
+                }
+            );
+        model.stock_avail
+            .iter()
+            .zip(k_hists.iter_mut())
+            .for_each(
+                |(stock_list, k_hist)|
+                {
+                    for val in stock_list.iter()
+                    {
+                        k_hist.increment(val.stock);
+                    }
                 }
             )
     }
@@ -115,6 +167,72 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
                 hits
             ).unwrap();
         }
+        i -= 1;
+    }
+
+    let header = [
+        "mid",
+        "normalized",
+        "hits"
+    ];
+
+    let mut i: isize = -1;
+    for hist in k_hists.iter().rev(){
+        if let Some(list) = &print_list{
+            if !list.contains(&-i) {
+                continue;
+            }
+        }
+        let name = format!("{}{i}.khist", out.as_str());
+        let mut buf = create_buf_with_command_and_version_and_header(name, header);
+        writeln!(buf, "# Node N{i}").unwrap();
+        
+
+        let mut total_hits: usize = hist.hist.hist().iter().sum();
+        total_hits += hist.delta_left_hits + hist.delta_right_hits;
+        let factor = (total_hits as f64).recip();
+        let mut sum = 0;
+        let mut old_sum;
+        let half = total_hits as f64 / 2.0;
+        for (bin, hits) in hist.hist.bin_hits_iter(){
+            old_sum = sum;
+            sum += hits;
+            if sum as f64 > half && old_sum as f64 <=half {
+                let m = (sum + old_sum) as f64/(bin[1]-bin[0]);
+                // something is not entirely correct with the interpolation
+                // The results are kind of blocky
+                let interpolated = (half - sum as f64) / m + bin[1];
+                writeln!(
+                    median_buf,
+                    "{} {interpolated}",
+                    -i
+                ).unwrap();
+            }
+            let normalized = hits as f64 * factor / bin_width;
+            let mid = 0.5 * (bin[0] + bin[1]);
+            writeln!(
+                buf,
+                "{mid} {normalized} {}",
+                hits
+            ).unwrap();
+        }
+
+        let name = format!("{}{i}_delta.khist", out.as_str());
+        let mut k_buf = create_buf_with_command_and_version_and_header(name, header);
+
+        let left_normed = hist.delta_left_hits as f64 * factor;
+        let right_normed = hist.delta_right_hits as f64 * factor;
+
+        writeln!(
+            k_buf,
+            "0 {} {}\n{} {} {}",
+            left_normed,
+            hist.delta_left_hits,
+            hist.s,
+            right_normed,
+            hist.delta_right_hits
+        ).unwrap();
+
         i -= 1;
     }
     
