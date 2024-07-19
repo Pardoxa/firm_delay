@@ -3,7 +3,7 @@ use itertools::*;
 use serde::{Serialize, Deserialize};
 use derivative::Derivative;
 use std::io::Write;
-use crate::create_buf_with_command_and_version_and_header;
+use crate::{create_buf, create_buf_with_command_and_version_and_header};
 
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
@@ -28,6 +28,8 @@ pub fn line_test(input: &ModelInput)
 
     pk.write_files("N-2");
 
+    calc_I(&pk, &uniform);
+
 }
 
 pub struct Pk{
@@ -35,11 +37,13 @@ pub struct Pk{
     delta_right: f64,
     function: Vec<f64>,
     bin_size: f64,
-    s: f64
+    s: f64,
+    len_of_1: usize,
+    index_s: usize
 }
 
 impl Pk{
-    pub fn write_files(self, stub: &str)
+    pub fn write_files(&self, stub: &str)
     {
         let header = [
             "k",
@@ -180,7 +184,9 @@ fn calc_k(a: &[f64], s: f64, threshold: f64) -> Pk
                 delta_right,
                 function: k_result,
                 bin_size,
-                s
+                s,
+                len_of_1: len,
+                index_s
             };
         }
 
@@ -191,4 +197,137 @@ fn calc_k(a: &[f64], s: f64, threshold: f64) -> Pk
         );
     }
 
+}
+
+fn calc_I(pk: &Pk, a_ij: &[f64]) -> Vec<f64>
+{
+
+    let p_km = (0..(pk.function.len() + pk.len_of_1))
+        .map(
+            |x|
+            {
+                let mut integral = 0.0;
+                let start = if x < pk.len_of_1-1{
+                    0
+                } else {
+                    x - (pk.len_of_1 - 1)
+                };
+                let end = if x >= pk.function.len(){
+                    pk.function.len() - 1
+                } else {
+                    x
+                };
+                for j in start..=end{
+                    if x - j == 10000 {
+                        dbg!(x);
+                        dbg!(j);
+                        dbg!(pk.index_s);
+                        dbg!(pk.len_of_1);
+                        dbg!(end);
+                        dbg!(start);
+                    }
+                    integral += pk.function[j] * a_ij[x-j];
+                }
+                integral *= pk.bin_size;
+
+                if start == 0{
+                    integral += pk.delta_left;
+                }
+                if x >= pk.index_s {
+                    integral += pk.delta_right;
+                }
+
+                integral
+            }
+        ).collect_vec();
+
+    let mut buf = create_buf("p_mk2.dat");
+    for (index, val) in p_km.iter().enumerate()
+    {
+        let x = index as f64 * pk.bin_size;
+        writeln!(
+            buf,
+            "{} {}",
+            x,
+            val
+        ).unwrap();
+    }
+
+    let mut prob = (0..p_km.len())
+        .map(
+            |i|
+            {
+                let sum: f64 = p_km[i..]
+                    .iter()
+                    .sum();
+                sum * pk.bin_size
+            }
+        ).collect_vec();
+
+    let mut buf = create_buf("prob.dat");
+
+    let error = prob[0];
+    let error_correction_factor = error.recip();
+    prob.iter_mut()
+        .for_each(|val| *val *= error_correction_factor);
+
+    for (index, val) in prob.iter().enumerate()
+    {
+        let x = index as f64 * pk.bin_size;
+        writeln!(
+            buf,
+            "{} {}",
+            x,
+            val
+        ).unwrap();
+    }
+
+    // now convert prob into cumulative prob
+
+    prob.iter_mut()
+        .enumerate()
+        .for_each(
+            |(idx, val)|
+            {
+                let x = idx as f64 * pk.bin_size;
+                *val = 1.0 - (1.0 - x) * *val;
+            }
+        );
+
+    let mut buf = create_buf("cum_prob.dat");
+    for (index, val) in prob.iter().enumerate()
+    {
+        let x = index as f64 * pk.bin_size;
+        writeln!(
+            buf,
+            "{} {}",
+            x,
+            val
+        ).unwrap();
+    }
+
+    let mut derivative = sampling::glue::derivative::five_point_derivitive(&prob[..pk.len_of_1]);
+
+    let len = pk.len_of_1 as f64;
+    derivative.iter_mut()
+        .for_each(
+            |val|
+            {
+                *val *= len;
+            }
+        );
+
+    let mut buf = create_buf("derivative.dat");
+    for (index, val) in derivative.iter().enumerate()
+    {
+        let x = index as f64 * pk.bin_size;
+        writeln!(
+            buf,
+            "{} {}",
+            x,
+            val
+        ).unwrap();
+    }
+
+    p_km
 }
