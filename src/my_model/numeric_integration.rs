@@ -21,14 +21,18 @@ pub struct ModelInput{
 
 pub fn line_test(input: &ModelInput)
 {
-    let uniform = vec![1.0; input.precision.get()];
+    let mut uniform = vec![1.0; input.precision.get()];
     // uniform is I_-1
     // now one up
-    let pk = calc_k(&uniform, input.s, 1e-12);
 
-    pk.write_files("N-2");
 
-    calc_I(&pk, &uniform);
+    for counter in 0..5{
+        let pk = calc_k(&uniform, input.s, 1e-12, counter);
+        let stub = format!("_PK{counter}");
+        pk.write_files(&stub);
+        uniform = calc_I(&pk, &uniform, counter);
+    }
+
 
 }
 
@@ -78,7 +82,7 @@ impl Pk{
 
 // for now I think this only works for 0 < s < 1, 
 // but I should be able to adjust this so it works for all s.
-fn calc_k(a: &[f64], s: f64, threshold: f64) -> Pk
+fn calc_k(a: &[f64], s: f64, threshold: f64, counter: usize) -> Pk
 {
     let len = a.len();
     let index_s = (s * (len - 1) as f64).round() as usize;
@@ -104,6 +108,19 @@ fn calc_k(a: &[f64], s: f64, threshold: f64) -> Pk
                     .sum()
             }
         ).collect_vec();
+
+    let name = format!("p_am{counter}.dat");
+    let mut buf = create_buf(name);
+    for (index, val) in p_am.iter().enumerate()
+    {
+        let x = index as f64 * bin_size;
+        writeln!(
+            buf,
+            "{} {}",
+            x,
+            val
+        ).unwrap();
+    }
 
     assert!(index_s >= 99, "please increase precision");
 
@@ -174,9 +191,11 @@ fn calc_k(a: &[f64], s: f64, threshold: f64) -> Pk
         let delta_right_diff = (delta_right - tmp_delta_right).abs();
         delta_right = tmp_delta_right;
 
-
+        dbg!(diff);
+        dbg!(delta_left_diff);
+        dbg!(delta_right_diff);
         let sum_of_differences = diff + delta_left_diff + delta_right_diff;
-
+        println!("differences: {sum_of_differences}");
         if sum_of_differences <= threshold{
 
             return Pk{
@@ -199,7 +218,7 @@ fn calc_k(a: &[f64], s: f64, threshold: f64) -> Pk
 
 }
 
-fn calc_I(pk: &Pk, a_ij: &[f64]) -> Vec<f64>
+fn calc_I(pk: &Pk, a_ij: &[f64], counter: usize) -> Vec<f64>
 {
 
     let p_km = (0..(pk.function.len() + pk.len_of_1))
@@ -241,7 +260,8 @@ fn calc_I(pk: &Pk, a_ij: &[f64]) -> Vec<f64>
             }
         ).collect_vec();
 
-    let mut buf = create_buf("p_mk2.dat");
+    let name = format!("p_km_{counter}.dat");
+    let mut buf = create_buf(name);
     for (index, val) in p_km.iter().enumerate()
     {
         let x = index as f64 * pk.bin_size;
@@ -264,7 +284,8 @@ fn calc_I(pk: &Pk, a_ij: &[f64]) -> Vec<f64>
             }
         ).collect_vec();
 
-    let mut buf = create_buf("prob.dat");
+    let name = format!("prob_{counter}.dat");
+    let mut buf = create_buf(name);
 
     let error = prob[0];
     let error_correction_factor = error.recip();
@@ -294,7 +315,9 @@ fn calc_I(pk: &Pk, a_ij: &[f64]) -> Vec<f64>
             }
         );
 
-    let mut buf = create_buf("cum_prob.dat");
+    let name = format!("cum_prob_{counter}.dat");
+
+    let mut buf = create_buf(name);
     for (index, val) in prob.iter().enumerate()
     {
         let x = index as f64 * pk.bin_size;
@@ -306,7 +329,7 @@ fn calc_I(pk: &Pk, a_ij: &[f64]) -> Vec<f64>
         ).unwrap();
     }
 
-    let mut derivative = sampling::glue::derivative::five_point_derivitive(&prob[..pk.len_of_1]);
+    let mut derivative = sampling::glue::derivative::derivative_merged(&prob[..pk.len_of_1]);
 
     let len = pk.len_of_1 as f64;
     derivative.iter_mut()
@@ -317,7 +340,8 @@ fn calc_I(pk: &Pk, a_ij: &[f64]) -> Vec<f64>
             }
         );
 
-    let mut buf = create_buf("derivative.dat");
+    let name = format!("derivative_{counter}.dat");
+    let mut buf = create_buf(name);
     for (index, val) in derivative.iter().enumerate()
     {
         let x = index as f64 * pk.bin_size;
@@ -329,5 +353,11 @@ fn calc_I(pk: &Pk, a_ij: &[f64]) -> Vec<f64>
         ).unwrap();
     }
 
-    p_km
+    assert_eq!(
+        derivative.len(),
+        a_ij.len()
+    );
+
+    derivative
 }
+
