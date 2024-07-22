@@ -21,16 +21,29 @@ pub struct ModelInput{
 
 pub fn line_test(input: &ModelInput)
 {
-    let mut uniform = vec![1.0; input.precision.get()];
+    let mut a_ij = vec![1.0; input.precision.get()];
     // uniform is I_-1
     // now one up
 
 
     for counter in 0..5{
-        let pk = calc_k(&uniform, input.s, 1e-12, counter);
+        let debug_delta = (counter == 1).then_some(
+            DebugDelta{
+                left: 0.42150594999999996,
+                right: 0.186465725
+            }
+        );
+
+        let pk = calc_k(
+            &a_ij, 
+            input.s, 
+            1e-12, 
+            counter,
+            debug_delta
+        );
         let stub = format!("_PK{counter}");
         pk.write_files(&stub);
-        uniform = calc_I(&pk, &uniform, counter);
+        a_ij = calc_I(&pk, &a_ij, counter);
     }
 
 
@@ -80,9 +93,20 @@ impl Pk{
     }
 }
 
+pub struct DebugDelta{
+    left: f64,
+    right: f64
+}
+
 // for now I think this only works for 0 < s < 1, 
 // but I should be able to adjust this so it works for all s.
-fn calc_k(a: &[f64], s: f64, threshold: f64, counter: usize) -> Pk
+fn calc_k(
+    a: &[f64], 
+    s: f64, 
+    threshold: f64, 
+    counter: usize,
+    delta: Option<DebugDelta>
+) -> Pk
 {
     let len = a.len();
     let index_s = (s * (len - 1) as f64).round() as usize;
@@ -127,6 +151,13 @@ fn calc_k(a: &[f64], s: f64, threshold: f64, counter: usize) -> Pk
 
     let mut delta_left = 0.3;
     let mut delta_right = 0.3;
+
+    if let Some(delta) = delta.as_ref()
+    {
+        delta_left = delta.left;
+        delta_right = delta.right;
+    }
+
     let guess_height = (1.0-delta_left-delta_right)/s;
     let mut k_guess = vec![guess_height; index_s + 1];
 
@@ -171,9 +202,6 @@ fn calc_k(a: &[f64], s: f64, threshold: f64, counter: usize) -> Pk
             tmp_delta_left += f_x * bin_size;
         }
 
-        let delta_left_diff = (delta_left - tmp_delta_left).abs();
-        delta_left = tmp_delta_left;
-
         let mut total = 0.0;
         let mut diff = 0.0;
         k_result.iter()
@@ -185,17 +213,47 @@ fn calc_k(a: &[f64], s: f64, threshold: f64, counter: usize) -> Pk
                 diff += (old_val - new_val).abs();
             }
         );
-        total += delta_left;
-        let tmp_delta_right = 1.0 - total;
 
-        let delta_right_diff = (delta_right - tmp_delta_right).abs();
-        delta_right = tmp_delta_right;
+        let mut delta_left_diff = 0.0;
+        let mut delta_right_diff = 0.0;
+        if let Some(delta) = delta.as_ref()
+        {
+            delta_left = delta.left;
+            delta_right = delta.right;
+
+            diff = 0.0;
+            let factor = (1.0-delta_left -delta_right)/total;
+            total = 0.0;
+            k_result.iter_mut()
+                .zip(k_guess.iter())
+                .for_each(
+                |(new_val, old_val)|
+                {
+                    *new_val *= factor;
+                    total += *new_val * bin_size;
+                    diff += (old_val - *new_val).abs();
+                }
+            );
+        }else {
+            delta_left_diff = (delta_left - tmp_delta_left).abs();
+            delta_left = tmp_delta_left;
+    
+            
+            total += delta_left;
+            let tmp_delta_right = 1.0 - total;
+    
+            delta_right_diff = (delta_right - tmp_delta_right).abs();
+            delta_right = tmp_delta_right;
+        }
+
+       
 
         dbg!(diff);
         dbg!(delta_left_diff);
         dbg!(delta_right_diff);
         let sum_of_differences = diff + delta_left_diff + delta_right_diff;
         println!("differences: {sum_of_differences}");
+        println!("counter: {counter} total: {total}");
         if sum_of_differences <= threshold{
 
             return Pk{
@@ -218,10 +276,15 @@ fn calc_k(a: &[f64], s: f64, threshold: f64, counter: usize) -> Pk
 
 }
 
-fn calc_I(pk: &Pk, a_ij: &[f64], counter: usize) -> Vec<f64>
+#[allow(non_snake_case)]
+fn calc_I(
+    pk: &Pk, 
+    a_ij: &[f64], 
+    counter: usize
+) -> Vec<f64>
 {
 
-    let p_km = (0..(pk.function.len() + pk.len_of_1))
+    let p_ka = (0..(pk.function.len() + pk.len_of_1))
         .map(
             |x|
             {
@@ -250,19 +313,28 @@ fn calc_I(pk: &Pk, a_ij: &[f64], counter: usize) -> Vec<f64>
                 integral *= pk.bin_size;
 
                 if start == 0{
-                    integral += pk.delta_left;
+                    integral += pk.delta_left * a_ij[x]; // error here? missing pa?
                 }
-                if x >= pk.index_s {
-                    integral += pk.delta_right;
+                if x >= pk.index_s && x-pk.index_s < a_ij.len() {
+                    integral += pk.delta_right * a_ij[x-pk.index_s];
                 }
 
                 integral
             }
         ).collect_vec();
 
-    let name = format!("s{}p_km_{counter}.dat", pk.s);
+    let p_ka_total: f64 = p_ka.iter()
+        .map(
+            |val|
+            {
+                val * pk.bin_size
+            }
+        ).sum();
+    println!("pka total: {p_ka_total}");
+
+    let name = format!("s{}p_ka_{counter}.dat", pk.s);
     let mut buf = create_buf(name);
-    for (index, val) in p_km.iter().enumerate()
+    for (index, val) in p_ka.iter().enumerate()
     {
         let x = index as f64 * pk.bin_size;
         writeln!(
@@ -273,11 +345,11 @@ fn calc_I(pk: &Pk, a_ij: &[f64], counter: usize) -> Vec<f64>
         ).unwrap();
     }
 
-    let mut prob = (0..p_km.len())
+    let mut prob = (0..p_ka.len())
         .map(
             |i|
             {
-                let sum: f64 = p_km[i..]
+                let sum: f64 = p_ka[i..]
                     .iter()
                     .sum();
                 sum * pk.bin_size
