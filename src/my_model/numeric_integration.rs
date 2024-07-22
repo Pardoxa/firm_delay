@@ -26,13 +26,14 @@ pub fn line_test(input: &ModelInput)
     // now one up
 
 
-    for counter in 0..5{
-        let debug_delta = (counter == 1).then_some(
-            DebugDelta{
-                left: 0.42150594999999996,
-                right: 0.186465725
-            }
-        );
+    for counter in 0..3{
+        let debug_delta = None;
+        //(counter == 1).then_some(
+        //    DebugDelta{
+        //        left: 0.42150594999999996,
+        //        right: 0.186465725
+        //    }
+        //);
 
         let pk = calc_k(
             &a_ij, 
@@ -149,8 +150,8 @@ fn calc_k(
     assert!(index_s >= 99, "please increase precision");
 
 
-    let mut delta_left = 0.3;
-    let mut delta_right = 0.3;
+    let mut delta_left = 0.01;
+    let mut delta_right = 0.01;
 
     if let Some(delta) = delta.as_ref()
     {
@@ -180,7 +181,7 @@ fn calc_k(
                             }
                         );
                     // then the offset of the delta functions
-                    *r += p_am[x+len] * delta_left;
+                    *r += p_am[len+x] * delta_left;
                     *r +=p_am[len+x-index_s] * delta_right;
                 }
             );
@@ -313,7 +314,7 @@ fn calc_I(
                 integral *= pk.bin_size;
 
                 if start == 0{
-                    integral += pk.delta_left * a_ij[x]; // error here? missing pa?
+                    integral += pk.delta_left * a_ij[x]; 
                 }
                 if x >= pk.index_s && x-pk.index_s < a_ij.len() {
                     integral += pk.delta_right * a_ij[x-pk.index_s];
@@ -401,7 +402,7 @@ fn calc_I(
         ).unwrap();
     }
 
-    let mut derivative = sampling::glue::derivative::derivative_merged(&prob[..pk.len_of_1]);
+    let mut derivative = sampling::glue::derivative::derivative(&prob[..pk.len_of_1]);
 
     let len = pk.len_of_1 as f64;
     derivative.iter_mut()
