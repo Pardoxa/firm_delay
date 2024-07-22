@@ -45,6 +45,11 @@ impl KHist{
             self.hist.increment_quiet(k)
         }
     }
+
+    pub fn bin_width(&self) -> f64
+    {
+        self.hist.interval_length() / self.hist.bin_count() as f64
+    }
 }
 
 pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Option<Vec<isize>>)
@@ -177,24 +182,25 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
     ];
 
     let mut i: isize = -1;
-    for hist in k_hists.iter().rev(){
+    for k_hist in k_hists.iter().rev(){
         if let Some(list) = &print_list{
             if !list.contains(&-i) {
                 continue;
             }
         }
+        let k_bin_size = k_hist.bin_width();
         let name = format!("{}{i}.khist", out.as_str());
         let mut buf = create_buf_with_command_and_version_and_header(name, header);
         writeln!(buf, "# Node N{i}").unwrap();
         
 
-        let mut total_hits: usize = hist.hist.hist().iter().sum();
-        total_hits += hist.delta_left_hits + hist.delta_right_hits;
+        let mut total_hits: usize = k_hist.hist.hist().iter().sum();
+        total_hits += k_hist.delta_left_hits + k_hist.delta_right_hits;
         let factor = (total_hits as f64).recip();
         let mut sum = 0;
         let mut old_sum;
         let half = total_hits as f64 / 2.0;
-        for (bin, hits) in hist.hist.bin_hits_iter(){
+        for (bin, hits) in k_hist.hist.bin_hits_iter(){
             old_sum = sum;
             sum += hits;
             if sum as f64 > half && old_sum as f64 <=half {
@@ -208,7 +214,7 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
                     -i
                 ).unwrap();
             }
-            let normalized = hits as f64 * factor / bin_width;
+            let normalized = hits as f64 * factor / k_bin_size;
             let mid = 0.5 * (bin[0] + bin[1]);
             writeln!(
                 buf,
@@ -220,17 +226,17 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
         let name = format!("{}{i}_delta.khist", out.as_str());
         let mut k_buf = create_buf_with_command_and_version_and_header(name, header);
 
-        let left_normed = hist.delta_left_hits as f64 * factor;
-        let right_normed = hist.delta_right_hits as f64 * factor;
+        let left_normed = k_hist.delta_left_hits as f64 * factor;
+        let right_normed = k_hist.delta_right_hits as f64 * factor;
 
         writeln!(
             k_buf,
             "0 {} {}\n{} {} {}",
             left_normed,
-            hist.delta_left_hits,
-            hist.s,
+            k_hist.delta_left_hits,
+            k_hist.s,
             right_normed,
-            hist.delta_right_hits
+            k_hist.delta_right_hits
         ).unwrap();
 
         i -= 1;
