@@ -27,18 +27,25 @@ pub fn line_test(input: &ModelInput)
 
 
     for counter in 0..3{
-        let debug_delta = None;
-        //(counter == 1).then_some(
-        //    DebugDelta{
-        //        left: 0.42150594999999996,
-        //        right: 0.186465725
-        //    }
-        //);
+        let debug_delta = match counter{
+            1 => {
+                DebugDelta{
+                    left: None, //Some(0.42150594999999996),
+                    right: None //Some(0.186465725)
+                }
+            },
+            _ => {
+                DebugDelta{
+                    left: None,
+                    right: None //0.186465725
+                }
+            }
+        };
 
         let pk = calc_k(
             &a_ij, 
             input.s, 
-            1e-12, 
+            1e-4, 
             counter,
             debug_delta
         );
@@ -95,8 +102,8 @@ impl Pk{
 }
 
 pub struct DebugDelta{
-    left: f64,
-    right: f64
+    left: Option<f64>,
+    right: Option<f64>
 }
 
 // for now I think this only works for 0 < s < 1, 
@@ -106,12 +113,12 @@ fn calc_k(
     s: f64, 
     threshold: f64, 
     counter: usize,
-    delta: Option<DebugDelta>
+    delta: DebugDelta
 ) -> Pk
 {
     let len = a.len();
-    let index_s = (s * (len - 1) as f64).round() as usize;
-    let bin_size = (len as f64).recip();
+    let index_s = (s * (len - 1) as f64).floor() as usize;
+    let bin_size = ((len+1) as f64).recip();
 
     let i_len = len as isize;
 
@@ -120,19 +127,32 @@ fn calc_k(
             |val| val * bin_size
         ).collect_vec();
 
-    // a has same binsize as uniform
-    let p_am: Vec<f64> = ((-i_len)..i_len)
+    // Calculating for jump probability
+    let mut p_am: Vec<f64> = ((-i_len)..i_len)
         .map(
             |index|
             {
                 let start = 0.max(index) as usize;
-                let end = (index+i_len).min(i_len-1) as usize;
+                let end = (index+i_len).min(i_len) as usize;
 
                 a_mul[start..end]
                     .iter()
                     .sum()
             }
         ).collect_vec();
+
+    let total_jump_prob: f64 = p_am.iter()
+        .map(|val| *val * bin_size)
+        .sum();
+    println!("JUMP: {total_jump_prob}");
+    p_am.iter_mut()
+        .for_each(
+            |val| *val /= total_jump_prob
+        );
+    let total_jump_prob: f64 = p_am.iter()
+        .map(|val| *val * bin_size)
+        .sum();
+    println!("JUMP Corrected: {total_jump_prob}");
 
     let name = format!("s{s}p_am{counter}.dat");
     let mut buf = create_buf(name);
@@ -153,17 +173,32 @@ fn calc_k(
     let mut delta_left = 0.01;
     let mut delta_right = 0.01;
 
-    if let Some(delta) = delta.as_ref()
+    if let Some(delta) = delta.left.as_ref()
     {
-        delta_left = delta.left;
-        delta_right = delta.right;
+        delta_left = *delta;
+    }
+    if let Some(delta) = delta.right.as_ref(){
+        delta_right = *delta;
     }
 
     let guess_height = (1.0-delta_left-delta_right)/s;
-    let mut k_guess = vec![guess_height; index_s + 1];
+    let mut k_guess = vec![guess_height*2.0; index_s+1]; // maybe I somewhere have indexmissmatch for index s?
+
+    let mut guess_total = 0.0;
+    k_guess.iter()
+        .for_each(
+            |val|
+            {
+                guess_total += *val;
+            }
+        );
+    guess_total = guess_total * bin_size + delta_left + delta_right;
+    println!("GUESS TOTAL: {guess_total}");
+    let length = k_guess.len() as f64 * bin_size;
+    println!("LENNN {length}");
 
     let mut k_result = k_guess.clone();
-
+    let mut bla = 0;
     loop{
         
         k_result.iter_mut()
@@ -177,14 +212,28 @@ fn calc_k(
                         .for_each(
                             |(x_prime, k_of_x_prime)|
                             {
-                                *r += bin_size * k_of_x_prime * p_am[len+x-x_prime];
+                                *r += k_of_x_prime * p_am[len+x-x_prime];
                             }
                         );
+                    *r *= bin_size;
                     // then the offset of the delta functions
                     *r += p_am[len+x] * delta_left;
-                    *r +=p_am[len+x-index_s] * delta_right;
+                    *r += p_am[len+x-index_s] * delta_right;
                 }
             );
+
+        /*if delta.left.is_some() && delta.right.is_some(){
+            let mut total: f64 = k_result.iter().sum();
+            total *= bin_size;
+            let factor = (1.0 - delta_left - delta_right)/total;
+            k_result.iter_mut()
+                .for_each(
+                    |val| 
+                    {
+                        *val *= factor;
+                    }
+                )
+        }*/
         
         let mut tmp_delta_left = 0.0;
         
@@ -203,7 +252,10 @@ fn calc_k(
             tmp_delta_left += f_x * bin_size;
         }
 
-        let mut total = 0.0;
+        let dd = delta_left - tmp_delta_left;
+        println!("DELTA_DIFF: {dd}");
+
+        let mut total: f64 = 0.0;
         let mut diff = 0.0;
         k_result.iter()
             .zip(k_guess.iter())
@@ -214,38 +266,73 @@ fn calc_k(
                 diff += (old_val - new_val).abs();
             }
         );
+        let mut tmp_delta_right;
+        {
+            // calc delta right
+            // integral integral pk(x)p_am(z)dz
+            // borders: x+z=s -> s-x
+            // uper border infinity
+            let mut tmp = 0.0;
+            k_guess.iter().enumerate()
+                .for_each(
+                    |(index, k_val)|
+                    {
+                        let mut integral = 0.0;
+                        let start = index_s + len - index;
+                        for jump in &p_am[start..]{
+                            integral += jump;
+                        }
+                        tmp += integral * k_val;
+                    }
+                );
+            tmp *= bin_size;
+            let reachable_by_left: f64 = p_am[len+index_s..].iter().sum();
+            let reachable_by_right: f64 = p_am[len..].iter().sum();
+            tmp += reachable_by_left * delta_left + reachable_by_right * delta_right;
+            tmp *= bin_size;
+            println!("DELTA RIGHT: {tmp}");
+            println!("OTHER DELTA RIGHT {delta_right}");
+            tmp_delta_right = tmp;
+        }
 
         let mut delta_left_diff = 0.0;
         let mut delta_right_diff = 0.0;
-        if let Some(delta) = delta.as_ref()
+        if let Some(left) = delta.left.as_ref()
         {
-            delta_left = delta.left;
-            delta_right = delta.right;
+            delta_left = *left;
 
-            diff = 0.0;
-            let factor = (1.0-delta_left -delta_right)/total;
-            total = 0.0;
-            k_result.iter_mut()
-                .zip(k_guess.iter())
-                .for_each(
-                |(new_val, old_val)|
-                {
-                    *new_val *= factor;
-                    total += *new_val * bin_size;
-                    diff += (old_val - *new_val).abs();
-                }
-            );
+            
         }else {
+            tmp_delta_left = 1.0 - total - delta_right;
             delta_left_diff = (delta_left - tmp_delta_left).abs();
             delta_left = tmp_delta_left;
-    
-            
-            total += delta_left;
-            let tmp_delta_right = 1.0 - total;
+        }
+        
+        if let Some(right) = delta.right.as_ref(){
+            delta_right = *right;
+        } else {
+            //tmp_delta_right = 1.0 - total - delta_left;
     
             delta_right_diff = (delta_right - tmp_delta_right).abs();
             delta_right = tmp_delta_right;
         }
+
+        /*total += delta_left + delta_right;
+
+        k_result.iter_mut()
+            .for_each(
+                |val| *val /= total
+            );
+        delta_left /= total;
+        delta_right /= total;
+
+        let mut checking_total = 0.0;
+        for k in k_result.iter(){
+            checking_total += k;
+        }
+        checking_total *= bin_size;
+        checking_total += delta_left + delta_right;
+        println!("CHECKING: {checking_total}");*/
 
        
 
@@ -255,7 +342,7 @@ fn calc_k(
         let sum_of_differences = diff + delta_left_diff + delta_right_diff;
         println!("differences: {sum_of_differences}");
         println!("counter: {counter} total: {total}");
-        if sum_of_differences <= threshold{
+        if bla > 100 || sum_of_differences <= threshold{
 
             return Pk{
                 delta_left,
@@ -267,6 +354,7 @@ fn calc_k(
                 index_s
             };
         }
+        bla += 1;
 
         // break before this!
         std::mem::swap(
@@ -402,7 +490,11 @@ fn calc_I(
         ).unwrap();
     }
 
-    let mut derivative = sampling::glue::derivative::derivative(&prob[..pk.len_of_1]);
+    //let mut derivative = sampling::glue::derivative::derivative(&prob[..pk.len_of_1]);
+    let derivative_left = sampling::glue::derivative::derivative(&prob[..=pk.index_s]);
+    let derivative_right = sampling::glue::derivative::derivative(&prob[pk.index_s+1..pk.len_of_1]);
+    let mut derivative = derivative_left;
+    derivative.extend_from_slice(&derivative_right);
 
     let len = pk.len_of_1 as f64;
     derivative.iter_mut()
