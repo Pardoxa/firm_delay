@@ -42,7 +42,7 @@ pub fn line_test(input: &ModelInput)
             }
         };
 
-        let pk = calc_k(
+        let pk = master_ansatz_k(
             &a_ij, 
             input.s, 
             1e-4, 
@@ -104,6 +104,200 @@ impl Pk{
 pub struct DebugDelta{
     left: Option<f64>,
     right: Option<f64>
+}
+
+fn master_ansatz_k(
+    a: &[f64], 
+    s: f64, 
+    threshold: f64, 
+    counter: usize,
+    delta: DebugDelta
+)-> Pk
+{
+    let len = a.len();
+    let index_s = (s * (len - 1) as f64).floor() as usize;
+    let bin_size = ((len+1) as f64).recip();
+
+    let i_len = len as isize;
+
+    let a_mul = a.iter()
+        .map(
+            |val| val * bin_size
+        ).collect_vec();
+
+    // Calculating for jump probability
+    let mut p_am: Vec<f64> = ((-i_len)..i_len)
+        .map(
+            |index|
+            {
+                let start = 0.max(index) as usize;
+                let end = (index+i_len).min(i_len) as usize;
+
+                a_mul[start..end]
+                    .iter()
+                    .sum()
+            }
+        ).collect_vec();
+
+    let total_jump_prob: f64 = p_am.iter()
+        .map(|val| *val * bin_size)
+        .sum();
+    println!("JUMP: {total_jump_prob}");
+    p_am.iter_mut()
+        .for_each(
+            |val| *val /= total_jump_prob
+        );
+    let total_jump_prob: f64 = p_am.iter()
+        .map(|val| *val * bin_size)
+        .sum();
+    println!("JUMP Corrected: {total_jump_prob}");
+
+    let name = format!("s{s}p_am{counter}.dat");
+    let mut buf = create_buf(name);
+    for (index, val) in p_am.iter().enumerate()
+    {
+        let x = index as f64 * bin_size;
+        writeln!(
+            buf,
+            "{} {}",
+            x,
+            val
+        ).unwrap();
+    }
+
+    assert!(index_s >= 99, "please increase precision");
+
+
+    let mut delta_left = 0.2;
+    let mut delta_right = 0.2;
+
+    if let Some(delta) = delta.left.as_ref()
+    {
+        delta_left = *delta;
+    }
+    if let Some(delta) = delta.right.as_ref(){
+        delta_right = *delta;
+    }
+
+    let guess_height = (1.0-delta_left-delta_right)/s;
+    let mut k_guess = vec![guess_height; index_s+1]; // maybe I somewhere have indexmissmatch for index s?
+
+    let mut guess_total = 0.0;
+    k_guess.iter()
+        .for_each(
+            |val|
+            {
+                guess_total += *val;
+            }
+        );
+    guess_total = guess_total * bin_size + delta_left + delta_right;
+    println!("GUESS TOTAL: {guess_total}");
+    let length = k_guess.len() as f64 * bin_size;
+    println!("LENNN {length}");
+
+    let mut k_result = k_guess.clone();
+
+
+    let mut testing = 0;
+
+    loop{
+        let mut delta_left_input = 0.0;
+        let mut delta_right_input = 0.0;
+        k_result.iter_mut().for_each(|val| *val = 0.0);
+        k_guess.iter()
+            .enumerate()
+            .for_each(
+                |(index, val)|
+                {
+                    for (jump_index, prob) in p_am.iter().enumerate()
+                    {
+                        let amount = prob * val * bin_size;
+                        let resulting_index = index as isize + jump_index as isize - i_len;
+                        if resulting_index < 0 {
+                            delta_left_input += amount;
+                        } else if let Some(val) = k_result.get_mut(resulting_index as usize){
+                            *val += amount;
+                        } else {
+                            delta_right_input += amount;
+                        }
+                    }
+                }
+            );
+
+        
+        // left delta
+        for (jump_index, prob) in p_am.iter().enumerate()
+        {
+            let resulting_index = jump_index as isize - i_len;
+            let amount = delta_left * prob;
+            if resulting_index < 0 {
+                delta_left_input += amount;
+            } else if let Some(val) = k_result.get_mut(resulting_index as usize){
+                *val += amount;
+            } else {
+                delta_right_input += amount;
+            }
+        }
+
+        // right delta
+        for (jump_index, prob) in p_am.iter().enumerate()
+        {
+            let resulting_index = index_s as isize + jump_index as isize - i_len;
+            let amount = delta_right * prob;
+            if resulting_index < 0 {
+                delta_left_input += amount;
+            } else if let Some(val) = k_result.get_mut(resulting_index as usize){
+                *val += amount;
+            } else {
+                delta_right_input += amount;
+            }
+        }
+
+        delta_left_input *= bin_size;
+        delta_right_input *= bin_size;
+
+       
+        
+        delta_left = delta_left_input;
+        delta_right = delta_right_input;
+
+        if testing == 100 {
+            dbg!(&k_result);
+            dbg!(delta_left_input);
+            dbg!(delta_right_input);
+    
+            let mut test_buf = create_buf("test.dat");
+            let mut delta = create_buf("test_delta.dat");
+            for (index, val) in k_result.iter().enumerate(){
+                let x = index as f64 * bin_size;
+                writeln!(
+                    test_buf,
+                    "{x} {val}"
+                ).unwrap();
+            }
+    
+            writeln!(
+                delta,
+                "0 {}\n{} {}",
+                delta_left_input,
+                s,
+                delta_right_input
+            ).unwrap();
+            return Pk{
+                delta_left,
+                delta_right,
+                function: k_result,
+                bin_size,
+                s,
+                len_of_1: len,
+                index_s
+            };
+        }
+        testing += 1;
+
+        std::mem::swap(&mut k_guess, &mut k_result);
+    }
+    
 }
 
 // for now I think this only works for 0 < s < 1, 
