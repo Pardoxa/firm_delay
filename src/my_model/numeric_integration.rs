@@ -150,14 +150,15 @@ fn master_ansatz_i_test(
                 let resulting_i_idx = m1.min(m2+k_idx);
                 // There is certainly room for optimization here XD
 
-                let new_k_idx = (m2 + k_idx - resulting_i_idx).min(pk.index_s);
-                let ik_vec = Ik_matr.get_mut(resulting_i_idx).unwrap();
-                if new_k_idx > 0 && new_k_idx < pk.index_s{
-                    ik_vec[new_k_idx] += probability_of_both_m;
-                } else if new_k_idx == 0 {
-                    delta_matr[resulting_i_idx].0 += probability_of_both_m;
-                } else {
+                let new_k_idx = m2 + k_idx - resulting_i_idx;
+                let ik_vec: &mut Vec<f64> = Ik_matr.get_mut(resulting_i_idx).unwrap();
+
+                if new_k_idx > pk.index_s {
                     delta_matr[resulting_i_idx].1 += probability_of_both_m;
+                } else if m1 > m2+k_idx {
+                    delta_matr[resulting_i_idx].0 += probability_of_both_m;
+                } else{
+                    ik_vec[new_k_idx] += probability_of_both_m;
                 }
             }
         }
@@ -171,14 +172,15 @@ fn master_ansatz_i_test(
             let resulting_i_idx = m1.min(m2);
             // There is certainly room for optimization here XD
             
-            let new_k_idx = (m2 - resulting_i_idx).min(pk.index_s);
-            let ik_vec = Ik_matr.get_mut(resulting_i_idx).unwrap();
-            if new_k_idx > 0 && new_k_idx < pk.index_s{
-                ik_vec[new_k_idx] += probability_of_both_m;
-            } else if new_k_idx == 0 {
-                delta_matr[resulting_i_idx].0 += probability_of_both_m;
-            } else {
+            let new_k_idx = m2 - resulting_i_idx;
+            let ik_vec: &mut Vec<f64> = Ik_matr.get_mut(resulting_i_idx).unwrap();
+
+            if new_k_idx > pk.index_s {
                 delta_matr[resulting_i_idx].1 += probability_of_both_m;
+            } else if m1 > m2 {
+                delta_matr[resulting_i_idx].0 += probability_of_both_m;
+            } else{
+                ik_vec[new_k_idx] += probability_of_both_m;
             }
         }
     }
@@ -188,21 +190,22 @@ fn master_ansatz_i_test(
     for m1 in 0..prob_prior_I.len(){
         for m2 in 0..prob_prior_I.len(){
             let resulting_i_idx = m1.min(m2+pk.index_s);
-            let new_k_idx = (m2 + pk.index_s - resulting_i_idx).min(pk.index_s);
-            let ik_vec = Ik_matr.get_mut(resulting_i_idx).unwrap();
-            if new_k_idx > 0 && new_k_idx < pk.index_s{
-                ik_vec[new_k_idx] += probability_of_both_m;
-            } else if new_k_idx == 0 {
-                delta_matr[resulting_i_idx].0 += probability_of_both_m;
-            } else {
+            let new_k_idx = m2 + pk.index_s - resulting_i_idx;
+            let ik_vec: &mut Vec<f64> = Ik_matr.get_mut(resulting_i_idx).unwrap();
+
+            if new_k_idx > pk.index_s {
                 delta_matr[resulting_i_idx].1 += probability_of_both_m;
+            } else if m1 > m2+pk.index_s {
+                delta_matr[resulting_i_idx].0 += probability_of_both_m;
+            } else{
+                ik_vec[new_k_idx] += probability_of_both_m;
             }
         }
     }
         
     // normalization
     // afterwards ik_vec[i][j] entries correspond to the probability that the next k value is j given the next I value i
-    for (ik_vec, delta) in Ik_matr.iter_mut().zip(delta_matr.iter())
+    for (ik_vec, delta) in Ik_matr.iter_mut().zip(delta_matr.iter_mut())
     {
         let mut sum: f64= ik_vec.iter().sum();
         sum += delta.0 + delta.1;
@@ -210,15 +213,21 @@ fn master_ansatz_i_test(
         {
             *ik_val /= sum;
         }
+        let factor = pk.bin_size / sum;
+        delta.0 *= factor;
+        delta.1 *= factor;
     }
     
 
-    let mut resuling_prob = vec![0.0; pk.function.len()];
-    for (ik_vec, i_prob) in Ik_matr.iter().zip(prob_I_after){
-        for (k_val, res) in ik_vec.iter().zip(resuling_prob.iter_mut())
+    let mut resulting_prob = vec![0.0; pk.function.len()];
+    let mut resulting_delta = (0.0, 0.0);
+    for ((ik_vec, i_prob), delta) in Ik_matr.iter().zip(prob_I_after).zip(delta_matr.iter()){
+        for (k_val, res) in ik_vec.iter().zip(resulting_prob.iter_mut())
         {
             *res += i_prob * k_val;
         }
+        resulting_delta.0 += i_prob * delta.0;
+        resulting_delta.1 += i_prob * delta.1;
     }
 
     // I think that is it. Now testing
@@ -243,13 +252,21 @@ fn master_ansatz_i_test(
 
 
     let mut buf = create_buf("Res.dat");
-    for (idx, res) in resuling_prob.iter().enumerate(){
+    for (idx, res) in resulting_prob.iter().enumerate(){
         let x = idx as f64 * pk.bin_size;
         writeln!(
             buf,
             "{x} {res}"
         ).unwrap();
     }
+    let mut buf = create_buf("Res_delta.dat");
+    writeln!(
+        buf,
+        "0 {}\n{} {}",
+        resulting_delta.0,
+        pk.s,
+        resulting_delta.1
+    ).unwrap();
 
     for ik_vec in Ik_matr.iter()
     {
