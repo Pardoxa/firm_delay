@@ -138,11 +138,13 @@ fn master_ansatz_i_test(
     // For N-2 I should have less correlations to worry about
 
     let mut Ik_matr = vec![vec![0.0; pk.function.len()]; prob_prior_I.len()];
-    
+    let mut delta_matr = vec![(0.0,0.0); prob_prior_I.len()];
 
     let factor = 1.0 /(prob_prior_I.len() * prob_prior_I.len()) as f64;
     for (k_idx, k_val) in pk.function.iter().enumerate()
     {
+        let probability_of_k_branch = k_val * pk.bin_size;
+        let probability_of_both_m = probability_of_k_branch * factor;
         for m1 in 0..prob_prior_I.len(){
             for m2 in 0..prob_prior_I.len(){
                 let resulting_i_idx = m1.min(m2+k_idx);
@@ -151,14 +153,19 @@ fn master_ansatz_i_test(
                 let new_k_idx = (m2 + k_idx - resulting_i_idx).min(pk.index_s);
                 let ik_vec = Ik_matr.get_mut(resulting_i_idx).unwrap();
                 if new_k_idx > 0 && new_k_idx < pk.index_s{
-                    ik_vec[new_k_idx] += k_val * factor * pk.bin_size;
+                    ik_vec[new_k_idx] += probability_of_both_m;
+                } else if new_k_idx == 0 {
+                    delta_matr[resulting_i_idx].0 += probability_of_both_m;
+                } else {
+                    delta_matr[resulting_i_idx].1 += probability_of_both_m;
                 }
             }
         }
     }
     
 
-
+    let probability_of_k_branch = pk.delta_left;
+    let probability_of_both_m = probability_of_k_branch * factor;
     for m1 in 0..prob_prior_I.len(){
         for m2 in 0..prob_prior_I.len(){
             let resulting_i_idx = m1.min(m2);
@@ -167,30 +174,38 @@ fn master_ansatz_i_test(
             let new_k_idx = (m2 - resulting_i_idx).min(pk.index_s);
             let ik_vec = Ik_matr.get_mut(resulting_i_idx).unwrap();
             if new_k_idx > 0 && new_k_idx < pk.index_s{
-                ik_vec[new_k_idx] += pk.delta_left * factor;
+                ik_vec[new_k_idx] += probability_of_both_m;
+            } else if new_k_idx == 0 {
+                delta_matr[resulting_i_idx].0 += probability_of_both_m;
+            } else {
+                delta_matr[resulting_i_idx].1 += probability_of_both_m;
             }
         }
     }
     
-    
-
-
-        
+    let probability_of_k_branch = pk.delta_right;
+    let probability_of_both_m = probability_of_k_branch * factor;
     for m1 in 0..prob_prior_I.len(){
         for m2 in 0..prob_prior_I.len(){
             let resulting_i_idx = m1.min(m2+pk.index_s);
             let new_k_idx = (m2 + pk.index_s - resulting_i_idx).min(pk.index_s);
             let ik_vec = Ik_matr.get_mut(resulting_i_idx).unwrap();
             if new_k_idx > 0 && new_k_idx < pk.index_s{
-                ik_vec[new_k_idx] += pk.delta_right * factor;
+                ik_vec[new_k_idx] += probability_of_both_m;
+            } else if new_k_idx == 0 {
+                delta_matr[resulting_i_idx].0 += probability_of_both_m;
+            } else {
+                delta_matr[resulting_i_idx].1 += probability_of_both_m;
             }
         }
     }
         
     // normalization
-    for ik_vec in Ik_matr.iter_mut()
+    // afterwards ik_vec[i][j] entries correspond to the probability that the next k value is j given the next I value i
+    for (ik_vec, delta) in Ik_matr.iter_mut().zip(delta_matr.iter())
     {
-        let sum: f64= ik_vec.iter().sum();
+        let mut sum: f64= ik_vec.iter().sum();
+        sum += delta.0 + delta.1;
         for ik_val in ik_vec.iter_mut()
         {
             *ik_val /= sum;
