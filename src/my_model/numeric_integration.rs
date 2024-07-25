@@ -1,4 +1,5 @@
 use std::num::NonZeroUsize;
+use indicatif::ProgressIterator;
 use itertools::*;
 use serde::{Serialize, Deserialize};
 use derivative::Derivative;
@@ -36,9 +37,9 @@ pub fn line_test(input: &ModelInput)
     let stub = format!("_PK{counter}");
     pk.write_files(&stub);
     
-    //a_ij = calc_I(&pk, &a_ij, counter); // For now Do NOT! calculate this, I want the uniform distr below
+    let after_i = calc_I(&pk, &a_ij, counter); 
 
-    master_ansatz_i_test(&pk, &a_ij);
+    master_ansatz_i_test(&pk, &a_ij, &after_i);
 
 
     // OLD:
@@ -128,40 +129,120 @@ pub struct DebugDelta{
 #[allow(non_snake_case)]
 fn master_ansatz_i_test(
     pk: &Pk,
-    prob_prior_I: &[f64]
+    prob_prior_I: &[f64],
+    prob_I_after: &[f64]
 )
 {
     let bin_size_sq = pk.bin_size * pk.bin_size;
     // Given I(t) I want to know P_I(t+1)
     // For N-2 I should have less correlations to worry about
 
-    let mut kI_matr = vec![vec![0.0; prob_prior_I.len()]; prob_prior_I.len()];
-    for (index, kIVec) in kI_matr.iter_mut().enumerate()
-    {
-        for (j, &priorI) in prob_prior_I.iter().enumerate()
-        {
-            let index_sum = index + j; // should be equal to new position
-            let prob_value = priorI * pk.bin_size;
+    let mut Ik_matr = vec![vec![0.0; pk.function.len()]; prob_prior_I.len()];
+    
 
-            // now I need to use uniform to see prob of actual result
-            for l in 0..prob_prior_I.len() {
-                let actual_index = l.min(index_sum);
-                kIVec[actual_index] += prob_value;
+    let factor = 1.0 /(prob_prior_I.len() * prob_prior_I.len()) as f64;
+    for (k_idx, k_val) in pk.function.iter().enumerate()
+    {
+        for m1 in 0..prob_prior_I.len(){
+            for m2 in 0..prob_prior_I.len(){
+                let resulting_i_idx = m1.min(m2+k_idx);
+                // There is certainly room for optimization here XD
+
+                let new_k_idx = (m2 + k_idx - resulting_i_idx).min(pk.index_s);
+                let ik_vec = Ik_matr.get_mut(resulting_i_idx).unwrap();
+                if new_k_idx > 0 && new_k_idx < pk.index_s{
+                    ik_vec[new_k_idx] += k_val * factor * pk.bin_size;
+                }
             }
+        }
+    }
+    
+
+
+    for m1 in 0..prob_prior_I.len(){
+        for m2 in 0..prob_prior_I.len(){
+            let resulting_i_idx = m1.min(m2);
+            // There is certainly room for optimization here XD
+            
+            let new_k_idx = (m2 - resulting_i_idx).min(pk.index_s);
+            let ik_vec = Ik_matr.get_mut(resulting_i_idx).unwrap();
+            if new_k_idx > 0 && new_k_idx < pk.index_s{
+                ik_vec[new_k_idx] += pk.delta_left * factor;
+            }
+        }
+    }
+    
+    
+
+
+        
+    for m1 in 0..prob_prior_I.len(){
+        for m2 in 0..prob_prior_I.len(){
+            let resulting_i_idx = m1.min(m2+pk.index_s);
+            let new_k_idx = (m2 + pk.index_s - resulting_i_idx).min(pk.index_s);
+            let ik_vec = Ik_matr.get_mut(resulting_i_idx).unwrap();
+            if new_k_idx > 0 && new_k_idx < pk.index_s{
+                ik_vec[new_k_idx] += pk.delta_right * factor;
+            }
+        }
+    }
+        
+    // normalization
+    for ik_vec in Ik_matr.iter_mut()
+    {
+        let sum: f64= ik_vec.iter().sum();
+        for ik_val in ik_vec.iter_mut()
+        {
+            *ik_val /= sum;
+        }
+    }
+    
+
+    let mut resuling_prob = vec![0.0; pk.function.len()];
+    for (ik_vec, i_prob) in Ik_matr.iter().zip(prob_I_after){
+        for (k_val, res) in ik_vec.iter().zip(resuling_prob.iter_mut())
+        {
+            *res += i_prob * k_val;
         }
     }
 
     // I think that is it. Now testing
-    let mut i_buf = create_buf("test_I.dat");
 
-    for (index, val) in kI_matr[100].iter().enumerate()
-    {
-        let x = index as f64 * pk.bin_size;
+    for (idx, vector) in Ik_matr.iter().enumerate(){
+        let mut i_buf = create_buf(format!("test_I_{idx}.dat"));
+        let I = idx as f64 * pk.bin_size;
         writeln!(
             i_buf,
-            "{x} {val}"
+            "#{I}"
+        ).unwrap();
+
+        for (index, val) in vector.iter().enumerate()
+        {
+            let x = index as f64 * pk.bin_size;
+            writeln!(
+                i_buf,
+                "{x} {val}"
+            ).unwrap();
+        }
+    }
+
+
+    let mut buf = create_buf("Res.dat");
+    for (idx, res) in resuling_prob.iter().enumerate(){
+        let x = idx as f64 * pk.bin_size;
+        writeln!(
+            buf,
+            "{x} {res}"
         ).unwrap();
     }
+
+    for ik_vec in Ik_matr.iter()
+    {
+        let sum: f64 = ik_vec.iter().sum();
+        let val = sum * pk.bin_size;
+        println!("{val}");
+    }
+
 
 }
 
