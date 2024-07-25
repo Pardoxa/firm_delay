@@ -64,6 +64,10 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
         opt.s
     );
 
+    let mut last = 0.0;
+
+    let mut test = create_buf("production.dat");
+
     let len = model.nodes.len();
 
     let num_bins = opt.bins.get();
@@ -100,6 +104,12 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
                     hist.increment_quiet(produced);
                 }
             );
+        let p = model.currently_produced[model.currently_produced.len() - 3];
+        writeln!(
+            test,
+            "{last} {p}"
+        ).unwrap();
+        last = p;
         model.stock_avail
             .iter()
             .zip(k_hists.iter_mut())

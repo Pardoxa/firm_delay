@@ -25,8 +25,24 @@ pub fn line_test(input: &ModelInput)
     // uniform is I_-1
     // now one up
 
+    let counter = 0;
+    let pk = master_ansatz_k(
+        &a_ij, 
+        input.s, 
+        1e-4, 
+        counter,
+        DebugDelta{left: None, right: None}
+    );
+    let stub = format!("_PK{counter}");
+    pk.write_files(&stub);
+    
+    //a_ij = calc_I(&pk, &a_ij, counter); // For now Do NOT! calculate this, I want the uniform distr below
 
-    for counter in 0..3{
+    master_ansatz_i_test(&pk, &a_ij);
+
+
+    // OLD:
+    /*for counter in 0..3{
         let debug_delta = match counter{
             1 => {
                 DebugDelta{
@@ -52,7 +68,7 @@ pub fn line_test(input: &ModelInput)
         let stub = format!("_PK{counter}");
         pk.write_files(&stub);
         a_ij = calc_I(&pk, &a_ij, counter);
-    }
+    }*/
 
 
 }
@@ -104,6 +120,91 @@ impl Pk{
 pub struct DebugDelta{
     left: Option<f64>,
     right: Option<f64>
+}
+
+
+/// For now only for N-2
+/// this assumes that J (jump prob) is not dependent on k
+#[allow(non_snake_case)]
+fn master_ansatz_i_test(
+    pk: &Pk,
+    prob_prior_I: &[f64]
+)
+{
+    let bin_size_sq = pk.bin_size * pk.bin_size;
+    // Given I(t) I want to know P_I(t+1)
+    // For N-2 I should have less correlations to worry about
+
+    let mut kI_matr = vec![vec![0.0; prob_prior_I.len()]; prob_prior_I.len()];
+    for (index, (k_val, kIVec)) in pk.function.iter().zip(kI_matr.iter_mut()).enumerate()
+    {
+        for (j, &priorI) in prob_prior_I.iter().enumerate()
+        {
+            let index_sum = index + j; // should be equal to new position
+            let prob_value = k_val * priorI * bin_size_sq;
+
+            // now I need to use uniform to see prob of actual result
+            for l in 0..prob_prior_I.len() {
+                let actual_index = l.min(index_sum);
+                kIVec[actual_index] += prob_value;
+            }
+        }
+    }
+
+    let mut I_matr = vec![vec![0.0; prob_prior_I.len()]; prob_prior_I.len()];
+
+    // NORMALIZATION MIGHT BE INCORRECT
+    for (index, k_val) in pk.function.iter().enumerate()
+    {
+        for (j, (i_matr_vec, &prior_I)) in I_matr.iter_mut().zip(prob_prior_I.iter()).enumerate()
+        {
+            let index_sum = index + j; // should be equal to new position
+            let prob_value = k_val * prior_I * bin_size_sq;
+
+            // now I need to use uniform to see prob of actual result
+            for l in 0..prob_prior_I.len() {
+                let actual_index = l.min(index_sum);
+                i_matr_vec[actual_index] += prob_value;
+            }
+        }
+    }
+
+    // left delta
+    for (j, (i_matr_vec, &prior_I)) in I_matr.iter_mut().zip(prob_prior_I.iter()).enumerate()
+    {
+        let index_sum = j; // should be equal to new position
+        let prob_value = pk.delta_left * prior_I * pk.bin_size;
+        // now I need to use uniform to see prob of actual result
+        for l in 0..prob_prior_I.len() {
+            let actual_index = l.min(index_sum);
+            i_matr_vec[actual_index] += prob_value;
+        }
+    }
+
+    // right delta
+    for (j, (i_matr_vec, &prior_I)) in I_matr.iter_mut().zip(prob_prior_I.iter()).enumerate()
+    {
+        let index_sum = j + pk.index_s; // should be equal to new position
+        let prob_value = pk.delta_right * prior_I * pk.bin_size;
+        // now I need to use uniform to see prob of actual result
+        for l in 0..prob_prior_I.len() {
+            let actual_index = l.min(index_sum);
+            i_matr_vec[actual_index] += prob_value;
+        }
+    }
+
+    // I think that is it. Now testing
+    let mut i_buf = create_buf("test_I.dat");
+
+    for (index, val) in I_matr[1].iter().enumerate()
+    {
+        let x = index as f64 * pk.bin_size;
+        writeln!(
+            i_buf,
+            "{x} {val}"
+        ).unwrap();
+    }
+
 }
 
 fn master_ansatz_k(
@@ -224,7 +325,7 @@ fn master_ansatz_k(
                 }
             );
 
-        
+
         // left delta
         for (jump_index, prob) in p_am.iter().enumerate()
         {
@@ -583,14 +684,6 @@ fn calc_I(
                     x
                 };
                 for j in start..=end{
-                    if x - j == 10000 {
-                        dbg!(x);
-                        dbg!(j);
-                        dbg!(pk.index_s);
-                        dbg!(pk.len_of_1);
-                        dbg!(end);
-                        dbg!(start);
-                    }
                     integral += pk.function[j] * a_ij[x-j];
                 }
                 integral *= pk.bin_size;
