@@ -20,6 +20,7 @@ pub struct ModelInput{
     pub precision: NonZeroUsize
 }
 
+#[allow(non_snake_case)]
 pub fn line_test(input: &ModelInput)
 {
     let uniform = vec![1.0; input.precision.get()];
@@ -39,7 +40,7 @@ pub fn line_test(input: &ModelInput)
     
     let after_i = calc_I(&pk, &uniform, counter); 
 
-    master_ansatz_i_test(&pk, &uniform, &after_i);
+    let P_I_given_prior_I = master_ansatz_i_test(&pk, &uniform, &after_i);
 
 
     // OLD:
@@ -123,6 +124,34 @@ pub struct DebugDelta{
     right: Option<f64>
 }
 
+pub struct ProbabilityDensity{
+    pub func: Vec<f64>,
+    pub delta: (f64, f64)
+}
+
+impl ProbabilityDensity{
+    pub fn new(len: usize, bin_size: f64) -> Self 
+    {
+        let delta = (0.1, 0.1);
+        let height = 0.8 / (bin_size * len as f64);
+        let func = vec![height; len];
+        Self { func, delta }
+    }
+}
+
+fn calk_k_master_test(
+    prior_pk: &Pk,
+    input_P_I_given_prior_I: &[Vec<f64>],
+    prior_I_for_normalization: &[f64]
+){
+    let mut current_estimate_given_prior_I = (0..input_P_I_given_prior_I.len())
+        .map(|_| ProbabilityDensity::new(prior_pk.function.len(), prior_pk.bin_size))
+        .collect_vec();
+
+    for m in 0..prior_pk.len_of_1{
+
+    }
+}
 
 /// For now only for N-2
 /// this assumes that J (jump prob) is not dependent on k
@@ -131,7 +160,7 @@ fn master_ansatz_i_test(
     pk: &Pk,
     prob_prior_I: &[f64],
     prob_I_after: &[f64]
-)
+) -> Vec<Vec<f64>>
 {
     // Given I(t) I want to know P_I(t+1)
     // For this I first calculate:
@@ -140,13 +169,13 @@ fn master_ansatz_i_test(
     let mut Ik_matr = vec![vec![0.0; pk.function.len()]; prob_prior_I.len()];
     let mut delta_matr = vec![(0.0,0.0); prob_prior_I.len()];
 
-    let factor = 1.0 /(prob_prior_I.len() * prob_prior_I.len()) as f64;
+    let factor = 1.0 / (pk.len_of_1 * pk.len_of_1) as f64;
     for (k_idx, k_val) in pk.function.iter().enumerate()
     {
         let probability_of_k_branch = k_val * pk.bin_size;
         let probability_of_both_m = probability_of_k_branch * factor;
-        for m1 in 0..prob_prior_I.len(){
-            for m2 in 0..prob_prior_I.len(){
+        for m1 in 0..pk.len_of_1{
+            for m2 in 0..pk.len_of_1{
                 let resulting_i_idx = m1.min(m2+k_idx);
                 // There is certainly room for optimization here XD
 
@@ -167,8 +196,8 @@ fn master_ansatz_i_test(
 
     let probability_of_k_branch = pk.delta_left;
     let probability_of_both_m = probability_of_k_branch * factor;
-    for m1 in 0..prob_prior_I.len(){
-        for m2 in 0..prob_prior_I.len(){
+    for m1 in 0..pk.len_of_1{
+        for m2 in 0..pk.len_of_1{
             let resulting_i_idx = m1.min(m2);
             // There is certainly room for optimization here XD
             
@@ -187,8 +216,8 @@ fn master_ansatz_i_test(
     
     let probability_of_k_branch = pk.delta_right;
     let probability_of_both_m = probability_of_k_branch * factor;
-    for m1 in 0..prob_prior_I.len(){
-        for m2 in 0..prob_prior_I.len(){
+    for m1 in 0..pk.len_of_1{
+        for m2 in 0..pk.len_of_1{
             let resulting_i_idx = m1.min(m2+pk.index_s);
             let new_k_idx = m2 + pk.index_s - resulting_i_idx;
             let ik_vec: &mut Vec<f64> = Ik_matr.get_mut(resulting_i_idx).unwrap();
@@ -274,8 +303,7 @@ fn master_ansatz_i_test(
             }
         }
 
-        // TODO: DEBUGGING OF THE FOLLOWING FOR LOOP
-        // now the deltas
+
         for m1 in 0..Ik_matr.len(){
             for m2 in 0..Ik_matr.len(){
                 // left 
@@ -308,7 +336,25 @@ fn master_ansatz_i_test(
         }
     }
 
+    // TODO: The resulting vector contains an off by one error - the discontinuity is off by one!
+    let mut I_check = vec![0.0; prob_prior_I.len()];
+    for (vec, prob) in P_I_given_old_I.iter().zip(prob_I_after){
+        for (res, part) in I_check.iter_mut().zip(vec.iter())
+        {
+            *res += part * prob;
+        }
+    }
 
+    let mut buf = create_buf("I_check.dat");
+    for (i, val) in I_check.iter().enumerate(){
+        let x = i as f64 * pk.bin_size;
+        writeln!(
+            buf,
+            "{x} {val}"
+        ).unwrap();
+    }
+
+    P_I_given_old_I
 }
 
 fn master_ansatz_k(
