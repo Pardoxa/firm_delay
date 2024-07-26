@@ -180,58 +180,63 @@ fn calk_k_master_test(
 
     let mut resulting_density = ProbabilityDensity::new_zeroed(prior_pk.function.len());
     let m_factor = (len_of_1 as f64).recip();
-    for counter in 0..200{
-        for (prior_I_idx, prior_I_prob) in prior_I_for_normalization.iter().enumerate().progress(){
+    for counter in 0..20{
+        for (prior_I_idx, current_Ij_distribution) in input_P_I_given_prior_I.iter().enumerate().progress(){
             let current_k = &current_estimate_given_prior_I[prior_I_idx];
+            let prior_I_prob = prior_I_for_normalization[prior_I_idx];
             let m_factor_times_prior_I_prob = prior_I_prob * m_factor;
-            for (k, k_prob) in current_k.func.iter().enumerate(){
-                let probability_increment = k_prob * m_factor_times_prior_I_prob;
-                let kI = prior_I_idx + k;
-                for m in 0..len_of_1{
-                    let this_I = m.min(kI);
-                    let update_k_vec = &mut next_estimate_given_prior_I[this_I];
-    
-                    if m > kI {
-                        update_k_vec.delta.0 += probability_increment;
-                    } else if kI -m > idx_s {
-                        update_k_vec.delta.1 += probability_increment;
-                    } else {
-                        update_k_vec.func[kI-m] += probability_increment;
+            for (Ij_idx, Ij_prob) in current_Ij_distribution.iter().enumerate(){
+                let update_k_vec = &mut next_estimate_given_prior_I[Ij_idx];
+                for (k, k_prob) in current_k.func.iter().enumerate(){
+                    let probability_increment = k_prob * m_factor_times_prior_I_prob * Ij_prob;
+                    let kI = Ij_idx + k;
+                    for m in 0..len_of_1{
+        
+                        if m > kI {
+                            update_k_vec.delta.0 += probability_increment;
+                        } else if kI -m > idx_s {
+                            update_k_vec.delta.1 += probability_increment;
+                        } else {
+                            update_k_vec.func[kI-m] += probability_increment;
+                        }
+        
                     }
-    
                 }
+
             }
     
             // left
             let left_increment = m_factor_times_prior_I_prob * current_k.delta.0 / bin_size; // TODO probably /bin_size or something like that missing!
             for m in 0..len_of_1{
-                let this_I = m.min(prior_I_idx);
-                let update_k_vec = &mut next_estimate_given_prior_I[this_I];
-                if m > prior_I_idx {
-                    update_k_vec.delta.0 += left_increment;
-                } else if prior_I_idx -m > idx_s {
-                    update_k_vec.delta.1 += left_increment;
-                } else {
-                    update_k_vec.func[prior_I_idx-m] += left_increment;
+                for (Ij_idx, Ij_prob) in current_Ij_distribution.iter().enumerate(){
+                    let update_k_vec = &mut next_estimate_given_prior_I[Ij_idx];
+                    if m > Ij_idx {
+                        update_k_vec.delta.0 += left_increment * Ij_prob;
+                    } else if Ij_idx -m > idx_s {
+                        update_k_vec.delta.1 += left_increment * Ij_prob;
+                    } else {
+                        update_k_vec.func[Ij_idx-m] += left_increment * Ij_prob;
+                    }
                 }
             }
     
             // right
             let right_increment = m_factor_times_prior_I_prob * current_k.delta.1 / bin_size;
-            let kI = prior_I_idx + idx_s;
-            for m in 0..len_of_1{
-                let this_I = m.min(kI);
-    
-                let update_k_vec = &mut next_estimate_given_prior_I[this_I];
-    
-                if m > kI {
-                    update_k_vec.delta.0 += right_increment;
-                } else if kI -m > idx_s {
-                    update_k_vec.delta.1 += right_increment;
-                } else {
-                    update_k_vec.func[kI-m] += right_increment;
+            for (Ij_idx, Ij_prob) in current_Ij_distribution.iter().enumerate(){
+                let kI: usize = Ij_idx + idx_s;
+                let increment = right_increment * Ij_prob;
+                let update_k_vec = &mut next_estimate_given_prior_I[Ij_idx];
+                for m in 0..len_of_1{
+                    if m > kI {
+                        update_k_vec.delta.0 += increment;
+                    } else if kI -m > idx_s {
+                        update_k_vec.delta.1 += increment;
+                    } else {
+                        update_k_vec.func[kI-m] += increment;
+                    }
                 }
             }
+
         }
     
         next_estimate_given_prior_I.iter_mut()
