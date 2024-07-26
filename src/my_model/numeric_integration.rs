@@ -137,8 +137,8 @@ pub struct ProbabilityDensity{
 impl ProbabilityDensity{
     pub fn new(len: usize, bin_size: f64) -> Self 
     {
-        let delta = (0.1, 0.1);
-        let height = 0.8 / (bin_size * len as f64);
+        let delta = (0.4, 0.4);
+        let height = 0.2 / (bin_size * len as f64);
         let func = vec![height; len];
         Self { func, delta }
     }
@@ -180,7 +180,7 @@ fn calk_k_master_test(
 
     let mut resulting_density = ProbabilityDensity::new_zeroed(prior_pk.function.len());
     let m_factor = (len_of_1 as f64).recip();
-    for counter in 0..100{
+    for counter in 0..200{
         for (prior_I_idx, prior_I_prob) in prior_I_for_normalization.iter().enumerate().progress(){
             let current_k = &current_estimate_given_prior_I[prior_I_idx];
             let m_factor_times_prior_I_prob = prior_I_prob * m_factor;
