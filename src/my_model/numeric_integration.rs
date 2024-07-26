@@ -150,6 +150,13 @@ impl ProbabilityDensity{
         Self { func, delta }
     }
 
+    pub fn make_zero(&mut self)
+    {
+        self.delta.0 = 0.0;
+        self.delta.1 = 0.0;
+        self.func.iter_mut()
+            .for_each(|val| *val = 0.0);
+    }
 }
 
 #[allow(non_snake_case)]
@@ -171,113 +178,158 @@ fn calk_k_master_test(
     let bin_size = prior_pk.bin_size;
 
 
+    let mut resulting_density = ProbabilityDensity::new_zeroed(prior_pk.function.len());
     let m_factor = (len_of_1 as f64).recip();
-    for (prior_I_idx, prior_I_prob) in prior_I_for_normalization.iter().enumerate().progress(){
-        let current_k = &current_estimate_given_prior_I[prior_I_idx];
-        let m_factor_times_prior_I_prob = prior_I_prob * m_factor;
-        for (k, k_prob) in current_k.func.iter().enumerate(){
-            let probability_increment = k_prob * m_factor_times_prior_I_prob;
-            let kI = prior_I_idx + k;
+    for counter in 0..100{
+        for (prior_I_idx, prior_I_prob) in prior_I_for_normalization.iter().enumerate().progress(){
+            let current_k = &current_estimate_given_prior_I[prior_I_idx];
+            let m_factor_times_prior_I_prob = prior_I_prob * m_factor;
+            for (k, k_prob) in current_k.func.iter().enumerate(){
+                let probability_increment = k_prob * m_factor_times_prior_I_prob;
+                let kI = prior_I_idx + k;
+                for m in 0..len_of_1{
+                    let this_I = m.min(kI);
+                    let update_k_vec = &mut next_estimate_given_prior_I[this_I];
+    
+                    if m > kI {
+                        update_k_vec.delta.0 += probability_increment;
+                    } else if kI -m > idx_s {
+                        update_k_vec.delta.1 += probability_increment;
+                    } else {
+                        update_k_vec.func[kI-m] += probability_increment;
+                    }
+    
+                }
+            }
+    
+            // left
+            let left_increment = m_factor_times_prior_I_prob * current_k.delta.0 / bin_size; // TODO probably /bin_size or something like that missing!
+            for m in 0..len_of_1{
+                let this_I = m.min(prior_I_idx);
+                let update_k_vec = &mut next_estimate_given_prior_I[this_I];
+                if m > prior_I_idx {
+                    update_k_vec.delta.0 += left_increment;
+                } else if prior_I_idx -m > idx_s {
+                    update_k_vec.delta.1 += left_increment;
+                } else {
+                    update_k_vec.func[prior_I_idx-m] += left_increment;
+                }
+            }
+    
+            // right
+            let right_increment = m_factor_times_prior_I_prob * current_k.delta.1 / bin_size;
+            let kI = prior_I_idx + idx_s;
             for m in 0..len_of_1{
                 let this_I = m.min(kI);
+    
                 let update_k_vec = &mut next_estimate_given_prior_I[this_I];
-
+    
                 if m > kI {
-                    update_k_vec.delta.0 += probability_increment;
+                    update_k_vec.delta.0 += right_increment;
                 } else if kI -m > idx_s {
-                    update_k_vec.delta.1 += probability_increment;
+                    update_k_vec.delta.1 += right_increment;
                 } else {
-                    update_k_vec.func[kI-m] += probability_increment;
+                    update_k_vec.func[kI-m] += right_increment;
                 }
-
             }
         }
-
-        // left
-        let left_increment = m_factor_times_prior_I_prob * current_k.delta.0 / bin_size; // TODO probably /bin_size or something like that missing!
-        for m in 0..len_of_1{
-            let this_I = m.min(prior_I_idx);
-            let update_k_vec = &mut next_estimate_given_prior_I[this_I];
-            if m > prior_I_idx {
-                update_k_vec.delta.0 += left_increment;
-            } else if prior_I_idx -m > idx_s {
-                update_k_vec.delta.1 += left_increment;
-            } else {
-                update_k_vec.func[prior_I_idx-m] += left_increment;
-            }
-        }
-
-        // right
-        let right_increment = m_factor_times_prior_I_prob * current_k.delta.1 / bin_size;
-        let kI = prior_I_idx + idx_s;
-        for m in 0..len_of_1{
-            let this_I = m.min(kI);
-
-            let update_k_vec = &mut next_estimate_given_prior_I[this_I];
-
-            if m > kI {
-                update_k_vec.delta.0 += right_increment;
-            } else if kI -m > idx_s {
-                update_k_vec.delta.1 += right_increment;
-            } else {
-                update_k_vec.func[kI-m] += right_increment;
-            }
-        }
-    }
-
-    next_estimate_given_prior_I.iter_mut()
-        .for_each(
-            |estimate| 
-            {
-                estimate.delta.0 *= bin_size;
-                estimate.delta.1 *= bin_size
-            }
-        );
-
-    // normalize (and print)
-    for estimate in next_estimate_given_prior_I.iter_mut(){
-        let sum: f64 = estimate.func.iter().sum();
-        let integral = sum * bin_size + estimate.delta.0 + estimate.delta.1;
-        println!(
-            "I: {integral}"
-        );
-        let factor = integral.recip();
-        estimate.delta.0 *= factor;
-        estimate.delta.1 *= factor;
-        estimate.func.iter_mut()
+    
+        next_estimate_given_prior_I.iter_mut()
             .for_each(
-                |val|
+                |estimate| 
                 {
-                    *val *= factor;
+                    estimate.delta.0 *= bin_size;
+                    estimate.delta.1 *= bin_size
                 }
             );
-    }
+    
+        // normalize (and print)
+        for estimate in next_estimate_given_prior_I.iter_mut(){
+            let sum: f64 = estimate.func.iter().sum();
+            let integral = sum * bin_size + estimate.delta.0 + estimate.delta.1;
+            println!(
+                "I: {integral}"
+            );
+            let factor = integral.recip();
+            estimate.delta.0 *= factor;
+            estimate.delta.1 *= factor;
+            estimate.func.iter_mut()
+                .for_each(
+                    |val|
+                    {
+                        *val *= factor;
+                    }
+                );
+        }
 
-    for i in (0..prior_I_for_normalization.len()).step_by(100)
-    {
-        let name = format!("P_k_given_I_test_{i}.dat");
+        for (estimate, norm) in next_estimate_given_prior_I.iter().zip(prior_I_for_normalization){
+            resulting_density.func
+                .iter_mut()
+                .zip(estimate.func.iter())
+                .for_each(
+                    |(res, est)|
+                    {
+                        *res += norm * est * bin_size;
+                    }
+                );
+            resulting_density.delta.0 += norm * estimate.delta.0 * bin_size;
+            resulting_density.delta.1 += norm * estimate.delta.1 * bin_size;
+        }
+
+        let name = format!("E_RES{counter}.dat");
         let mut buf = create_buf(name);
-        let density = &next_estimate_given_prior_I[i];
-
-        for (i, val) in density.func.iter().enumerate(){
+        for (i, val) in resulting_density.func.iter().enumerate(){
             let x = i as f64 * bin_size;
             writeln!(
                 buf,
                 "{x} {val}"
             ).unwrap();
         }
-
-        let name = format!("P_k_given_I_test_delta_{i}.dat");
+        
+        let name = format!("E_RES_delta{counter}.dat");
         let mut buf = create_buf(name);
-
         writeln!(
             buf,
             "0 {}\n{} {}",
-            density.delta.0,
+            resulting_density.delta.0,
             prior_pk.s,
-            density.delta.1
+            resulting_density.delta.1
         ).unwrap();
+
+        resulting_density.make_zero();
+    
+        for i in (0..prior_I_for_normalization.len()).step_by(100)
+        {
+            let name = format!("P_k_given_I_c{counter}_{i}.dat");
+            let mut buf = create_buf(name);
+            let density = &next_estimate_given_prior_I[i];
+    
+            for (i, val) in density.func.iter().enumerate(){
+                let x = i as f64 * bin_size;
+                writeln!(
+                    buf,
+                    "{x} {val}"
+                ).unwrap();
+            }
+    
+            let name = format!("P_k_given_I_c{counter}_delta_{i}.dat");
+            let mut buf = create_buf(name);
+    
+            writeln!(
+                buf,
+                "0 {}\n{} {}",
+                density.delta.0,
+                prior_pk.s,
+                density.delta.1
+            ).unwrap();
+        }
+
+        std::mem::swap(&mut next_estimate_given_prior_I, &mut current_estimate_given_prior_I);
+        next_estimate_given_prior_I
+            .iter_mut()
+            .for_each(ProbabilityDensity::make_zero);
     }
+    
 
 }
 
