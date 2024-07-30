@@ -369,10 +369,11 @@ fn calc_next_test(
     // normalization of pk
     for density in pk_given_preI2.iter_mut(){
         let sum: f64 = density.func.iter().sum();
-        let total = sum * bin_size + density.delta.0 + density.delta.1;
-        let factor = total.recip();
+        let total = sum + density.delta.0 + density.delta.1;
+        let mut factor = total.recip();
         density.delta.0 *= factor;
         density.delta.1 *= factor;
+        factor /= bin_size;
         density.func.iter_mut()
             .for_each(
                 |val| *val *= factor
