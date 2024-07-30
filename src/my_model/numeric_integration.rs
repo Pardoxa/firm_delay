@@ -390,6 +390,25 @@ fn calc_next_test(
             );
     }
 
+    let mut I1_given_I2_summary = vec![0.0; I1_given_I2[0].len()];
+    for (I1_line, prob) in I1_given_I2.iter().zip(probability_I2.iter())
+    {
+        for (into, from) in I1_given_I2_summary.iter_mut().zip(I1_line.iter())
+        {
+            *into += from * prob;
+        }
+    }
+
+    let name = "I1_I2_sum.dat";
+    let mut buf = create_buf_with_command_and_version(name);
+    for (i, val) in I1_given_I2_summary.iter().enumerate(){
+        let x = i as f64 * bin_size;
+        writeln!(
+            buf,
+            "{x} {val}"
+        ).unwrap();
+    }
+
     // I think this is not N3 but N2, but whatever, for debugging this is ok
     pk_given_preI2[0].write("N3_test", bin_size, s);
 
@@ -424,7 +443,74 @@ fn calc_next_test(
 
     pk_res.write("N3_pk_test", bin_size, s);
 
-    // now I should check if the previous calculation makes sense
+
+    // currently the normalization is incorrect!
+    // There also seems to be another mistake
+    let mut I2_given_prev_I2 = vec![vec![0.0; len_of_1]; len_of_1];
+
+    // This calculates the quantity for which I am doing all this BS
+    for (prev_I2, (line, prev_I2_prob)) in I2_given_prev_I2.iter_mut().zip(probability_I2.iter()).enumerate().progress(){
+        let k_density = &pk_given_preI2[prev_I2];
+        let I1_line = I1_given_I2[prev_I2].as_slice();
+        let level_1_prob = prev_I2_prob;
+        for (k_idx, k_prob) in k_density.func.iter().enumerate(){
+            let level_2_prob = level_1_prob * k_prob * bin_size;
+            for (idx_I1, I1_prob) in I1_line.iter().enumerate(){
+                let level_3_prob = level_2_prob * I1_prob;
+                let level_4_prob = level_3_prob * recip_len1;
+                for m in 0..len_of_1{
+                    let Ik = idx_I1 + k_idx;
+                    let I2 = m.min(Ik);
+                    line[I2] += level_4_prob;
+                }
+            }
+        }
+
+        // delta left
+        let level_2_prob = level_1_prob * k_density.delta.0;
+        for (idx_I1, I1_prob) in I1_line.iter().enumerate(){
+            let level_3_prob = level_2_prob * I1_prob;
+            let level_4_prob = level_3_prob * recip_len1;
+            for m in 0..len_of_1{
+                let Ik = idx_I1; // k=0
+                let I2 = m.min(Ik);
+                line[I2] += level_4_prob;
+            }
+        }
+
+        // delta right
+        let level_2_prob = level_1_prob * k_density.delta.1;
+        for (idx_I1, I1_prob) in I1_line.iter().enumerate(){
+            let level_3_prob = level_2_prob * I1_prob;
+            let level_4_prob = level_3_prob * recip_len1;
+            for m in 0..len_of_1{
+                let Ik = idx_I1 + idx_s;
+                let I2 = m.min(Ik);
+                line[I2] += level_4_prob;
+            }
+        }
+    }
+
+    // now to check if it works correctly
+    let mut check_I2 = vec![0.0; len_of_1];
+    for (line, prob) in I2_given_prev_I2.iter().zip(probability_I2.iter())
+    {
+        check_I2.iter_mut().zip(line.iter())
+            .for_each(
+                |(res, from)|
+                *res += from * prob
+            );
+    }
+
+    let mut buf = create_buf_with_command_and_version("CheckI2.dat");
+    for (i, I2) in check_I2.iter().enumerate(){
+        let x = i as f64 * bin_size;
+        writeln!(
+            buf,
+            "{x} {I2}"
+        ).unwrap();
+    }
+
 }
 
 #[allow(non_snake_case)]
