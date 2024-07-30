@@ -1,13 +1,13 @@
-use std::num::NonZeroUsize;
+use std::{io::BufReader, num::NonZeroUsize, time::Duration};
 use indicatif::ProgressIterator;
 use itertools::*;
 use serde::{Serialize, Deserialize};
 use derivative::Derivative;
 use std::io::Write;
-use crate::{create_buf, create_buf_with_command_and_version_and_header};
+use crate::{create_buf, create_buf_with_command_and_version, create_buf_with_command_and_version_and_header};
 
 
-#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
+#[derive(Debug, Clone, Derivative, Serialize, Deserialize, PartialEq)]
 #[derivative(Default)]
     
 pub struct ModelInput{
@@ -21,39 +21,98 @@ pub struct ModelInput{
 }
 
 #[allow(non_snake_case)]
-pub fn line_test(input: &ModelInput)
+#[derive(Serialize, Deserialize)]
+pub struct SaveState{
+    input: ModelInput,
+    pk_N2_given_pre_I_N1: Vec<ProbabilityDensity>,
+    I_N1: Vec<f64>,
+    I1_given_pre_I1: Vec<Vec<f64>>,
+    len_of_1: usize,
+    idx_s: usize,
+    bin_size: f64
+}
+
+impl SaveState{
+    pub fn try_read(name: &str) -> Option<Self>
+    {
+        let reader = fs_err::File::open(name).ok()?;
+        let buf_reader = BufReader::new(reader);
+
+        bincode::deserialize_from(buf_reader).ok()
+    }
+}
+
+#[allow(non_snake_case)]
+pub fn line_test(input: ModelInput)
 {
-    // here I count: N=0 is leaf, N=1 is first node after etc
-    let production_N0 = vec![1.0; input.precision.get()];
+    let save_name = "test.save";
 
-    let counter = 0;
-    let pk_N1 = master_ansatz_k(
-        &production_N0, 
-        input.s, 
-        1e-4, 
-        counter,
-        DebugDelta{left: None, right: None}
-    );
-    let stub = format!("_PK{counter}");
-    pk_N1.write_files(&stub);
+    let mut save_state_opt = SaveState::try_read(save_name);
+
+    if let Some(save_state) = save_state_opt.as_ref(){
+        if !save_state.input.eq(&input){
+            save_state_opt = None;
+            println!("SAVE STATE INPUT IS MISMATCHED!");
+            std::thread::sleep(Duration::from_secs(5));
+        }
+    }
+
+    let save_state = match save_state_opt{
+        None => {
+            // here I count: N=0 is leaf, N=1 is first node after etc
+            let production_N0 = vec![1.0; input.precision.get()];
+
+            let counter = 0;
+            let pk_N1 = master_ansatz_k(
+                &production_N0, 
+                input.s, 
+                1e-4, 
+                counter,
+                DebugDelta{left: None, right: None}
+            );
+            let stub = format!("_PK{counter}");
+            pk_N1.write_files(&stub);
+
+            let production_N1 = calc_I(&pk_N1, &production_N0, counter); 
+
+            let P_I_N1_given_prior_I_N1 = master_ansatz_i_test(&pk_N1, &production_N0, &production_N1);
+
+            let (pk_N2_given_I_N1, pk_N2) = calk_k_master_test(
+                &pk_N1,
+                &P_I_N1_given_prior_I_N1,
+                &production_N1
+            );
+
+            let save_state = SaveState{
+                input,
+                pk_N2_given_pre_I_N1: pk_N2_given_I_N1,
+                I_N1: production_N1,
+                I1_given_pre_I1: P_I_N1_given_prior_I_N1,
+                len_of_1: pk_N1.len_of_1,
+                bin_size: pk_N1.bin_size,
+                idx_s: pk_N1.index_s
+            };
+            let buf = create_buf(save_name);
+            bincode::serialize_into(buf, &save_state)
+                .expect("Serialization Issue");
+            println!("SAVED");
+            std::thread::sleep(Duration::from_secs(5));
+            save_state
+        },
+        Some(save_state) => {
+            save_state
+        }
+    };
     
-    let production_N1 = calc_I(&pk_N1, &production_N0, counter); 
-
-    let P_I_N1_given_prior_I_N1 = master_ansatz_i_test(&pk_N1, &production_N0, &production_N1);
-
-    let (pk_N2_given_I_N1, pk_N2) = calk_k_master_test(
-        &pk_N1,
-        &P_I_N1_given_prior_I_N1,
-        &production_N1
-    );
 
     calc_next_test(
-        &pk_N2_given_I_N1, 
-        &production_N1,
-        &P_I_N1_given_prior_I_N1,
-        pk_N1.len_of_1,
-        pk_N1.index_s,
-        pk_N1.bin_size
+        &save_state.pk_N2_given_pre_I_N1, 
+        &save_state.I_N1,
+        &save_state.I1_given_pre_I1,
+        save_state.len_of_1,
+        save_state.idx_s,
+        save_state.bin_size,
+        save_state.input.s
     );
 
     // OLD:
@@ -137,6 +196,7 @@ pub struct DebugDelta{
     right: Option<f64>
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct ProbabilityDensity{
     pub func: Vec<f64>,
     pub delta: (f64, f64)
@@ -165,6 +225,30 @@ impl ProbabilityDensity{
         self.func.iter_mut()
             .for_each(|val| *val = 0.0);
     }
+
+    pub fn write(&self, stub: &str, bin_size: f64, s: f64)
+    {
+        let name_func = format!("{stub}_func.dat");
+        let mut buf = create_buf_with_command_and_version(name_func);
+
+        for (i, val) in self.func.iter().enumerate() {
+            let x = i as f64 * bin_size;
+            writeln!(
+                buf,
+                "{x} {val}"
+            ).unwrap();
+        }
+
+        let name = format!("{stub}_delta.dat");
+        let mut buf = create_buf_with_command_and_version(name);
+        writeln!(
+            buf,
+            "0 {}\n{} {}",
+            self.delta.0,
+            s,
+            self.delta.1
+        ).unwrap();
+    }
 }
 
 #[allow(non_snake_case)]
@@ -174,7 +258,8 @@ fn calc_next_test(
     I1_given_pre_I1: &[Vec<f64>],
     len_of_1: usize,
     idx_s: usize,
-    bin_size: f64
+    bin_size: f64,
+    s: f64
 )
 {
     let mut I1_given_I2  = vec![vec![0.0; I_N1.len()]; I_N1.len()];
@@ -185,7 +270,7 @@ fn calc_next_test(
 
     let recip_len1 = (len_of_1 as f64).recip();
 
-    for (idx_pre_I1, I1_given_preI1_prob_vec) in I1_given_pre_I1.iter().enumerate(){
+    for (idx_pre_I1, I1_given_preI1_prob_vec) in I1_given_pre_I1.iter().enumerate().progress(){
         // previous production of node below was `idx_pre_I1`
         let prob_level1 = I_N1[idx_pre_I1];
         for (this_I1, prob_this_I1) in I1_given_preI1_prob_vec.iter().enumerate(){
@@ -269,6 +354,31 @@ fn calc_next_test(
 
         }
     }
+
+    // normalization of pk
+    for density in pk_given_preI2.iter_mut(){
+        let sum: f64 = density.func.iter().sum();
+        let total = sum * bin_size + density.delta.0 + density.delta.1;
+        let factor = total.recip();
+        density.delta.0 *= factor;
+        density.delta.1 *= factor;
+        density.func.iter_mut()
+            .for_each(
+                |val| *val *= factor
+            );
+    }
+
+    // normalization of I 
+    for I1_line in I1_given_I2.iter_mut(){
+        let sum: f64 = I1_line.iter().sum();
+        let factor = sum.recip();
+        I1_line.iter_mut()
+            .for_each(
+                |val| *val *= factor
+            );
+    }
+
+    pk_given_preI2[0].write("N3_test", bin_size, s);
 
     // now I should check if the previous calculation makes sense
 }
