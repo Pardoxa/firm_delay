@@ -25,8 +25,6 @@ pub fn line_test(input: &ModelInput)
 {
     // here I count: N=0 is leaf, N=1 is first node after etc
     let production_N0 = vec![1.0; input.precision.get()];
-    // uniform is I_-1
-    // now one up
 
     let counter = 0;
     let pk_N1 = master_ansatz_k(
@@ -51,7 +49,11 @@ pub fn line_test(input: &ModelInput)
 
     calc_next_test(
         &pk_N2_given_I_N1, 
-        &production_N1
+        &production_N1,
+        &P_I_N1_given_prior_I_N1,
+        pk_N1.len_of_1,
+        pk_N1.index_s,
+        pk_N1.bin_size
     );
 
     // OLD:
@@ -167,18 +169,108 @@ impl ProbabilityDensity{
 
 #[allow(non_snake_case)]
 fn calc_next_test(
-    Pk_given_Ij: &[ProbabilityDensity],
-    density_j: &[f64]
+    pk_N2_given_pre_I_N1: &[ProbabilityDensity],
+    I_N1: &[f64],
+    I1_given_pre_I1: &[Vec<f64>],
+    len_of_1: usize,
+    idx_s: usize,
+    bin_size: f64
 )
 {
-    // I want Ij given k_ij(t-1)
-    let mut delta_left = vec![0.0; Pk_given_Ij.len()];
-    let mut delta_right = delta_left.clone();
+    let mut I1_given_I2  = vec![vec![0.0; I_N1.len()]; I_N1.len()];
+    let mut pk_given_preI2 = (0..I_N1.len())
+        .map(
+            |_| ProbabilityDensity::new_zeroed(pk_N2_given_pre_I_N1[0].func.len())
+        ).collect_vec();
 
-    for (density, delta_left_entry) in Pk_given_Ij.iter().zip(delta_left.iter_mut())
-    {
-        
+    let recip_len1 = (len_of_1 as f64).recip();
+
+    for (idx_pre_I1, I1_given_preI1_prob_vec) in I1_given_pre_I1.iter().enumerate(){
+        // previous production of node below was `idx_pre_I1`
+        let prob_level1 = I_N1[idx_pre_I1];
+        for (this_I1, prob_this_I1) in I1_given_preI1_prob_vec.iter().enumerate(){
+            let prob_level2 = prob_level1 * prob_this_I1;
+
+            let k_density = &pk_N2_given_pre_I_N1[idx_pre_I1];
+            for (k_idx, k_prob) in k_density.func.iter().enumerate(){
+                let level_3_prob = prob_level2 * k_prob;
+                let level_4_prob = level_3_prob * recip_len1; // this is the relevant increment, maybe I need to multiply with binsize or so
+                let Ik = this_I1 + k_idx;
+                for m in 0..len_of_1{
+                    let this_I2 = Ik.min(m); // Optimization possible
+
+                    I1_given_I2[this_I2][this_I1] += level_4_prob;
+
+                    let inc_density = &mut pk_given_preI2[this_I2];
+                    if m > Ik {
+                        // delta left 
+                        inc_density.delta.0 += level_4_prob;
+                        continue;
+                    }
+                    let this_idx = Ik - m;
+                    if this_idx > idx_s {
+                        // delta right
+                        inc_density.delta.1 += level_4_prob;
+                    } else {
+                        // func
+                        inc_density.func[this_idx] += level_4_prob;
+                    }
+                }
+            }
+            // delta left 
+            let delta_left = k_density.delta.0;
+            let level_3_prob = prob_level2 * delta_left / bin_size; // Check if bin_size is correct here
+            let level_4_prob = level_3_prob * recip_len1;
+            let Ik = this_I1; // k_idx is 0
+            for m in 0..len_of_1{
+                let this_I2 = Ik.min(m);
+                I1_given_I2[this_I2][this_I1] += level_4_prob;
+
+                let inc_density = &mut pk_given_preI2[this_I2];
+                if m > Ik {
+                    // delta left 
+                    inc_density.delta.0 += level_4_prob;
+                    continue;
+                }
+                let this_idx = Ik - m;
+                if this_idx > idx_s {
+                    // delta right
+                    inc_density.delta.1 += level_4_prob;
+                } else {
+                    // func
+                    inc_density.func[this_idx] += level_4_prob;
+                }
+            }
+
+            // delta right 
+            let delta_right = k_density.delta.1;
+            let level_3_prob = prob_level2 * delta_right / bin_size; // Check if bin_size is correct here
+            let level_4_prob = level_3_prob * recip_len1;
+            let Ik = this_I1 + idx_s;
+            for m in 0..len_of_1{
+                let this_I2 = Ik.min(m);
+                I1_given_I2[this_I2][this_I1] += level_4_prob;
+
+                let inc_density = &mut pk_given_preI2[this_I2];
+                if m > Ik {
+                    // delta left 
+                    inc_density.delta.0 += level_4_prob;
+                    continue;
+                }
+                let this_idx = Ik - m;
+                if this_idx > idx_s {
+                    // delta right
+                    inc_density.delta.1 += level_4_prob;
+                } else {
+                    // func
+                    inc_density.func[this_idx] += level_4_prob;
+                }
+            }
+
+        }
     }
+
+    // now I should check if the previous calculation makes sense
 }
 
 #[allow(non_snake_case)]
