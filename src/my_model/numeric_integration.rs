@@ -218,6 +218,11 @@ impl ProbabilityDensity{
         Self { func, delta }
     }
 
+    pub fn create_zeroed(&self) -> Self{
+        let len = self.func.len();
+        Self::new_zeroed(len)
+    }
+
     pub fn make_zero(&mut self)
     {
         self.delta.0 = 0.0;
@@ -262,11 +267,12 @@ fn calc_next_test(
     s: f64
 )
 {
+    // Irgendwo ist noch ein off by 1 error der zu einem fehler bei index_s führt, suche ich sobald der Rest läuft
     let mut probability_I2 = vec![0.0; I_N1.len()];
     let mut I1_given_I2  = vec![vec![0.0; I_N1.len()]; I_N1.len()];
     let mut pk_given_preI2 = (0..I_N1.len())
         .map(
-            |_| ProbabilityDensity::new_zeroed(pk_N2_given_pre_I_N1[0].func.len())
+            |_| pk_N2_given_pre_I_N1[0].create_zeroed()
         ).collect_vec();
 
     let recip_len1 = (len_of_1 as f64).recip();
@@ -381,6 +387,7 @@ fn calc_next_test(
             );
     }
 
+    // I think this is not N3 but N2, but whatever, for debugging this is ok
     pk_given_preI2[0].write("N3_test", bin_size, s);
 
     let name = "N3_I_test.dat";
@@ -393,6 +400,18 @@ fn calc_next_test(
             "{x} {prob}"
         ).unwrap();
     }
+
+    let mut pk_res = pk_N2_given_pre_I_N1[0].create_zeroed();
+    for (prob_I2, k_density) in probability_I2.iter().zip(pk_given_preI2.iter())
+    {
+        for (res, from) in pk_res.func.iter_mut().zip(k_density.func.iter()){
+            *res += from * prob_I2;
+        }
+        pk_res.delta.0 += prob_I2 * k_density.delta.0;
+        pk_res.delta.1 += prob_I2 * k_density.delta.1;
+    }
+
+    pk_res.write("N3_pk_test", bin_size, s);
 
     // now I should check if the previous calculation makes sense
 }
