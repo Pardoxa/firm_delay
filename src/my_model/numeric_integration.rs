@@ -23,29 +23,35 @@ pub struct ModelInput{
 #[allow(non_snake_case)]
 pub fn line_test(input: &ModelInput)
 {
-    let uniform = vec![1.0; input.precision.get()];
+    // here I count: N=0 is leaf, N=1 is first node after etc
+    let production_N0 = vec![1.0; input.precision.get()];
     // uniform is I_-1
     // now one up
 
     let counter = 0;
-    let pk = master_ansatz_k(
-        &uniform, 
+    let pk_N1 = master_ansatz_k(
+        &production_N0, 
         input.s, 
         1e-4, 
         counter,
         DebugDelta{left: None, right: None}
     );
     let stub = format!("_PK{counter}");
-    pk.write_files(&stub);
+    pk_N1.write_files(&stub);
     
-    let after_i = calc_I(&pk, &uniform, counter); 
+    let production_N1 = calc_I(&pk_N1, &production_N0, counter); 
 
-    let P_I_given_prior_I = master_ansatz_i_test(&pk, &uniform, &after_i);
+    let P_I_N1_given_prior_I_N1 = master_ansatz_i_test(&pk_N1, &production_N0, &production_N1);
 
-    calk_k_master_test(
-        &pk,
-        &P_I_given_prior_I,
-        &after_i
+    let (pk_N2_given_I_N1, pk_N2) = calk_k_master_test(
+        &pk_N1,
+        &P_I_N1_given_prior_I_N1,
+        &production_N1
+    );
+
+    calc_next_test(
+        &pk_N2_given_I_N1, 
+        &production_N1
     );
 
     // OLD:
@@ -160,11 +166,28 @@ impl ProbabilityDensity{
 }
 
 #[allow(non_snake_case)]
+fn calc_next_test(
+    Pk_given_Ij: &[ProbabilityDensity],
+    density_j: &[f64]
+)
+{
+    // I want Ij given k_ij(t-1)
+    let mut delta_left = vec![0.0; Pk_given_Ij.len()];
+    let mut delta_right = delta_left.clone();
+
+    for (density, delta_left_entry) in Pk_given_Ij.iter().zip(delta_left.iter_mut())
+    {
+        
+    }
+}
+
+#[allow(non_snake_case)]
 fn calk_k_master_test(
     prior_pk: &Pk,
     input_P_I_given_prior_I: &[Vec<f64>],
     prior_I_for_normalization: &[f64]
-){
+) -> (Vec<ProbabilityDensity>, ProbabilityDensity)
+{
     let mut current_estimate_given_prior_I = (0..input_P_I_given_prior_I.len())
         .map(|_| ProbabilityDensity::new(prior_pk.function.len(), prior_pk.bin_size))
         .collect_vec();
@@ -335,6 +358,7 @@ fn calk_k_master_test(
             .for_each(ProbabilityDensity::make_zero);
     }
     
+    (current_estimate_given_prior_I, resulting_density)
 
 }
 
