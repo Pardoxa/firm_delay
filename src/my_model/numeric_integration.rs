@@ -66,7 +66,7 @@ pub fn line_test(input: ModelInput)
             let pk_N1 = master_ansatz_k(
                 &production_N0, 
                 input.s, 
-                1e-4, 
+                1e-6, 
                 counter,
                 DebugDelta{left: None, right: None}
             );
@@ -82,6 +82,8 @@ pub fn line_test(input: ModelInput)
                 &P_I_N1_given_prior_I_N1,
                 &production_N1
             );
+
+            pk_N2.write("pk_N2_res", pk_N1.bin_size, input.s);
 
             let save_state = SaveState{
                 input,
@@ -411,6 +413,14 @@ fn calc_next_test(
         pk_res.delta.1 += prob_I2 * k_density.delta.1;
     }
 
+    pk_res.delta.0 *= bin_size;
+    pk_res.delta.1 *= bin_size;
+    pk_res.func
+        .iter_mut()
+        .for_each(
+            |val| *val *= bin_size
+        );
+
     pk_res.write("N3_pk_test", bin_size, s);
 
     // now I should check if the previous calculation makes sense
@@ -438,7 +448,8 @@ fn calk_k_master_test(
 
     let mut resulting_density = ProbabilityDensity::new_zeroed(prior_pk.function.len());
     let m_factor = (len_of_1 as f64).recip();
-    for counter in 0..20{
+    let mut counter = 0;
+    loop {
         for (prior_I_idx, current_Ij_distribution) in input_P_I_given_prior_I.iter().enumerate().progress(){
             let current_k = &current_estimate_given_prior_I[prior_I_idx];
             let prior_I_prob = prior_I_for_normalization[prior_I_idx];
@@ -559,7 +570,7 @@ fn calk_k_master_test(
             resulting_density.delta.1
         ).unwrap();
 
-        resulting_density.make_zero();
+
     
         for i in (0..prior_I_for_normalization.len()).step_by(100)
         {
@@ -588,9 +599,17 @@ fn calk_k_master_test(
         }
 
         std::mem::swap(&mut next_estimate_given_prior_I, &mut current_estimate_given_prior_I);
+        if counter == 20 {
+            break;
+        }
         next_estimate_given_prior_I
             .iter_mut()
             .for_each(ProbabilityDensity::make_zero);
+        resulting_density.make_zero();
+        counter += 1;
+
+
+
     }
     
     (current_estimate_given_prior_I, resulting_density)
