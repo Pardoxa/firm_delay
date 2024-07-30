@@ -262,6 +262,7 @@ fn calc_next_test(
     s: f64
 )
 {
+    let mut probability_I2 = vec![0.0; I_N1.len()];
     let mut I1_given_I2  = vec![vec![0.0; I_N1.len()]; I_N1.len()];
     let mut pk_given_preI2 = (0..I_N1.len())
         .map(
@@ -272,7 +273,7 @@ fn calc_next_test(
 
     for (idx_pre_I1, I1_given_preI1_prob_vec) in I1_given_pre_I1.iter().enumerate().progress(){
         // previous production of node below was `idx_pre_I1`
-        let prob_level1 = I_N1[idx_pre_I1];
+        let prob_level1 = I_N1[idx_pre_I1] * bin_size;
         for (this_I1, prob_this_I1) in I1_given_preI1_prob_vec.iter().enumerate(){
             let prob_level2 = prob_level1 * prob_this_I1;
 
@@ -283,7 +284,7 @@ fn calc_next_test(
                 let Ik = this_I1 + k_idx;
                 for m in 0..len_of_1{
                     let this_I2 = Ik.min(m); // Optimization possible
-
+                    probability_I2[this_I2] += level_4_prob;
                     I1_given_I2[this_I2][this_I1] += level_4_prob;
 
                     let inc_density = &mut pk_given_preI2[this_I2];
@@ -309,6 +310,7 @@ fn calc_next_test(
             let Ik = this_I1; // k_idx is 0
             for m in 0..len_of_1{
                 let this_I2 = Ik.min(m);
+                probability_I2[this_I2] += level_4_prob;
                 I1_given_I2[this_I2][this_I1] += level_4_prob;
 
                 let inc_density = &mut pk_given_preI2[this_I2];
@@ -334,6 +336,7 @@ fn calc_next_test(
             let Ik = this_I1 + idx_s;
             for m in 0..len_of_1{
                 let this_I2 = Ik.min(m);
+                probability_I2[this_I2] += level_4_prob;
                 I1_given_I2[this_I2][this_I1] += level_4_prob;
 
                 let inc_density = &mut pk_given_preI2[this_I2];
@@ -379,6 +382,17 @@ fn calc_next_test(
     }
 
     pk_given_preI2[0].write("N3_test", bin_size, s);
+
+    let name = "N3_I_test.dat";
+    let mut buf = create_buf_with_command_and_version(name);
+    for (i, prob) in probability_I2.iter().enumerate()
+    {
+        let x = i as f64 * bin_size;
+        writeln!(
+            buf,
+            "{x} {prob}"
+        ).unwrap();
+    }
 
     // now I should check if the previous calculation makes sense
 }
