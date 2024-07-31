@@ -605,20 +605,13 @@ fn calc_next_test(
     }
 
     // normalization
-    for line in I2_given_prev_I2.iter_mut()
-    {
-        let sum: f64 = line.iter().sum();
-        let recip = sum.recip();
-        line.iter_mut()
-            .for_each(
-                |val| *val *= recip
-            );
-    }
+    normalize_prob_matrix(&mut I2_given_prev_I2, bin_size);
 
     // now to check if it works correctly
     let mut check_I2 = vec![0.0; len_of_1];
-    for (line, prob) in I2_given_prev_I2.iter().zip(probability_I2.iter())
+    for (line, prob_density) in I2_given_prev_I2.iter().zip(probability_I2.iter())
     {
+        let prob = prob_density * bin_size;
         check_I2.iter_mut().zip(line.iter())
             .for_each(
                 |(res, from)|
