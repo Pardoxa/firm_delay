@@ -4,7 +4,7 @@ use itertools::*;
 use serde::{Serialize, Deserialize};
 use derivative::Derivative;
 use std::io::Write;
-use crate::{create_buf, create_buf_with_command_and_version, create_buf_with_command_and_version_and_header};
+use crate::misc::*;
 
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize, PartialEq)]
@@ -686,24 +686,36 @@ fn calc_next_test(
             let level_2_density = level_1_density * recip_len1;
             let k_density_t0 = &k_probs[I_i_t0_idx][I_j_t0_idx];
             let I_j_t1 = I1_given_pre_I1[I_j_t0_idx].as_slice();
-            for m in 0..len_of_1{
-                for (k_t0_idx, k_t0_prob) in k_density_t0.func.iter().enumerate(){
-                    let level_3_density = level_2_density * k_t0_prob;
-                    for (I_j_t1_idx, I_t1_density) in I_j_t1.iter().enumerate(){
-                        let I_i_t1_idx = m.min(I_j_t1_idx + k_t0_idx);
+            
+            for (k_t0_idx, k_t0_prob) in k_density_t0.func.iter().enumerate(){
+                let level_3_density = level_2_density * k_t0_prob;
+                for (I_j_t1_idx, I_t1_density) in I_j_t1.iter().enumerate(){
+                    let Ij_K = (I_j_t1_idx + k_t0_idx).min(len_of_1);
+                    // m smaller
+                    for entry in Ii_given_pre_Ii_new_line[0..Ij_K].as_mut(){
                         let level_4_density = level_3_density * I_t1_density;
-                        Ii_given_pre_Ii_new_line[I_i_t1_idx] += level_4_density;
+                        *entry += level_4_density;
+                    }
+                    // m larger
+                    let remaining = (Ij_K..len_of_1).len();
+                    if remaining > 0{
+                        let level_4_density = level_3_density * I_t1_density * remaining as f64;
+                        Ii_given_pre_Ii_new_line[Ij_K] += level_4_density;
                     }
                 }
+            }
 
                 // delta left
+            for m in 0..len_of_1{
                 let level_3_density = level_2_density * k_density_t0.delta.0 / bin_size;
                 for (I_j_t1_idx, I_t1_density) in I_j_t1.iter().enumerate(){
                     let I_i_t1_idx = m.min(I_j_t1_idx); // k = 0
                     let level_4_density = level_3_density * I_t1_density;
                     Ii_given_pre_Ii_new_line[I_i_t1_idx] += level_4_density;
                 }
+            }
 
+            for m in 0..len_of_1{
                 // delta right
                 let level_3_density = level_2_density * k_density_t0.delta.1 / bin_size;
                 for (I_j_t1_idx, I_t1_density) in I_j_t1.iter().enumerate(){
