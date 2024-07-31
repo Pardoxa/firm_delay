@@ -265,6 +265,39 @@ impl ProbabilityDensity{
     }
 }
 
+// matrix needs to be square matrix
+fn reverse_prob_matrix(
+    a_given_b: &[Vec<f64>], //matrix
+    probability_b: &[f64],
+    bin_size: f64
+) -> Vec<Vec<f64>>
+{
+    let mut b_give_a = a_given_b.iter()
+        .map(|line| vec![0.0; line.len()])
+        .collect_vec();
+
+    for (b_idx, (a_line, b_prob)) in a_given_b.iter().zip(probability_b).enumerate()
+    {
+        for (a_prob, b_line) in a_line.iter().zip(b_give_a.iter_mut()){
+            b_line[b_idx] += a_prob * b_prob;
+        }
+    }
+
+    // normalization
+    b_give_a.iter_mut()
+        .for_each(
+            |line|
+            {
+                let mut sum: f64 = line.iter().sum();
+                sum *= bin_size;
+                let factor = sum.recip();
+                line.iter_mut()
+                    .for_each(|val| *val *= factor)
+            }
+        );
+    b_give_a
+}
+
 #[allow(non_snake_case)]
 fn calc_next_test(
     pk_N2_given_pre_I_N1: &[ProbabilityDensity],
@@ -276,9 +309,38 @@ fn calc_next_test(
     s: f64
 )
 {
+
+    let pre_I1_given_I1 = reverse_prob_matrix(
+        I1_given_pre_I1, 
+        I_N1, 
+        bin_size
+    );
+
+    // checking if it is correct
+    let mut pre_I1_sanity_check = vec![0.0; I_N1.len()];
+    for (line, prob_density) in pre_I1_given_I1.iter().zip(I_N1.iter())
+    {
+        let prob = prob_density * bin_size;
+        pre_I1_sanity_check.iter_mut()
+            .zip(line)
+            .for_each(
+                |(pre, line_entry)| *pre += line_entry * prob
+            )
+    }
+
+    let mut buf = create_buf_with_command_and_version("Sanity_check.dat");
+
+    for (i, sanity_val) in pre_I1_sanity_check.iter().enumerate(){
+        let x = i as f64 * bin_size;
+        writeln!(
+            buf, 
+            "{x} {sanity_val}"
+        ).unwrap();
+    }
+
     // Irgendwo ist noch ein off by 1 error der zu einem fehler bei index_s führt, suche ich sobald der Rest läuft
     let mut probability_I2 = vec![0.0; I_N1.len()];
-    let mut I1_given_I2  = vec![vec![0.0; I_N1.len()]; I_N1.len()];
+    let mut I1_given_I2  = vec![vec![0.0; I_N1.len()]; I_N1.len()]; // this is not previous I2 but this I2! I think this is my current error
     let mut pk_given_preI2 = (0..I_N1.len())
         .map(
             |_| pk_N2_given_pre_I_N1[0].create_zeroed()
