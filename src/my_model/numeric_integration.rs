@@ -458,8 +458,8 @@ fn calc_next_test(
             for (idx_I1, I1_prob) in I1_line.iter().enumerate(){
                 let level_3_prob = level_2_prob * I1_prob;
                 let level_4_prob = level_3_prob * recip_len1;
+                let Ik = idx_I1 + k_idx;
                 for m in 0..len_of_1{
-                    let Ik = idx_I1 + k_idx;
                     let I2 = m.min(Ik);
                     line[I2] += level_4_prob;
                 }
@@ -491,6 +491,17 @@ fn calc_next_test(
         }
     }
 
+    // normalization
+    for line in I2_given_prev_I2.iter_mut()
+    {
+        let sum: f64 = line.iter().sum();
+        let recip = sum.recip();
+        line.iter_mut()
+            .for_each(
+                |val| *val *= recip
+            );
+    }
+
     // now to check if it works correctly
     let mut check_I2 = vec![0.0; len_of_1];
     for (line, prob) in I2_given_prev_I2.iter().zip(probability_I2.iter())
@@ -511,6 +522,9 @@ fn calc_next_test(
         ).unwrap();
     }
 
+    let mut i2_sum: f64 = check_I2.iter().sum();
+    i2_sum *= bin_size;
+    println!("I2 sum: {i2_sum}");
 }
 
 #[allow(non_snake_case)]
