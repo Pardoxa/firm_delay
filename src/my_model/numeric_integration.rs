@@ -284,7 +284,13 @@ fn reverse_prob_matrix(
     }
 
     // normalization
-    b_give_a.iter_mut()
+    normalize_prob_matrix(&mut b_give_a, bin_size);
+    b_give_a
+}
+
+fn normalize_prob_matrix(matr: &mut [Vec<f64>], bin_size: f64)
+{
+    matr.iter_mut()
         .for_each(
             |line|
             {
@@ -295,7 +301,6 @@ fn reverse_prob_matrix(
                     .for_each(|val| *val *= factor)
             }
         );
-    b_give_a
 }
 
 #[allow(non_snake_case)]
@@ -466,6 +471,47 @@ fn calc_next_test(
         ).unwrap();
     }
 
+    let mut I1_given_pre_I2 = I1_given_I2.iter()
+        .map(|line| vec![0.0; line.len()])
+        .collect_vec();
+
+    for (i1_given_pre_i2_line, i1_given_i2_line) in I1_given_pre_I2.iter_mut().zip(I1_given_I2.iter())
+    {
+        for (&i1_given_i2_prob, i1_given_pre_i1_line) in i1_given_i2_line.iter().zip(I1_given_pre_I1){
+            // now I need to calculate the next i1, I think
+            for (next_I1_prob, i1_given_pre_i2_entry) in i1_given_pre_i1_line.iter().zip(i1_given_pre_i2_line.iter_mut())
+            {
+                let prob = i1_given_i2_prob * next_I1_prob;
+                *i1_given_pre_i2_entry += prob;
+            }
+        }
+    }
+    // normalization
+    normalize_prob_matrix(&mut I1_given_pre_I2, bin_size);
+
+    let mut sanity_2 = vec![0.0; I1_given_I2.len()];
+
+    for (i1_given_pre_i2_line, i2_prob) in I1_given_pre_I2.iter().zip(probability_I2.iter())
+    {
+        let factor = i2_prob * bin_size;
+        sanity_2.iter_mut()
+            .zip(i1_given_pre_i2_line)
+            .for_each(
+                |(res, val)|
+                *res += val * factor
+            );
+    }
+
+    let mut buf = create_buf_with_command_and_version("sanity_2.dat");
+    for (i, val) in sanity_2.iter().enumerate()
+    {
+        let x = i as f64 * bin_size;
+        writeln!(
+            buf,
+            "{x} {val}"
+        ).unwrap();
+    }
+
     let name = "N3_I_test.dat";
     let mut buf = create_buf_with_command_and_version(name);
     for (i, prob) in probability_I2.iter().enumerate()
@@ -518,7 +564,7 @@ fn calc_next_test(
     // This calculates the quantity for which I am doing all this BS
     for (prev_I2, (line, prev_I2_prob)) in I2_given_prev_I2.iter_mut().zip(probability_I2.iter()).enumerate().progress(){
         let k_density = &pk_given_preI2[prev_I2];
-        let I1_line = I1_given_I2[prev_I2].as_slice();
+        let I1_line = I1_given_pre_I2[prev_I2].as_slice();
         let level_1_prob = prev_I2_prob;
         for (k_idx, k_prob) in k_density.func.iter().enumerate(){
             let level_2_prob = level_1_prob * k_prob * bin_size;
