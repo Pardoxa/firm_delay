@@ -205,6 +205,13 @@ pub struct ProbabilityDensity{
 }
 
 impl ProbabilityDensity{
+
+    pub fn integral(&self, bin_size: f64) -> f64
+    {
+        let sum: f64 = self.func.iter().sum();
+        sum * bin_size + self.delta.0 + self.delta.1
+    }
+
     pub fn new(len: usize, bin_size: f64) -> Self 
     {
         let delta = (0.4, 0.4);
@@ -366,19 +373,7 @@ fn calc_next_test(
         }
     }
 
-    // normalization of pk
-    for density in pk_given_preI2.iter_mut(){
-        let sum: f64 = density.func.iter().sum();
-        let total = sum + density.delta.0 + density.delta.1;
-        let mut factor = total.recip();
-        density.delta.0 *= factor;
-        density.delta.1 *= factor;
-        factor /= bin_size;
-        density.func.iter_mut()
-            .for_each(
-                |val| *val *= factor
-            );
-    }
+
 
     // normalization of I 
     for I1_line in I1_given_I2.iter_mut(){
@@ -409,9 +404,6 @@ fn calc_next_test(
         ).unwrap();
     }
 
-    // I think this is not N3 but N2, but whatever, for debugging this is ok
-    pk_given_preI2[0].write("N3_test", bin_size, s);
-
     let name = "N3_I_test.dat";
     let mut buf = create_buf_with_command_and_version(name);
     for (i, prob) in probability_I2.iter().enumerate()
@@ -421,6 +413,19 @@ fn calc_next_test(
             buf,
             "{x} {prob}"
         ).unwrap();
+    }
+
+    // normalization of pk
+    for density in pk_given_preI2.iter_mut(){
+        density.delta.0 *= bin_size;
+        density.delta.1 *= bin_size;
+        let factor = density.integral(bin_size).recip();
+        density.delta.0 *= factor;
+        density.delta.1 *= factor;
+        density.func.iter_mut()
+            .for_each(
+                |val| *val *= factor
+            );
     }
 
     let mut pk_res = pk_N2_given_pre_I_N1[0].create_zeroed();
