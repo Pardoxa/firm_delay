@@ -638,7 +638,7 @@ fn calc_next_test(
     i2_sum *= bin_size;
     println!("I2 sum: {i2_sum}");
 
-    let I2_given_I1 = reverse_prob_matrix(&I1_given_I2, &probability_I2, bin_size);
+    //let I2_given_I1 = reverse_prob_matrix(&I1_given_I2, &probability_I2, bin_size);
 
     let mut I2_given_I2 = vec![vec![0.0; len_of_1]; len_of_1];
     let mut I2_given_prev_I1_test = vec![vec![0.0; len_of_1]; len_of_1];
@@ -646,7 +646,7 @@ fn calc_next_test(
     println!("HERE");
     for (Ij_t0_idx, k_density) in pk_N2_given_pre_I_N1.iter().enumerate().progress(){
         let Ij_t1_density = I1_given_pre_I1[Ij_t0_idx].as_slice();
-        let I2_given_I1_density = I2_given_I1[Ij_t0_idx].as_slice();
+        //let I2_given_I1_density = I2_given_I1[Ij_t0_idx].as_slice();
         let I2_given_pre_I1_line = I2_given_prev_I1_test[Ij_t0_idx].as_mut_slice();
         for (k_idx, k_prob) in k_density.func.iter().enumerate(){
             let level_1_density = k_prob * recip_len1;
@@ -669,7 +669,7 @@ fn calc_next_test(
                         I2_given_I2_line[IjK] += level_2_density * Ii_t0_prob;
                     }
                     */
-                    I2_given_pre_I1_line[IjK] += level_2_density;
+                    I2_given_pre_I1_line[IjK] += level_2_density * remaining as f64;
                 }
             }
         }
