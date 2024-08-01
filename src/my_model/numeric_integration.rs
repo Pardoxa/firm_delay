@@ -638,121 +638,76 @@ fn calc_next_test(
     i2_sum *= bin_size;
     println!("I2 sum: {i2_sum}");
 
-    // here I calculate the probability density of k given I1 and I2
-    let mut k_probs = (0..len_of_1)
-        .map(
-            |_|
-            (0..len_of_1)
-                .map(|_| pk_res.create_zeroed())
-                .collect_vec()
-        ).collect_vec();
+    let I2_given_I1 = reverse_prob_matrix(&I1_given_I2, &probability_I2, bin_size);
 
-    for (Ii, line) in k_probs.iter_mut().enumerate().progress(){
-        for (Ij, entry) in line.iter_mut().enumerate()
-        {
-            for (k_idx, k_prob) in pk_res.func.iter().enumerate(){
-                let prob_density_to_be_here = k_prob;
-                let IjK = Ij + k_idx;
-                if IjK < Ii  {
-                    // maybe this gives delta left?
-                    // Otherwise it is physically impossible and may need to be skipped?
-                    entry.delta.0 += prob_density_to_be_here * bin_size;
-                    continue;
+    let mut I2_given_I2 = vec![vec![0.0; len_of_1]; len_of_1];
+
+    println!("HERE");
+    for (Ij_t0_idx, k_density) in pk_N2_given_pre_I_N1.iter().enumerate().progress(){
+        let Ij_t1_density = I1_given_pre_I1[Ij_t0_idx].as_slice();
+        let I2_given_I1_density = I2_given_I1[Ij_t0_idx].as_slice();
+        for (k_idx, k_prob) in k_density.func.iter().enumerate(){
+            let level_1_density = k_prob * recip_len1;
+            for (Ij_t1_idx, Ij_t1_prob) in Ij_t1_density.iter().enumerate(){
+                let level_2_density = level_1_density * Ij_t1_prob;
+                let IjK = Ij_t1_idx + k_idx;
+                for m in 0..len_of_1{ // can be optimized
+                    let Ii_t1 = IjK.min(m);
+                    for (Ii_t0_prob, I2_given_I2_line) in I2_given_I1_density.iter().zip(I2_given_I2.iter_mut()){
+                        I2_given_I2_line[Ii_t1] += level_2_density * Ii_t0_prob;
+                    }
                 }
-                let new_k = IjK - Ii;
-                if new_k > idx_s {
-                    // delta right
-                    entry.delta.1 += prob_density_to_be_here * bin_size;
-                } else {
-                    entry.func[new_k] += prob_density_to_be_here;
+            }
+        }
+
+        // delta left
+        let level_1_density = k_density.delta.0 * recip_len1 / bin_size; // I think this is correct, maybe look at bin_size again if the result is strange
+        for (Ij_t1_idx, Ij_t1_prob) in Ij_t1_density.iter().enumerate(){
+            let level_2_density = level_1_density * Ij_t1_prob;
+            let IjK = Ij_t1_idx; // k = 0
+            for m in 0..len_of_1{ // can be optimized
+                let Ii_t1 = IjK.min(m);
+                for (Ii_t0_prob, I2_given_I2_line) in I2_given_I1_density.iter().zip(I2_given_I2.iter_mut()){
+                    I2_given_I2_line[Ii_t1] += level_2_density * Ii_t0_prob;
+                }
+            }
+        }
+
+        // delta right
+        let level_1_density = k_density.delta.1 * recip_len1 / bin_size;
+        for (Ij_t1_idx, Ij_t1_prob) in Ij_t1_density.iter().enumerate(){
+            let level_2_density = level_1_density * Ij_t1_prob;
+            let IjK = Ij_t1_idx + idx_s; // k = s
+            for m in 0..len_of_1{ // can be optimized
+                let Ii_t1 = IjK.min(m);
+                for (Ii_t0_prob, I2_given_I2_line) in I2_given_I1_density.iter().zip(I2_given_I2.iter_mut()){
+                    I2_given_I2_line[Ii_t1] += level_2_density * Ii_t0_prob;
                 }
             }
         }
     }
-    // I hope this is now normalized correctly and there is no mistake with the deltas
-    k_probs.iter_mut()
-        .for_each(
-            |line|
-                line.iter_mut()
-                    .for_each(|p| p.normalize(bin_size))
-        );
 
-    /// TODO: CHECK IF k_probs is correct!
+    normalize_prob_matrix(&mut I2_given_I2, bin_size);
 
-    let mut Ii_given_pre_Ii_new = vec![vec![0.0; len_of_1]; len_of_1];
-
-    for (I_i_t0_idx, I_i_t0_density) in check_I2.iter().enumerate().progress(){
-        let I_j_t0 = I1_given_I2[I_i_t0_idx].as_slice();
-        let Ii_given_pre_Ii_new_line = &mut Ii_given_pre_Ii_new[I_i_t0_idx];
-        for (I_j_t0_idx, I_j_t0_density) in I_j_t0.iter().enumerate(){
-            let level_1_density = I_i_t0_density * I_j_t0_density;
-            let level_2_density = level_1_density * recip_len1;
-            let k_density_t0 = &k_probs[I_i_t0_idx][I_j_t0_idx];
-            let I_j_t1 = I1_given_pre_I1[I_j_t0_idx].as_slice();
-            
-            for (k_t0_idx, k_t0_prob) in k_density_t0.func.iter().enumerate(){
-                let level_3_density = level_2_density * k_t0_prob;
-                for (I_j_t1_idx, I_t1_density) in I_j_t1.iter().enumerate(){
-                    let Ij_K = (I_j_t1_idx + k_t0_idx).min(len_of_1);
-                    // m smaller
-                    for entry in Ii_given_pre_Ii_new_line[0..Ij_K].as_mut(){
-                        let level_4_density = level_3_density * I_t1_density;
-                        *entry += level_4_density;
-                    }
-                    // m larger
-                    let remaining = (Ij_K..len_of_1).len();
-                    if remaining > 0{
-                        let level_4_density = level_3_density * I_t1_density * remaining as f64;
-                        Ii_given_pre_Ii_new_line[Ij_K] += level_4_density;
-                    }
-                }
-            }
-
-                // delta left
-            for m in 0..len_of_1{
-                let level_3_density = level_2_density * k_density_t0.delta.0 / bin_size;
-                for (I_j_t1_idx, I_t1_density) in I_j_t1.iter().enumerate(){
-                    let I_i_t1_idx = m.min(I_j_t1_idx); // k = 0
-                    let level_4_density = level_3_density * I_t1_density;
-                    Ii_given_pre_Ii_new_line[I_i_t1_idx] += level_4_density;
-                }
-            }
-
-            for m in 0..len_of_1{
-                // delta right
-                let level_3_density = level_2_density * k_density_t0.delta.1 / bin_size;
-                for (I_j_t1_idx, I_t1_density) in I_j_t1.iter().enumerate(){
-                    let I_i_t1_idx = m.min(I_j_t1_idx + idx_s); // k = s
-                    let level_4_density = level_3_density * I_t1_density;
-                    Ii_given_pre_Ii_new_line[I_i_t1_idx] += level_4_density;
-                }
-
-            }
-        }
-    }
-
-    normalize_prob_matrix(&mut Ii_given_pre_Ii_new, bin_size);
-
-    let mut sanity_check_3 = vec![0.0; len_of_1];
-
-    for (Ii_given_prev_Ii_line, prev_Ii_density) in Ii_given_pre_Ii_new.iter().zip(probability_I2){
-        let prob = prev_Ii_density * bin_size;
-        sanity_check_3.iter_mut()
-            .zip(Ii_given_prev_Ii_line)
+    let mut sanity_4 = vec![0.0; len_of_1];
+    for (density, I2_prob) in I2_given_I2.iter().zip(probability_I2.iter()){
+        sanity_4.iter_mut()
+            .zip(density.iter())
             .for_each(
-                |(sanity, val)|
-                *sanity += val * prob
+                |(r,v)|
+                *r += v * I2_prob
             );
     }
 
-    let mut buf = create_buf_with_command_and_version("sanity3.dat");
-    for (i, val) in sanity_check_3.iter().enumerate(){
+    let mut buf = create_buf_with_command_and_version("sanity_4.dat");
+    for (i, val) in sanity_4.iter().enumerate(){
         let x = i as f64 * bin_size;
         writeln!(
             buf,
             "{x} {val}"
         ).unwrap();
     }
+
 }
 
 #[allow(non_snake_case)]
