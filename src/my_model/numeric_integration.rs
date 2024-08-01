@@ -25,6 +25,7 @@ pub struct ModelInput{
 pub struct SaveState{
     input: ModelInput,
     pk_N2_given_pre_I_N1: Vec<ProbabilityDensity>,
+    pk_N2: ProbabilityDensity,
     I_N1: Vec<f64>,
     I1_given_pre_I1: Vec<Vec<f64>>,
     len_of_1: usize,
@@ -92,7 +93,8 @@ pub fn line_test(input: ModelInput)
                 I1_given_pre_I1: P_I_N1_given_prior_I_N1,
                 len_of_1: pk_N1.len_of_1,
                 bin_size: pk_N1.bin_size,
-                idx_s: pk_N1.index_s
+                idx_s: pk_N1.index_s,
+                pk_N2
             };
             let buf = create_buf(save_name);
             bincode::serialize_into(buf, &save_state)
@@ -107,7 +109,7 @@ pub fn line_test(input: ModelInput)
     };
     
 
-    calc_next_test(
+    let calc_result = calc_next_test(
         &save_state.pk_N2_given_pre_I_N1, 
         &save_state.I_N1,
         &save_state.I1_given_pre_I1,
@@ -116,6 +118,24 @@ pub fn line_test(input: ModelInput)
         save_state.bin_size,
         save_state.input.s
     );
+
+    let pk = Pk{
+        bin_size: save_state.bin_size,
+        delta_left: save_state.pk_N2.delta.0,
+        delta_right: save_state.pk_N2.delta.1,
+        function: save_state.pk_N2.func,
+        s: save_state.input.s,
+        len_of_1: save_state.len_of_1,
+        index_s: save_state.idx_s
+    };
+
+    let (pk_N3_given_I_N2, pk_N3) = calk_k_master_test(
+        &pk,
+        &calc_result.I2_given_prev_I2,
+        &calc_result.I2_density
+    );
+
+    pk_N3.write("pk_N3_test_res", save_state.bin_size, save_state.input.s);
 
     // OLD:
     /*for counter in 0..3{
@@ -315,6 +335,12 @@ fn normalize_prob_matrix(matr: &mut [Vec<f64>], bin_size: f64)
 }
 
 #[allow(non_snake_case)]
+pub struct CalcResult{
+    I2_density: Vec<f64>,
+    I2_given_prev_I2: Vec<Vec<f64>>
+}
+
+#[allow(non_snake_case)]
 fn calc_next_test(
     pk_N2_given_pre_I_N1: &[ProbabilityDensity],
     I_N1: &[f64],
@@ -323,7 +349,7 @@ fn calc_next_test(
     idx_s: usize,
     bin_size: f64,
     s: f64
-)
+) -> CalcResult
 {
 
     let pre_I1_given_I1 = reverse_prob_matrix(
@@ -743,7 +769,10 @@ fn calc_next_test(
             "{x} {val}"
         ).unwrap();
     }
-
+    CalcResult{
+        I2_density: probability_I2,
+        I2_given_prev_I2
+    }
 }
 
 #[allow(non_snake_case)]
