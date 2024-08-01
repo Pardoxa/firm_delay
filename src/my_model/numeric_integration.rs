@@ -24,10 +24,10 @@ pub struct ModelInput{
 #[derive(Serialize, Deserialize)]
 pub struct SaveState{
     input: ModelInput,
-    pk_N2_given_pre_I_N1: Vec<ProbabilityDensity>,
+    pkij_given_pre_Ij: Vec<ProbabilityDensity>,
     pk_N2: ProbabilityDensity,
-    I_N1: Vec<f64>,
-    I1_given_pre_I1: Vec<Vec<f64>>,
+    Ij: Vec<f64>,
+    Ij_given_pre_Ij: Vec<Vec<f64>>,
     len_of_1: usize,
     idx_s: usize,
     bin_size: f64
@@ -58,7 +58,7 @@ pub fn line_test(input: ModelInput)
         }
     }
 
-    let save_state = match save_state_opt{
+    let mut save_state = match save_state_opt{
         None => {
             // here I count: N=0 is leaf, N=1 is first node after etc
             let production_N0 = vec![1.0; input.precision.get()];
@@ -88,9 +88,9 @@ pub fn line_test(input: ModelInput)
 
             let save_state = SaveState{
                 input,
-                pk_N2_given_pre_I_N1: pk_N2_given_I_N1,
-                I_N1: production_N1,
-                I1_given_pre_I1: P_I_N1_given_prior_I_N1,
+                pkij_given_pre_Ij: pk_N2_given_I_N1,
+                Ij: production_N1,
+                Ij_given_pre_Ij: P_I_N1_given_prior_I_N1,
                 len_of_1: pk_N1.len_of_1,
                 bin_size: pk_N1.bin_size,
                 idx_s: pk_N1.index_s,
@@ -107,35 +107,69 @@ pub fn line_test(input: ModelInput)
             save_state
         }
     };
+
+
     
 
-    let calc_result = calc_next_test(
-        &save_state.pk_N2_given_pre_I_N1, 
-        &save_state.I_N1,
-        &save_state.I1_given_pre_I1,
-        save_state.len_of_1,
-        save_state.idx_s,
-        save_state.bin_size,
-        save_state.input.s
-    );
+    for i in 3..5{
 
-    let pk = Pk{
-        bin_size: save_state.bin_size,
-        delta_left: save_state.pk_N2.delta.0,
-        delta_right: save_state.pk_N2.delta.1,
-        function: save_state.pk_N2.func,
-        s: save_state.input.s,
-        len_of_1: save_state.len_of_1,
-        index_s: save_state.idx_s
-    };
+        let calc_result = calc_next_test(
+            &save_state.pkij_given_pre_Ij, 
+            &save_state.Ij,
+            &save_state.Ij_given_pre_Ij,
+            save_state.len_of_1,
+            save_state.idx_s,
+            save_state.bin_size,
+            save_state.input.s
+        );
 
-    let (pk_N3_given_I_N2, pk_N3) = calk_k_master_test(
-        &pk,
-        &calc_result.I2_given_prev_I2,
-        &calc_result.I2_density
-    );
+        let name_I = format!("I_{i}_bla1.dat");
+        let mut buf = create_buf_with_command_and_version(name_I);
+        for (i, val) in calc_result.I2_density.iter().enumerate(){
+            let x = i as f64 * save_state.bin_size;
+            writeln!(
+                buf,
+                "{x} {val}"
+            ).unwrap();
+        }
 
-    pk_N3.write("pk_N3_test_res", save_state.bin_size, save_state.input.s);
+        if save_state.input.s > 0.0 {
+            unimplemented!();
+        }
+
+    
+        let pk = Pk{
+            bin_size: save_state.bin_size,
+            delta_left: save_state.pk_N2.delta.0,
+            delta_right: save_state.pk_N2.delta.1,
+            function: save_state.pk_N2.func.clone(),
+            s: save_state.input.s,
+            len_of_1: save_state.len_of_1,
+            index_s: save_state.idx_s
+        };
+    
+        let (pk_N3_given_I_N2, pk_N3) = calk_k_master_test(
+            &pk,
+            &calc_result.I2_given_prev_I2,
+            &calc_result.I2_density
+        );
+
+        let stub = format!("pk_N{i}_test_res");
+        pk_N3.write(&stub, save_state.bin_size, save_state.input.s);
+
+        save_state = SaveState{
+            input: save_state.input,
+            pkij_given_pre_Ij: pk_N3_given_I_N2,
+            Ij: calc_result.I2_density,
+            Ij_given_pre_Ij: calc_result.I2_given_prev_I2,
+            len_of_1: save_state.len_of_1,
+            bin_size: save_state.bin_size,
+            idx_s: save_state.idx_s,
+            pk_N2: pk_N3
+        };
+    }
+
+
 
     // OLD:
     /*for counter in 0..3{
@@ -769,6 +803,21 @@ fn calc_next_test(
             "{x} {val}"
         ).unwrap();
     }
+
+    // normalize
+    /* 
+    let mut sum: f64 = probability_I2.iter().sum();
+    sum *= bin_size;
+    let norm_factor = sum.recip();
+    probability_I2
+        .iter_mut()
+        .for_each(
+            |val|
+            {
+                *val *= norm_factor;
+            }
+        );*/
+
     CalcResult{
         I2_density: probability_I2,
         I2_given_prev_I2
