@@ -111,7 +111,7 @@ pub fn line_test(input: ModelInput)
 
     
 
-    for i in 3..5{
+    for i in 3..6{
 
         let calc_result = calc_next_test(
             &save_state.pkij_given_pre_Ij, 
@@ -132,11 +132,6 @@ pub fn line_test(input: ModelInput)
                 "{x} {val}"
             ).unwrap();
         }
-
-        if save_state.input.s > 0.0 {
-            unimplemented!();
-        }
-
     
         let pk = Pk{
             bin_size: save_state.bin_size,
@@ -804,8 +799,7 @@ fn calc_next_test(
         ).unwrap();
     }
 
-    // normalize
-    /* 
+    // normalize 
     let mut sum: f64 = probability_I2.iter().sum();
     sum *= bin_size;
     let norm_factor = sum.recip();
@@ -816,7 +810,7 @@ fn calc_next_test(
             {
                 *val *= norm_factor;
             }
-        );*/
+        );
 
     CalcResult{
         I2_density: probability_I2,
