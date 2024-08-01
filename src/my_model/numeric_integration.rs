@@ -482,11 +482,12 @@ fn calc_next_test(
         ).unwrap();
     }
 
-    let mut I1_given_pre_I2 = I1_given_I2.iter()
+    // Not sure if this is correct…
+    let mut I1_given_pre_I2_maybe_incorrect_needs_checking = I1_given_I2.iter()
         .map(|line| vec![0.0; line.len()])
         .collect_vec();
 
-    for (i1_given_pre_i2_line, i1_given_i2_line) in I1_given_pre_I2.iter_mut().zip(I1_given_I2.iter())
+    for (i1_given_pre_i2_line, i1_given_i2_line) in I1_given_pre_I2_maybe_incorrect_needs_checking.iter_mut().zip(I1_given_I2.iter())
     {
         for (&i1_given_i2_prob, i1_given_pre_i1_line) in i1_given_i2_line.iter().zip(I1_given_pre_I1){
             // now I need to calculate the next i1, I think
@@ -498,11 +499,11 @@ fn calc_next_test(
         }
     }
     // normalization
-    normalize_prob_matrix(&mut I1_given_pre_I2, bin_size);
+    normalize_prob_matrix(&mut I1_given_pre_I2_maybe_incorrect_needs_checking, bin_size);
 
     let mut sanity_2 = vec![0.0; I1_given_I2.len()];
 
-    for (i1_given_pre_i2_line, i2_prob) in I1_given_pre_I2.iter().zip(probability_I2.iter())
+    for (i1_given_pre_i2_line, i2_prob) in I1_given_pre_I2_maybe_incorrect_needs_checking.iter().zip(probability_I2.iter())
     {
         let factor = i2_prob * bin_size;
         sanity_2.iter_mut()
@@ -569,7 +570,7 @@ fn calc_next_test(
     // This calculates the quantity for which I am doing all this BS
     for (prev_I2, (line, prev_I2_prob)) in I2_given_prev_I2.iter_mut().zip(probability_I2.iter()).enumerate().progress(){
         let k_density = &pk_given_preI2[prev_I2];
-        let I1_line = I1_given_pre_I2[prev_I2].as_slice();
+        let I1_line = I1_given_pre_I2_maybe_incorrect_needs_checking[prev_I2].as_slice();
         let level_1_prob = prev_I2_prob;
         for (k_idx, k_prob) in k_density.func.iter().enumerate(){
             let level_2_prob = level_1_prob * k_prob * bin_size;
@@ -675,6 +676,8 @@ fn calc_next_test(
                 line.iter_mut()
                     .for_each(|p| p.normalize(bin_size))
         );
+
+    /// TODO: CHECK IF k_probs is correct!
 
     let mut Ii_given_pre_Ii_new = vec![vec![0.0; len_of_1]; len_of_1];
 
