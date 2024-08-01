@@ -641,51 +641,89 @@ fn calc_next_test(
     let I2_given_I1 = reverse_prob_matrix(&I1_given_I2, &probability_I2, bin_size);
 
     let mut I2_given_I2 = vec![vec![0.0; len_of_1]; len_of_1];
+    let mut I2_given_prev_I1_test = vec![vec![0.0; len_of_1]; len_of_1];
 
     println!("HERE");
     for (Ij_t0_idx, k_density) in pk_N2_given_pre_I_N1.iter().enumerate().progress(){
         let Ij_t1_density = I1_given_pre_I1[Ij_t0_idx].as_slice();
         let I2_given_I1_density = I2_given_I1[Ij_t0_idx].as_slice();
+        let I2_given_pre_I1_line = I2_given_prev_I1_test[Ij_t0_idx].as_mut_slice();
         for (k_idx, k_prob) in k_density.func.iter().enumerate(){
             let level_1_density = k_prob * recip_len1;
             for (Ij_t1_idx, Ij_t1_prob) in Ij_t1_density.iter().enumerate(){
                 let level_2_density = level_1_density * Ij_t1_prob;
                 let IjK = Ij_t1_idx + k_idx;
-                for m in 0..len_of_1{ // can be optimized
+                let end = len_of_1.min(IjK);
+                for m in 0..end{ 
                     let Ii_t1 = IjK.min(m);
+                    I2_given_pre_I1_line[Ii_t1] += level_2_density;
+                    /* 
                     for (Ii_t0_prob, I2_given_I2_line) in I2_given_I1_density.iter().zip(I2_given_I2.iter_mut()){
                         I2_given_I2_line[Ii_t1] += level_2_density * Ii_t0_prob;
+                    }*/
+                }
+                let remaining = len_of_1 - end;
+                if remaining > 0{
+                    /* 
+                    for (Ii_t0_prob, I2_given_I2_line) in I2_given_I1_density.iter().zip(I2_given_I2.iter_mut()){
+                        I2_given_I2_line[IjK] += level_2_density * Ii_t0_prob;
                     }
+                    */
+                    I2_given_pre_I1_line[IjK] += level_2_density;
                 }
             }
         }
 
         // delta left
-        let level_1_density = k_density.delta.0 * recip_len1 / bin_size; // I think this is correct, maybe look at bin_size again if the result is strange
+        let level_1_density = k_density.delta.0 * recip_len1; // I think this is correct, maybe look at bin_size again if the result is strange
         for (Ij_t1_idx, Ij_t1_prob) in Ij_t1_density.iter().enumerate(){
-            let level_2_density = level_1_density * Ij_t1_prob;
+            let level_2_density = level_1_density * Ij_t1_prob / bin_size;
             let IjK = Ij_t1_idx; // k = 0
             for m in 0..len_of_1{ // can be optimized
                 let Ii_t1 = IjK.min(m);
-                for (Ii_t0_prob, I2_given_I2_line) in I2_given_I1_density.iter().zip(I2_given_I2.iter_mut()){
+                /*for (Ii_t0_prob, I2_given_I2_line) in I2_given_I1_density.iter().zip(I2_given_I2.iter_mut()){
                     I2_given_I2_line[Ii_t1] += level_2_density * Ii_t0_prob;
-                }
+                }*/
+                I2_given_pre_I1_line[Ii_t1] += level_2_density;
             }
         }
 
         // delta right
-        let level_1_density = k_density.delta.1 * recip_len1 / bin_size;
+        let level_1_density = k_density.delta.1 * recip_len1;
         for (Ij_t1_idx, Ij_t1_prob) in Ij_t1_density.iter().enumerate(){
-            let level_2_density = level_1_density * Ij_t1_prob;
+            let level_2_density = level_1_density * Ij_t1_prob / bin_size;
             let IjK = Ij_t1_idx + idx_s; // k = s
             for m in 0..len_of_1{ // can be optimized
                 let Ii_t1 = IjK.min(m);
-                for (Ii_t0_prob, I2_given_I2_line) in I2_given_I1_density.iter().zip(I2_given_I2.iter_mut()){
+                /*for (Ii_t0_prob, I2_given_I2_line) in I2_given_I1_density.iter().zip(I2_given_I2.iter_mut()){
                     I2_given_I2_line[Ii_t1] += level_2_density * Ii_t0_prob;
-                }
+                }*/
+                I2_given_pre_I1_line[Ii_t1] += level_2_density;
             }
         }
     }
+    normalize_prob_matrix(&mut I2_given_prev_I1_test, bin_size);
+
+    let mut sanity_5 = vec![0.0; len_of_1];
+    for (density, I1_prob) in I2_given_prev_I1_test.iter().zip(I_N1){
+        sanity_5
+            .iter_mut()
+            .zip(density)
+            .for_each(
+                |(r,v)|
+                *r += v * I1_prob * bin_size
+            );
+    }
+
+    let mut buf = create_buf_with_command_and_version("sanity_5.dat");
+    for (i, val) in sanity_5.iter().enumerate(){
+        let x = i as f64 * bin_size;
+        writeln!(
+            buf,
+            "{x} {val}"
+        ).unwrap();
+    }
+
 
     normalize_prob_matrix(&mut I2_given_I2, bin_size);
 
@@ -695,7 +733,7 @@ fn calc_next_test(
             .zip(density.iter())
             .for_each(
                 |(r,v)|
-                *r += v * I2_prob
+                *r += v * I2_prob * bin_size
             );
     }
 
