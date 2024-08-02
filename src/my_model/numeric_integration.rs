@@ -112,7 +112,7 @@ pub fn line_test(input: ModelInput)
 
     
 
-    for i in 3..4{
+    for i in 3..5{
 
         let calc_result = calc_next_test(
             &save_state.pkij_given_pre_Ij, 
