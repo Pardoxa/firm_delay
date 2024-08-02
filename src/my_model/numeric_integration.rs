@@ -127,9 +127,7 @@ pub fn line_test(input: ModelInput)
     
         let pk = Pk{
             bin_size: save_state.bin_size,
-            delta_left: save_state.pk_N2.delta.0,
-            delta_right: save_state.pk_N2.delta.1,
-            function: save_state.pk_N2.func.clone(),
+            k_density: save_state.pk_N2,
             s: save_state.input.s,
             len_of_1: save_state.len_of_1,
             index_s: save_state.idx_s
@@ -178,9 +176,7 @@ pub fn write_I(I: &[f64], bin_size: f64, name: &str)
 }
 
 pub struct Pk{
-    delta_left: f64,
-    delta_right: f64,
-    function: Vec<f64>,
+    k_density: ProbabilityDensity,
     bin_size: f64,
     s: f64,
     len_of_1: usize,
@@ -190,34 +186,12 @@ pub struct Pk{
 impl Pk{
     pub fn write_files(&self, stub: &str)
     {
-        let header = [
-            "k",
-            "P(k)"
-        ];
-        let name = format!("s{}{stub}.dat", self.s);
-        let mut buf_fun = create_buf_with_command_and_version_and_header(name, header);
-        let header = [
-            "k",
-            "delta P(k)"
-        ];
-        let name = format!("s{}{stub}_delta.dat", self.s);
-        let mut buf_delta: std::io::BufWriter<fs_err::File> = create_buf_with_command_and_version_and_header(name, header);
-    
-        for (i, val) in self.function.iter().enumerate(){
-            let k = i as f64 * self.bin_size + self.bin_size / 2.0;
-            writeln!(
-                buf_fun,
-                "{k} {val}"
-            ).unwrap();
-        }
-    
-        writeln!(
-            buf_delta,
-            "0 {}\n{} {}",
-            self.delta_left,
-            self.s,
-            self.delta_right
-        ).unwrap();
+        self.k_density.write(stub, self.bin_size, self.s)
+    }
+
+    pub fn len(&self) -> usize 
+    {
+        self.k_density.func.len()
     }
 }
 
@@ -800,11 +774,11 @@ fn calk_k_master_test(
 ) -> (Vec<ProbabilityDensity>, ProbabilityDensity)
 {
     let mut current_estimate_given_prior_I = (0..input_P_I_given_prior_I.len())
-        .map(|_| ProbabilityDensity::new(prior_pk.function.len(), prior_pk.bin_size))
+        .map(|_| ProbabilityDensity::new(prior_pk.len(), prior_pk.bin_size))
         .collect_vec();
 
     let mut next_estimate_given_prior_I = (0..input_P_I_given_prior_I.len())
-        .map(|_| ProbabilityDensity::new_zeroed(prior_pk.function.len()))
+        .map(|_| ProbabilityDensity::new_zeroed(prior_pk.len()))
         .collect_vec();
 
     let idx_s = prior_pk.index_s;
@@ -812,7 +786,7 @@ fn calk_k_master_test(
     let bin_size = prior_pk.bin_size;
 
 
-    let mut resulting_density = ProbabilityDensity::new_zeroed(prior_pk.function.len());
+    let mut resulting_density = ProbabilityDensity::new_zeroed(prior_pk.len());
     let m_factor = (len_of_1 as f64).recip();
     let mut counter = 0;
     loop {
@@ -995,11 +969,11 @@ fn master_ansatz_i_test(
     // For this I first calculate:
     //      given I(t) what is P_k(t)
 
-    let mut Ik_matr = vec![vec![0.0; pk.function.len()]; prob_prior_I.len()];
+    let mut Ik_matr = vec![vec![0.0; pk.len()]; prob_prior_I.len()];
     let mut delta_matr = vec![(0.0,0.0); prob_prior_I.len()];
 
     let factor = 1.0 / (pk.len_of_1 * pk.len_of_1) as f64;
-    for (k_idx, k_val) in pk.function.iter().enumerate()
+    for (k_idx, k_val) in pk.k_density.func.iter().enumerate()
     {
         let probability_of_k_branch = k_val * pk.bin_size;
         let probability_of_both_m = probability_of_k_branch * factor;
@@ -1023,7 +997,7 @@ fn master_ansatz_i_test(
     }
     
 
-    let probability_of_k_branch = pk.delta_left;
+    let probability_of_k_branch = pk.k_density.delta.0;
     let probability_of_both_m = probability_of_k_branch * factor;
     for m1 in 0..pk.len_of_1{
         for m2 in 0..pk.len_of_1{
@@ -1043,7 +1017,7 @@ fn master_ansatz_i_test(
         }
     }
     
-    let probability_of_k_branch = pk.delta_right;
+    let probability_of_k_branch = pk.k_density.delta.1;
     let probability_of_both_m = probability_of_k_branch * factor;
     for m1 in 0..pk.len_of_1{
         for m2 in 0..pk.len_of_1{
@@ -1077,7 +1051,7 @@ fn master_ansatz_i_test(
     }
     
 
-    let mut resulting_prob = vec![0.0; pk.function.len()];
+    let mut resulting_prob = vec![0.0; pk.len()];
     let mut resulting_delta = (0.0, 0.0);
     for ((ik_vec, i_prob), delta) in Ik_matr.iter().zip(prob_I_after).zip(delta_matr.iter()){
         for (k_val, res) in ik_vec.iter().zip(resulting_prob.iter_mut())
@@ -1311,10 +1285,12 @@ fn master_ansatz_k(
         delta_right = delta_right_input;
 
         if difference <= threshold { 
+            let density = ProbabilityDensity{
+                func: k_result,
+                delta: (delta_left, delta_right)
+            };
             return Pk{
-                delta_left,
-                delta_right,
-                function: k_result,
+                k_density: density,
                 bin_size,
                 s,
                 len_of_1: len,
@@ -1335,7 +1311,7 @@ fn calc_I(
 ) -> Vec<f64>
 {
 
-    let p_ka = (0..(pk.function.len() + pk.len_of_1))
+    let p_ka = (0..(pk.k_density.func.len() + pk.len_of_1))
         .map(
             |x|
             {
@@ -1345,21 +1321,21 @@ fn calc_I(
                 } else {
                     x - (pk.len_of_1 - 1)
                 };
-                let end = if x >= pk.function.len(){
-                    pk.function.len() - 1
+                let end = if x >= pk.k_density.func.len(){
+                    pk.k_density.func.len() - 1
                 } else {
                     x
                 };
                 for j in start..=end{
-                    integral += pk.function[j] * a_ij[x-j];
+                    integral += pk.k_density.func[j] * a_ij[x-j];
                 }
                 integral *= pk.bin_size;
 
                 if start == 0{
-                    integral += pk.delta_left * a_ij[x]; 
+                    integral += pk.k_density.delta.0 * a_ij[x]; 
                 }
                 if x >= pk.index_s && x-pk.index_s < a_ij.len() {
-                    integral += pk.delta_right * a_ij[x-pk.index_s];
+                    integral += pk.k_density.delta.1 * a_ij[x-pk.index_s];
                 }
 
                 integral
