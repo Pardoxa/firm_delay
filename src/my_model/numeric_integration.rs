@@ -302,13 +302,18 @@ fn normalize_prob_matrix(matr: &mut [Vec<f64>], bin_size: f64)
         .for_each(
             |line|
             {
-                let mut sum: f64 = line.iter().sum();
-                sum *= bin_size;
-                let factor = sum.recip();
-                line.iter_mut()
-                    .for_each(|val| *val *= factor)
+                normalize_vec(line, bin_size);
             }
         );
+}
+
+fn normalize_vec(vec: &mut [f64], bin_size: f64)
+{
+    let mut sum: f64 = vec.iter().sum();
+    sum *= bin_size;
+    let factor = sum.recip();
+    vec.iter_mut()
+        .for_each(|val| *val *= factor)
 }
 
 #[allow(non_snake_case)]
@@ -1204,7 +1209,7 @@ fn master_ansatz_k(
     let mut delta_right = 0.2;
 
     let guess_height = (1.0-delta_left-delta_right)/s;
-    let mut k_guess = vec![guess_height; index_s+1]; // maybe I somewhere have indexmissmatch for index s?
+    let mut k_guess = vec![guess_height; index_s]; /// I changed this, here was index_s +1
 
     let mut k_result = vec![0.0; k_guess.len()];
 
