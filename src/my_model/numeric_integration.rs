@@ -822,9 +822,14 @@ fn calk_k_master_test(
                         update_k_vec.delta.1 += probability_increment * left_border as f64;
                     }
 
-                    for m in left_border..right_border{
-                        update_k_vec.func[kI-m] += probability_increment;
-                    }
+                    let new_left = kI-(right_border-1);
+                    let new_right = kI-left_border;
+
+                    update_k_vec.func[new_left..=new_right]
+                        .iter_mut()
+                        .for_each(
+                            |val| *val += probability_increment
+                        );
                 }
 
             }
