@@ -84,7 +84,7 @@ pub fn line_test(input: ModelInput)
             );
 
             pk_N2.write("pk_N2_res", pk_N1.bin_size, input.s);
-
+            panic!("TEST END");
             let save_state = SaveState{
                 input,
                 pkij_given_pre_Ij: pk_N2_given_I_N1,
@@ -801,19 +801,29 @@ fn calk_k_master_test(
             let m_factor_times_prior_I_prob = prior_I_prob * m_factor;
             for (Ij_idx, Ij_prob) in current_Ij_distribution.iter().enumerate(){
                 let update_k_vec = &mut next_estimate_given_prior_I[Ij_idx];
+                let level_2_prob = m_factor_times_prior_I_prob * Ij_prob;
                 for (k, k_prob) in current_k.func.iter().enumerate(){
-                    let probability_increment = k_prob * m_factor_times_prior_I_prob * Ij_prob;
+                    let probability_increment = k_prob * level_2_prob;
                     let kI = Ij_idx + k;
-                    for m in 0..len_of_1{
-        
-                        if m > kI {
-                            update_k_vec.delta.0 += probability_increment;
-                        } else if kI -m > idx_s {
-                            update_k_vec.delta.1 += probability_increment;
-                        } else {
-                            update_k_vec.func[kI-m] += probability_increment;
-                        }
-        
+
+                    let right_border = kI.min(len_of_1);
+                    if right_border < len_of_1
+                    {
+                        let weight = len_of_1-right_border;
+                        update_k_vec.delta.0 += probability_increment * weight as f64;
+                    }
+
+                    let left_border = if idx_s >= kI {
+                        0
+                    } else {
+                        kI - idx_s
+                    };
+                    if left_border > 0 {
+                        update_k_vec.delta.1 += probability_increment * left_border as f64;
+                    }
+
+                    for m in left_border..right_border{
+                        update_k_vec.func[kI-m] += probability_increment;
                     }
                 }
 
