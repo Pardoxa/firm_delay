@@ -75,6 +75,7 @@ pub fn line_test(input: ModelInput)
             pk_N1.write_files(&stub);
 
             let production_N1 = calc_I(&pk_N1, &production_N0, counter); 
+            write_I(&production_N1, pk_N1.bin_size, "I_2_bla1.dat");
 
             let P_I_N1_given_prior_I_N1 = master_ansatz_i_test(&pk_N1, &production_N0, &production_N1);
 
@@ -111,7 +112,7 @@ pub fn line_test(input: ModelInput)
 
     
 
-    for i in 3..6{
+    for i in 3..4{
 
         let calc_result = calc_next_test(
             &save_state.pkij_given_pre_Ij, 
@@ -124,14 +125,7 @@ pub fn line_test(input: ModelInput)
         );
 
         let name_I = format!("I_{i}_bla1.dat");
-        let mut buf = create_buf_with_command_and_version(name_I);
-        for (i, val) in calc_result.I2_density.iter().enumerate(){
-            let x = i as f64 * save_state.bin_size;
-            writeln!(
-                buf,
-                "{x} {val}"
-            ).unwrap();
-        }
+        write_I(&calc_result.I2_density, save_state.bin_size, &name_I);
     
         let pk = Pk{
             bin_size: save_state.bin_size,
@@ -162,40 +156,27 @@ pub fn line_test(input: ModelInput)
             idx_s: save_state.idx_s,
             pk_N2: pk_N3
         };
+
+        let save_name = format!("SAVE{i}.save");
+        let buf = create_buf(save_name);
+        bincode::serialize_into(buf, &save_state)
+            .expect("Serialization Issue");
+        println!("SAVED");
     }
 
+}
 
-
-    // OLD:
-    /*for counter in 0..3{
-        let debug_delta = match counter{
-            1 => {
-                DebugDelta{
-                    left: None, //Some(0.42150594999999996),
-                    right: None //Some(0.186465725)
-                }
-            },
-            _ => {
-                DebugDelta{
-                    left: None,
-                    right: None //0.186465725
-                }
-            }
-        };
-
-        let pk = master_ansatz_k(
-            &a_ij, 
-            input.s, 
-            1e-4, 
-            counter,
-            debug_delta
-        );
-        let stub = format!("_PK{counter}");
-        pk.write_files(&stub);
-        a_ij = calc_I(&pk, &a_ij, counter);
-    }*/
-
-
+#[allow(non_snake_case)]
+pub fn write_I(I: &[f64], bin_size: f64, name: &str)
+{
+    let mut buf = create_buf_with_command_and_version(name);
+    for (i, val) in I.iter().enumerate(){
+        let x = i as f64 * bin_size;
+        writeln!(
+            buf,
+            "{x} {val}"
+        ).unwrap();
+    }
 }
 
 pub struct Pk{
