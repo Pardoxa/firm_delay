@@ -1209,7 +1209,8 @@ fn master_ansatz_k(
     let mut delta_right = 0.2;
 
     let guess_height = (1.0-delta_left-delta_right)/s;
-    let mut k_guess = vec![guess_height; index_s]; /// I changed this, here was index_s +1
+    let mut k_guess = vec![guess_height; index_s + 1]; /// TODO After optimizing I want to check if removing the 1 here improves the results. 
+    /// I want to do this after optimizing, because it leads to off by one errors in the code elsewhere, i.e., runtime errors currently
 
     let mut k_result = vec![0.0; k_guess.len()];
 
