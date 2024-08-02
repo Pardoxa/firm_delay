@@ -67,9 +67,7 @@ pub fn line_test(input: ModelInput)
             let pk_N1 = master_ansatz_k(
                 &production_N0, 
                 input.s, 
-                1e-6, 
-                counter,
-                DebugDelta{left: None, right: None}
+                1e-8
             );
             let stub = format!("_PK{counter}");
             pk_N1.write_files(&stub);
@@ -221,11 +219,6 @@ impl Pk{
             self.delta_right
         ).unwrap();
     }
-}
-
-pub struct DebugDelta{
-    left: Option<f64>,
-    right: Option<f64>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1196,14 +1189,12 @@ fn master_ansatz_i_test(
 fn master_ansatz_k(
     a: &[f64], 
     s: f64, 
-    threshold: f64, 
-    counter: usize,
-    delta: DebugDelta
+    threshold: f64
 )-> Pk
 {
     let len = a.len();
     let index_s = (s * (len - 1) as f64).floor() as usize;
-    let bin_size = ((len+1) as f64).recip();
+    let bin_size = ((len) as f64).recip();
 
     let i_len = len as isize;
 
@@ -1229,63 +1220,19 @@ fn master_ansatz_k(
     let total_jump_prob: f64 = p_am.iter()
         .map(|val| *val * bin_size)
         .sum();
-    println!("JUMP: {total_jump_prob}");
+    let total_jump_recip = total_jump_prob.recip();
     p_am.iter_mut()
         .for_each(
-            |val| *val /= total_jump_prob
+            |val| *val *= total_jump_recip
         );
-    let total_jump_prob: f64 = p_am.iter()
-        .map(|val| *val * bin_size)
-        .sum();
-    println!("JUMP Corrected: {total_jump_prob}");
-
-    let name = format!("s{s}p_am{counter}.dat");
-    let mut buf = create_buf(name);
-    for (index, val) in p_am.iter().enumerate()
-    {
-        let x = index as f64 * bin_size;
-        writeln!(
-            buf,
-            "{} {}",
-            x,
-            val
-        ).unwrap();
-    }
-
-    assert!(index_s >= 99, "please increase precision");
-
 
     let mut delta_left = 0.2;
     let mut delta_right = 0.2;
 
-    if let Some(delta) = delta.left.as_ref()
-    {
-        delta_left = *delta;
-    }
-    if let Some(delta) = delta.right.as_ref(){
-        delta_right = *delta;
-    }
-
     let guess_height = (1.0-delta_left-delta_right)/s;
     let mut k_guess = vec![guess_height; index_s+1]; // maybe I somewhere have indexmissmatch for index s?
 
-    let mut guess_total = 0.0;
-    k_guess.iter()
-        .for_each(
-            |val|
-            {
-                guess_total += *val;
-            }
-        );
-    guess_total = guess_total * bin_size + delta_left + delta_right;
-    println!("GUESS TOTAL: {guess_total}");
-    let length = k_guess.len() as f64 * bin_size;
-    println!("LENNN {length}");
-
-    let mut k_result = k_guess.clone();
-
-
-    let mut testing = 0;
+    let mut k_result = vec![0.0; k_guess.len()];
 
     loop{
         let mut delta_left_input = 0.0;
@@ -1299,10 +1246,13 @@ fn master_ansatz_k(
                     for (jump_index, prob) in p_am.iter().enumerate()
                     {
                         let amount = prob * val * bin_size;
-                        let resulting_index = index as isize + jump_index as isize - i_len;
-                        if resulting_index < 0 {
+                        let index_plus_jump = index + jump_index;
+                        if index_plus_jump < len {
                             delta_left_input += amount;
-                        } else if let Some(val) = k_result.get_mut(resulting_index as usize){
+                            continue;
+                        }
+                        let resulting_index = index_plus_jump - len;
+                        if let Some(val) = k_result.get_mut(resulting_index){
                             *val += amount;
                         } else {
                             delta_right_input += amount;
@@ -1315,11 +1265,14 @@ fn master_ansatz_k(
         // left delta
         for (jump_index, prob) in p_am.iter().enumerate()
         {
-            let resulting_index = jump_index as isize - i_len;
             let amount = delta_left * prob;
-            if resulting_index < 0 {
+            
+            if jump_index < len {
                 delta_left_input += amount;
-            } else if let Some(val) = k_result.get_mut(resulting_index as usize){
+                continue;
+            }
+            let resulting_index = jump_index - len;
+            if let Some(val) = k_result.get_mut(resulting_index){
                 *val += amount;
             } else {
                 delta_right_input += amount;
@@ -1329,11 +1282,14 @@ fn master_ansatz_k(
         // right delta
         for (jump_index, prob) in p_am.iter().enumerate()
         {
-            let resulting_index = index_s as isize + jump_index as isize - i_len;
             let amount = delta_right * prob;
-            if resulting_index < 0 {
+            let k_plus_jump = index_s + jump_index;
+            if k_plus_jump < len {
                 delta_left_input += amount;
-            } else if let Some(val) = k_result.get_mut(resulting_index as usize){
+                continue;
+            }
+            let resulting_index = k_plus_jump - len;
+            if let Some(val) = k_result.get_mut(resulting_index){
                 *val += amount;
             } else {
                 delta_right_input += amount;
@@ -1343,33 +1299,18 @@ fn master_ansatz_k(
         delta_left_input *= bin_size;
         delta_right_input *= bin_size;
 
-       
+        let mut difference: f64 = k_guess.iter()
+            .zip(k_result.iter())
+            .map(|(a,b)| (a-b).abs())
+            .sum();
+        difference *= bin_size;
+        difference += (delta_left - delta_left_input).abs()
+            + (delta_right - delta_right_input).abs();
         
         delta_left = delta_left_input;
         delta_right = delta_right_input;
 
-        if testing == 100 {
-            dbg!(&k_result);
-            dbg!(delta_left_input);
-            dbg!(delta_right_input);
-    
-            let mut test_buf = create_buf("test.dat");
-            let mut delta = create_buf("test_delta.dat");
-            for (index, val) in k_result.iter().enumerate(){
-                let x = index as f64 * bin_size;
-                writeln!(
-                    test_buf,
-                    "{x} {val}"
-                ).unwrap();
-            }
-    
-            writeln!(
-                delta,
-                "0 {}\n{} {}",
-                delta_left_input,
-                s,
-                delta_right_input
-            ).unwrap();
+        if difference <= threshold { 
             return Pk{
                 delta_left,
                 delta_right,
@@ -1380,8 +1321,6 @@ fn master_ansatz_k(
                 index_s
             };
         }
-        testing += 1;
-
         std::mem::swap(&mut k_guess, &mut k_result);
     }
     
