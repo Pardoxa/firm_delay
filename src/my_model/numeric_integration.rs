@@ -78,7 +78,7 @@ pub fn line_test(input: ModelInput)
 
 
 
-            let P_I_N1_given_prior_I_N1 = master_ansatz_i_test(&pk_N1, &production_N0, &production_N1);
+            let P_I_N1_given_prior_I_N1 = master_ansatz_i_test(&pk_N1, &production_N0);
 
             let (pk_N2_given_I_N1, pk_N2) = calk_k_master_test(
                 &pk_N1,
@@ -972,163 +972,98 @@ fn calk_k_master_test(
 #[allow(non_snake_case)]
 fn master_ansatz_i_test(
     pk: &Pk,
-    prob_Ij: &[f64],
     prob_Ii: &[f64]
 ) -> Vec<Vec<f64>>
 {
-    // Given I(t) I want to know P_I(t+1)
-    // For this I first calculate:
-    //      given I(t) what is P_k(t)
+    let len = prob_Ii.len();
+    let idx_s = pk.index_s;
+    let bin_size = pk.bin_size;
+    let mut k_t0_given_Ij0 = vec![pk.k_density.create_zeroed(); len];
 
-    let mut Ik_matr = vec![ProbabilityDensity::new_zeroed(pk.len()); prob_Ij.len()];
-
-    let factor = 1.0 / (pk.len_of_1 * pk.len_of_1) as f64;
-    /// TODO: Check if the below is correct or if I miss a correlation here!
-    for (k_idx, k_val) in pk.k_density.func.iter().enumerate()
-    {
-        let probability_of_k_branch = k_val * pk.bin_size;
-        let probability_of_both_m = probability_of_k_branch * factor;
-        for m1 in 0..pk.len_of_1{
-            for m2 in 0..pk.len_of_1{
-                let resulting_i_idx = m1.min(m2+k_idx);
-                // There is certainly room for optimization here XD
-
-                let new_k_idx = m2 + k_idx - resulting_i_idx;
-                let k_density_given_I = Ik_matr.get_mut(resulting_i_idx).unwrap();
-
-                if new_k_idx > pk.index_s {
-                    k_density_given_I.delta.1 += probability_of_both_m;
-                } else if m1 > m2+k_idx {
-                    k_density_given_I.delta.0 += probability_of_both_m;
-                } else{
-                    k_density_given_I.func[new_k_idx] += probability_of_both_m;
-                }
-            }
-        }
-    }
+    let mut target_density = pk.k_density.clone();
+    let const_against_large_numbers = 0.00001;
+    target_density.func.iter_mut()
+        .for_each(
+            |val| *val *= const_against_large_numbers
+        );
+    target_density.delta.0 *= const_against_large_numbers;
+    target_density.delta.1 *= const_against_large_numbers;
     
 
-    let probability_of_k_branch = pk.k_density.delta.0;
-    let probability_of_both_m = probability_of_k_branch * factor;
-    for m1 in 0..pk.len_of_1{
-        for m2 in 0..pk.len_of_1{
-            let resulting_i_idx = m1.min(m2);
-            // There is certainly room for optimization here XD
-            
-            let new_k_idx = m2 - resulting_i_idx;
-            let k_density_given_I = Ik_matr.get_mut(resulting_i_idx).unwrap();
+    for (Ij, k_t0_density) in k_t0_given_Ij0.iter_mut().enumerate(){
+        for (prev_k, prob_prev_k) in target_density.func.iter().enumerate(){
+            let Ijk = Ij + prev_k;
 
-            if new_k_idx > pk.index_s {
-                k_density_given_I.delta.1 += probability_of_both_m;
-            } else if m1 > m2 {
-                k_density_given_I.delta.0 += probability_of_both_m;
-            } else{
-                k_density_given_I.func[new_k_idx] += probability_of_both_m;
-            }
-        }
-    }
-    
-    let probability_of_k_branch = pk.k_density.delta.1;
-    let probability_of_both_m = probability_of_k_branch * factor;
-    for m1 in 0..pk.len_of_1{
-        for m2 in 0..pk.len_of_1{
-            let resulting_i_idx = m1.min(m2+pk.index_s);
-            let new_k_idx = m2 + pk.index_s - resulting_i_idx;
-            let k_density_given_I = Ik_matr.get_mut(resulting_i_idx).unwrap();
+            for mi in 0..len{
+                if Ijk < mi {
+                    k_t0_density.delta.0 += prob_prev_k * bin_size;
 
-            if new_k_idx > pk.index_s {
-                k_density_given_I.delta.1 += probability_of_both_m;
-            } else if m1 > m2+pk.index_s {
-                k_density_given_I.delta.0 += probability_of_both_m;
-            } else{
-                k_density_given_I.func[new_k_idx] += probability_of_both_m;
-            }
-        }
-    }
-        
-    // normalization
-    // afterwards ik_vec[i][j] entries correspond to the probability that the next k value is j given the next I value i
-    for density in Ik_matr.iter_mut()
-    {
-        let mut sum: f64= density.func.iter().sum();
-        sum += density.delta.0 + density.delta.1;
-        let recip = sum.recip();
-        for ik_val in density.func.iter_mut()
-        {
-            *ik_val *= recip;
-        }
-        let factor = pk.bin_size * recip;
-        density.delta.0 *= factor;
-        density.delta.1 *= factor;
-    }
-    
-
-    let mut resulting_prob = ProbabilityDensity::new_zeroed(pk.len());
-    for (ik_vec, i_prob) in Ik_matr.iter().zip(prob_Ii){
-        for (k_val, res) in ik_vec.func.iter().zip(resulting_prob.func.iter_mut())
-        {
-            *res += i_prob * k_val;
-        }
-        resulting_prob.delta.0 += i_prob * ik_vec.delta.0;
-        resulting_prob.delta.1 += i_prob * ik_vec.delta.1;
-    }
-
-    let mut P_I_given_old_I = vec![vec![0.0; prob_Ij.len()]; Ik_matr.len()];
-    let factor = 1.0 / (Ik_matr.len() * Ik_matr.len()) as f64;
-    let delta_factor = factor / pk.bin_size;
-    let len = Ik_matr.len();
-    for (old_i_index, k_dist) in Ik_matr.iter().enumerate().progress()
-    {
-        let P_I_given_old_I_line = P_I_given_old_I[old_i_index].as_mut_slice();
-        for (k_index, k_prob_dens) in k_dist.func.iter().enumerate(){
-            let probability_density_increment = k_prob_dens * factor;
-            
-            for m2 in 0..Ik_matr.len(){
-
-                let m2K = m2 + k_index;
-
-                let right = len.min(m2K);
-                
-                P_I_given_old_I_line[0..right]
-                    .iter_mut()
-                    .for_each(
-                        |val| *val += probability_density_increment
-                    );
-                let remaining = Ik_matr.len() - right;
-                if remaining > 0 {
-                    P_I_given_old_I_line[m2K] += probability_density_increment * remaining as f64;
+                    continue;
+                } 
+                let idx = Ijk - mi;
+                if idx >= k_t0_density.func.len(){
+                    k_t0_density.delta.1 += prob_prev_k * bin_size;
+                } else {
+                    k_t0_density.func[idx] += prob_prev_k;
                 }
             }
         }
 
-        for m1 in 0..Ik_matr.len(){
-            for m2 in 0..Ik_matr.len(){
-                // left 
-                let new_I = m1.min(m2);
-                P_I_given_old_I_line[new_I] += k_dist.delta.0 * delta_factor;
+        // delta left 
+        for mi in 0..len{
+            let Ijk = Ij;
+            if Ijk < mi {
+                k_t0_density.delta.0 += target_density.delta.0;
+                continue;
+            } 
+            let idx = Ijk - mi;
+            if idx >= k_t0_density.func.len(){
+                k_t0_density.delta.1 += target_density.delta.0;
+            } else {
+                k_t0_density.func[idx] += target_density.delta.0 / bin_size;
+            }
+        }
 
-                // right
-                let new_I = m1.min(m2 + pk.index_s);
-                P_I_given_old_I_line[new_I] += k_dist.delta.1 * delta_factor;
+        // delta left 
+        for mi in 0..len{
+            let Ijk = Ij + idx_s;
+            if Ijk < mi {
+                k_t0_density.delta.0 += target_density.delta.1;
+                continue;
+            } 
+            let idx = Ijk - mi;
+            if idx >= k_t0_density.func.len(){
+                k_t0_density.delta.1 += target_density.delta.1;
+            } else {
+                k_t0_density.func[idx] += target_density.delta.1 / bin_size;
             }
         }
     }
-    dbg!(pk.index_s);
-    normalize_prob_matrix(&mut P_I_given_old_I, pk.bin_size);
 
-    /// TODO: The resulting vector contains an off by one error - the discontinuity is off by one!
-    let mut I_check = vec![0.0; prob_Ij.len()];
-    for (vec, prob) in P_I_given_old_I.iter().zip(prob_Ii){
-        let prob = prob * pk.bin_size;
-        for (res, part) in I_check.iter_mut().zip(vec.iter())
-        {
-            *res += part * prob;
-        }
+    k_t0_given_Ij0.iter_mut()
+        .for_each(
+            |den| den.normalize(bin_size)
+        );
+
+    let mut sanity = pk.k_density.create_zeroed();
+    for density in k_t0_given_Ij0.iter(){
+        sanity.func.iter_mut()
+            .zip(density.func.iter())
+            .for_each(
+                |(a, b)|
+                {
+                    *a += b;
+                }
+            );
+
+        sanity.delta.0 += density.delta.0;
+        sanity.delta.1 += density.delta.1;
     }
+    sanity.normalize(bin_size);
+    sanity.write("scrached", bin_size, pk.s);
 
-    write_I(&I_check, pk.bin_size, "this_test.dat");
 
-    P_I_given_old_I
+    todo!()
 }
 
 fn master_ansatz_k(
@@ -1175,7 +1110,7 @@ fn master_ansatz_k(
     let mut delta_right = 0.2;
 
     let guess_height = (1.0-delta_left-delta_right)/s;
-    let mut k_guess = vec![guess_height; index_s + 1]; /// TODO After optimizing I want to check if removing the 1 here improves the results. 
+    let mut k_guess = vec![guess_height; index_s]; /// TODO After optimizing I want to check if removing the 1 here improves the results. 
     /// I want to do this after optimizing, because it leads to off by one errors in the code elsewhere, i.e., runtime errors currently
 
     let mut k_result = vec![0.0; k_guess.len()];
@@ -1257,10 +1192,11 @@ fn master_ansatz_k(
         delta_right = delta_right_input;
 
         if difference <= threshold { 
-            let density = ProbabilityDensity{
+            let mut density = ProbabilityDensity{
                 func: k_result,
                 delta: (delta_left, delta_right)
             };
+            density.normalize(bin_size);
             return Pk{
                 k_density: density,
                 bin_size,
