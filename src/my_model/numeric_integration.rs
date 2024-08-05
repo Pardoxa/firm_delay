@@ -988,13 +988,18 @@ fn master_ansatz_i_test(
         );
     target_density.delta.0 *= const_against_large_numbers;
     target_density.delta.1 *= const_against_large_numbers;
+
+    let mut Ii_given_Ij = vec![vec![0.0; len]; len];
     
 
     for (Ij, k_t0_density) in k_t0_given_Ij0.iter_mut().enumerate(){
+        let Ii_given_Ij_line = Ii_given_Ij[Ij].as_mut_slice();
         for (prev_k, prob_prev_k) in target_density.func.iter().enumerate(){
             let Ijk = Ij + prev_k;
 
             for mi in 0..len{
+                let this_Ii = Ijk.min(mi);
+                Ii_given_Ij_line[this_Ii] += prob_prev_k;
                 if Ijk < mi {
                     k_t0_density.delta.0 += prob_prev_k * bin_size;
 
@@ -1012,6 +1017,8 @@ fn master_ansatz_i_test(
         // delta left 
         for mi in 0..len{
             let Ijk = Ij;
+            let this_Ii = Ijk.min(mi);
+            Ii_given_Ij_line[this_Ii] += target_density.delta.0 / bin_size;
             if Ijk < mi {
                 k_t0_density.delta.0 += target_density.delta.0;
                 continue;
@@ -1027,6 +1034,8 @@ fn master_ansatz_i_test(
         // delta left 
         for mi in 0..len{
             let Ijk = Ij + idx_s;
+            let this_Ii = Ijk.min(mi);
+            Ii_given_Ij_line[this_Ii] += target_density.delta.0 / bin_size;
             if Ijk < mi {
                 k_t0_density.delta.0 += target_density.delta.1;
                 continue;
@@ -1061,6 +1070,145 @@ fn master_ansatz_i_test(
     }
     sanity.normalize(bin_size);
     sanity.write("scrached", bin_size, pk.s);
+
+    normalize_prob_matrix(&mut Ii_given_Ij, bin_size);
+
+    let mut i_sanity = vec![0.0; len];
+    for line in Ii_given_Ij.iter(){
+        i_sanity.iter_mut()
+            .zip(line)
+            .for_each(
+                |(a,b)|
+                *a += b
+            );
+    }
+    normalize_vec(&mut i_sanity, bin_size);
+    write_I(&i_sanity, bin_size, "i_sanity.dat");
+
+    
+
+    let factor = 1.0 / len as f64;
+
+    let mut Ii_given_prev_Ij = vec![vec![0.0; len]; len];
+    for prev_Ij in (0..len).progress(){
+        let k_density = &k_t0_given_Ij0[prev_Ij];
+        let Ii_given_prev_Ij_line = Ii_given_prev_Ij[prev_Ij].as_mut_slice();
+        for (k_idx, k_prob) in k_density.func.iter().enumerate(){
+            let level2_prob = k_prob * factor;
+            let level3_prob = level2_prob * factor;
+            for this_Ij in 0..len{
+                let kIj = this_Ij + k_idx;
+                let right = kIj.min(len);
+                
+                let remaining = len - right;
+                let remaining_f64 = remaining as f64;
+
+                // mi < kIj
+                Ii_given_prev_Ij_line[0..right]
+                    .iter_mut()
+                    .for_each(
+                        |val| *val += level3_prob
+                    );
+
+                // mi >= kIj
+                if remaining > 0{
+                    Ii_given_prev_Ij_line[kIj] += level3_prob * remaining_f64;
+                }
+            
+            }
+        }
+
+        // delta left 
+        let increment: f64 = k_density.delta.0 * factor * factor / bin_size;
+        for this_Ij in 0..len {
+            let kIj = this_Ij;
+            let right = kIj.min(len);
+            
+            let remaining = len - right;
+            let remaining_f64 = remaining as f64;
+
+            // mi < kIj
+            Ii_given_prev_Ij_line[0..right]
+                .iter_mut()
+                .for_each(
+                    |val| *val += increment
+                );
+
+            // mi >= kIj
+            if remaining > 0{
+                Ii_given_prev_Ij_line[kIj] += increment * remaining_f64;
+            }
+        }
+
+        // delta right 
+        let increment: f64 = k_density.delta.1 * factor * factor / bin_size;
+        for this_Ij in 0..len {
+            let kIj = this_Ij + idx_s;
+            let right = kIj.min(len);
+            
+            let remaining = len - right;
+            let remaining_f64 = remaining as f64;
+
+            // mi < kIj
+            Ii_given_prev_Ij_line[0..right]
+                .iter_mut()
+                .for_each(
+                    |val| *val += increment
+                );
+
+            // mi >= kIj
+            if remaining > 0{
+                Ii_given_prev_Ij_line[kIj] += increment * remaining_f64;
+            }
+        }
+
+    }
+
+    normalize_prob_matrix(&mut Ii_given_prev_Ij, bin_size);
+
+    let mut sanity_Ii = vec![0.0; len];
+    for line in Ii_given_prev_Ij.iter()
+    {
+        sanity_Ii.iter_mut()
+            .zip(line)
+            .for_each(
+                |(a,b)|
+                {
+                    *a += const_against_large_numbers * b;
+                }
+            );
+    }
+    normalize_vec(&mut sanity_Ii, bin_size);
+
+    write_I(&sanity_Ii, bin_size, "sanity_Ii.dat");
+
+    let mut Ii_given_pre_Ii = vec![vec![0.0; len]; len];
+
+    for prev_Ij in 0..len {
+        let this_Ii_given_prev_Ij_slice = Ii_given_prev_Ij[prev_Ij].as_slice();
+        let prev_Ii_given_prev_Ij_slice = Ii_given_Ij[prev_Ij].as_slice();
+        for (prev_Ii, prev_Ii_prob) in prev_Ii_given_prev_Ij_slice.iter().enumerate(){
+            let Ii_given_prev_Ii_line = Ii_given_pre_Ii[prev_Ii].as_mut_slice();
+            for (this_Ii, this_Ii_prob) in this_Ii_given_prev_Ij_slice.iter().enumerate(){
+                Ii_given_prev_Ii_line[this_Ii] += prev_Ii_prob * this_Ii_prob * const_against_large_numbers;
+            }
+        }
+    }
+
+    normalize_prob_matrix(&mut Ii_given_pre_Ii, bin_size);
+
+    let mut sanity_next = vec![0.0; len];
+    for (prev_Ii, prev_Ii_prob) in Ii_given_pre_Ii.iter().zip(prob_Ii)
+    {
+        sanity_next
+            .iter_mut()
+            .zip(prev_Ii)
+            .for_each(
+                |(a,b)|
+                *a += b * prev_Ii_prob * bin_size
+            );
+    }
+    write_I(&sanity_next, bin_size, "sanity_next.dat");
 
 
     todo!()
