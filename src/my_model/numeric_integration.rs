@@ -967,6 +967,13 @@ fn calk_k_master_test(
 
 }
 
+#[derive(Clone)]
+struct Ii_given_k {
+    delta_left: Vec<f64>,
+    delta_right: Vec<f64>,
+    func: Vec<Vec<f64>>
+}
+
 /// For now only for N-2
 /// this assumes that J (jump prob) is not dependent on k
 #[allow(non_snake_case)]
@@ -978,7 +985,116 @@ fn master_ansatz_i_test(
     let len = prob_Ii.len();
     let idx_s = pk.index_s;
     let bin_size = pk.bin_size;
-    let mut k_t0_given_Ij0 = vec![pk.k_density.create_zeroed(); len];
+
+    let mut Ii_given_k = Ii_given_k{
+        delta_left: vec![0.0; len],
+        delta_right: vec![0.0; len],
+        func: vec![vec![0.0; len]; pk.k_density.func.len()]
+    };
+
+    let len_recip = (len as f64).recip();
+    let len_recip2 = len_recip * len_recip;
+    for (k, Ii) in Ii_given_k.func.iter_mut().enumerate()
+    {
+        // Ij is independent of k here, thank god
+        // (its uniform)
+        for Ij in 0..len {
+            let kIj = k + Ij;
+            let right = kIj.min(len);
+            Ii[..right]
+                .iter_mut()
+                .for_each(
+                    |entry|
+                    {
+                        *entry += len_recip2;
+                    }
+                );
+            let remaining = len - right;
+            if remaining > 0{
+                Ii[kIj] += len_recip2 * remaining as f64;
+            }
+        }
+    }
+
+    // delta left 
+    for Ij in 0..len {
+        let kIj = Ij;
+        let right = kIj.min(len);
+        Ii_given_k.delta_left[..right]
+            .iter_mut()
+            .for_each(
+                |entry|
+                {
+                    *entry += len_recip2;
+                }
+            );
+        let remaining = len - right;
+        if remaining > 0{
+            Ii_given_k.delta_left[kIj] += len_recip2 * remaining as f64;
+        }
+    }
+
+    // delta right 
+    for Ij in 0..len {
+        let kIj = Ij + idx_s;
+        let right = kIj.min(len);
+        Ii_given_k.delta_right[..right]
+            .iter_mut()
+            .for_each(
+                |entry|
+                {
+                    *entry += len_recip2;
+                }
+            );
+        let remaining = len - right;
+        if remaining > 0{
+            Ii_given_k.delta_right[kIj] += len_recip2 * remaining as f64;
+        }
+    }
+
+    normalize_prob_matrix(&mut Ii_given_k.func, bin_size);
+    normalize_vec(&mut Ii_given_k.delta_left, bin_size);
+    normalize_vec(&mut Ii_given_k.delta_right, bin_size);
+
+    let mut  sanity_check = vec![0.0; len];
+
+    for (prob, vec) in pk.k_density.func.iter().zip(Ii_given_k.func.iter())
+    {
+        let prob = prob * bin_size;
+        sanity_check.iter_mut()
+            .zip(vec)
+            .for_each(
+                |(a,b)|
+                {
+                    *a += b * prob;
+                }
+            );
+    }
+
+    let prob = pk.k_density.delta.0;
+    sanity_check.iter_mut()
+        .zip(Ii_given_k.delta_left.iter())
+        .for_each(
+            |(a,b)|
+            {
+                *a += b * prob;
+            }
+        );
+    let prob = pk.k_density.delta.1;
+    sanity_check.iter_mut()
+        .zip(Ii_given_k.delta_right.iter())
+        .for_each(
+            |(a,b)|
+            {
+                *a += b * prob;
+            }
+        );
+
+    normalize_vec(&mut sanity_check, bin_size);
+
+    write_I(&sanity_check, bin_size, "sanity_gone.dat");
+
+    /*let mut k_t0_given_Ij0 = vec![pk.k_density.create_zeroed(); len];
 
     let mut target_density = pk.k_density.clone();
     let const_against_large_numbers = 0.00001;
@@ -1182,6 +1298,8 @@ fn master_ansatz_i_test(
 
     write_I(&sanity_Ii, bin_size, "sanity_Ii.dat");
 
+
+
     let mut Ii_given_pre_Ii = vec![vec![0.0; len]; len];
 
     for prev_Ij in 0..len {
@@ -1209,7 +1327,7 @@ fn master_ansatz_i_test(
             );
     }
     write_I(&sanity_next, bin_size, "sanity_next.dat");
-
+    */
 
     todo!()
 }
