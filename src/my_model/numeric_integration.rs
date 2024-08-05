@@ -75,6 +75,9 @@ pub fn line_test(input: ModelInput)
             let production_N1 = calc_I(&pk_N1, &production_N0, counter); 
             write_I(&production_N1, pk_N1.bin_size, "I_2_bla1.dat");
 
+
+
+
             let P_I_N1_given_prior_I_N1 = master_ansatz_i_test(&pk_N1, &production_N0, &production_N1);
 
             let (pk_N2_given_I_N1, pk_N2) = calk_k_master_test(
@@ -84,7 +87,10 @@ pub fn line_test(input: ModelInput)
                 1e-6
             );
 
+
+
             pk_N2.write("pk_N2_res", pk_N1.bin_size, input.s);
+
             let save_state = SaveState{
                 input,
                 pkij_given_pre_Ij: pk_N2_given_I_N1,
@@ -123,7 +129,7 @@ pub fn line_test(input: ModelInput)
 
         let name_I = format!("I_{i}_bla1.dat");
         write_I(&calc_result.I2_density, save_state.bin_size, &name_I);
-    
+        panic!("TEST PANIC");
         let pk = Pk{
             bin_size: save_state.bin_size,
             k_density: save_state.pk_N2,
@@ -342,14 +348,14 @@ fn calc_next_test(
 
     // checking if it is correct
     let mut pre_I1_sanity_check = vec![0.0; I_N1.len()];
-    for (line, prob_density) in pre_I1_given_I1.iter().zip(I_N1.iter())
+    for (line, prob_density) in I1_given_pre_I1.iter().zip(I_N1.iter())
     {
         let prob = prob_density * bin_size;
         pre_I1_sanity_check.iter_mut()
             .zip(line)
             .for_each(
                 |(pre, line_entry)| *pre += line_entry * prob
-            )
+            );
     }
 
     let mut buf = create_buf_with_command_and_version("Sanity_check.dat");
@@ -966,15 +972,15 @@ fn calk_k_master_test(
 #[allow(non_snake_case)]
 fn master_ansatz_i_test(
     pk: &Pk,
-    prob_prior_I: &[f64],
-    prob_I_after: &[f64]
+    prob_Ij: &[f64],
+    prob_Ii: &[f64]
 ) -> Vec<Vec<f64>>
 {
     // Given I(t) I want to know P_I(t+1)
     // For this I first calculate:
     //      given I(t) what is P_k(t)
 
-    let mut Ik_matr = vec![ProbabilityDensity::new_zeroed(pk.len()); prob_prior_I.len()];
+    let mut Ik_matr = vec![ProbabilityDensity::new_zeroed(pk.len()); prob_Ij.len()];
 
     let factor = 1.0 / (pk.len_of_1 * pk.len_of_1) as f64;
     /// TODO: Check if the below is correct or if I miss a correlation here!
@@ -1058,7 +1064,7 @@ fn master_ansatz_i_test(
     
 
     let mut resulting_prob = ProbabilityDensity::new_zeroed(pk.len());
-    for (ik_vec, i_prob) in Ik_matr.iter().zip(prob_I_after){
+    for (ik_vec, i_prob) in Ik_matr.iter().zip(prob_Ii){
         for (k_val, res) in ik_vec.func.iter().zip(resulting_prob.func.iter_mut())
         {
             *res += i_prob * k_val;
@@ -1067,43 +1073,60 @@ fn master_ansatz_i_test(
         resulting_prob.delta.1 += i_prob * ik_vec.delta.1;
     }
 
-    let mut P_I_given_old_I = vec![vec![0.0; prob_prior_I.len()]; Ik_matr.len()];
+    let mut P_I_given_old_I = vec![vec![0.0; prob_Ij.len()]; Ik_matr.len()];
     let factor = 1.0 / (Ik_matr.len() * Ik_matr.len()) as f64;
+    let delta_factor = factor / pk.bin_size;
+    let len = Ik_matr.len();
     for (old_i_index, k_dist) in Ik_matr.iter().enumerate().progress()
     {
+        let P_I_given_old_I_line = P_I_given_old_I[old_i_index].as_mut_slice();
         for (k_index, k_prob_dens) in k_dist.func.iter().enumerate(){
             let probability_density_increment = k_prob_dens * factor;
-            for m1 in 0..Ik_matr.len(){
-                for m2 in 0..Ik_matr.len(){
-    
-                    let new_I = m1.min(m2 + k_index);
-                    P_I_given_old_I[old_i_index][new_I] += probability_density_increment;
+            
+            for m2 in 0..Ik_matr.len(){
+
+                let m2K = m2 + k_index;
+
+                let right = len.min(m2K);
+                
+                P_I_given_old_I_line[0..right]
+                    .iter_mut()
+                    .for_each(
+                        |val| *val += probability_density_increment
+                    );
+                let remaining = Ik_matr.len() - right;
+                if remaining > 0 {
+                    P_I_given_old_I_line[m2K] += probability_density_increment * remaining as f64;
                 }
             }
         }
-
 
         for m1 in 0..Ik_matr.len(){
             for m2 in 0..Ik_matr.len(){
                 // left 
                 let new_I = m1.min(m2);
-                P_I_given_old_I[old_i_index][new_I] += k_dist.delta.0 * factor / pk.bin_size; // TODO: Correct factor was not checked yet, might be something else!
+                P_I_given_old_I_line[new_I] += k_dist.delta.0 * delta_factor;
 
                 // right
                 let new_I = m1.min(m2 + pk.index_s);
-                P_I_given_old_I[old_i_index][new_I] += k_dist.delta.1 * factor / pk.bin_size; // TODO: Correct factor was not checked yet, might be something else!
+                P_I_given_old_I_line[new_I] += k_dist.delta.1 * delta_factor;
             }
         }
     }
+    dbg!(pk.index_s);
+    normalize_prob_matrix(&mut P_I_given_old_I, pk.bin_size);
 
     /// TODO: The resulting vector contains an off by one error - the discontinuity is off by one!
-    let mut I_check = vec![0.0; prob_prior_I.len()];
-    for (vec, prob) in P_I_given_old_I.iter().zip(prob_I_after){
+    let mut I_check = vec![0.0; prob_Ij.len()];
+    for (vec, prob) in P_I_given_old_I.iter().zip(prob_Ii){
+        let prob = prob * pk.bin_size;
         for (res, part) in I_check.iter_mut().zip(vec.iter())
         {
             *res += part * prob;
         }
     }
+
+    write_I(&I_check, pk.bin_size, "this_test.dat");
 
     P_I_given_old_I
 }
@@ -1115,8 +1138,8 @@ fn master_ansatz_k(
 )-> Pk
 {
     let len = a.len();
-    let index_s = (s * (len - 1) as f64).floor() as usize;
     let bin_size = ((len) as f64).recip();
+    let index_s = (s / bin_size).ceil() as usize;
 
     let i_len = len as isize;
 
@@ -1265,7 +1288,7 @@ fn calc_I(
             |x|
             {
                 let mut integral = 0.0;
-                let start = if x < pk.len_of_1-1{
+                let start = if x < pk.len_of_1 {
                     0
                 } else {
                     x - (pk.len_of_1 - 1)
@@ -1370,8 +1393,8 @@ fn calc_I(
     }
 
     //let mut derivative = sampling::glue::derivative::derivative(&prob[..pk.len_of_1]);
-    let derivative_left = sampling::glue::derivative::derivative(&prob[..=pk.index_s]);
-    let derivative_right = sampling::glue::derivative::derivative(&prob[pk.index_s+1..pk.len_of_1]);
+    let derivative_left = sampling::glue::derivative::derivative(&prob[..pk.index_s]);
+    let derivative_right = sampling::glue::derivative::derivative(&prob[pk.index_s..pk.len_of_1]);
     let mut derivative = derivative_left;
     derivative.extend_from_slice(&derivative_right);
 
