@@ -1392,6 +1392,38 @@ fn master_ansatz_i_test(
     normalize_prob_matrix(&mut Ii_given_prev_k_delta_left_and_this_Ij, bin_size);
     normalize_prob_matrix(&mut Ii_given_prev_k_delta_right_and_this_Ij, bin_size);
 
+    let mut inter_sanity_check = vec![0.0; len];
+
+    for (prev_k_dens, Ii_given_k) in pk.k_density.func.iter().zip(Ii_given_prev_k_and_this_Ij.iter())
+    {
+        let prob = prev_k_dens * bin_size * len_recip;
+        for Ii_given_k_and_Ij in Ii_given_k.iter(){
+            inter_sanity_check.iter_mut()
+                .zip(Ii_given_k_and_Ij)
+                .for_each(
+                    |(a,b)| *a += b * prob
+                );
+        }
+    }
+    let prob = pk.k_density.delta.0 * len_recip;
+    for Ii in Ii_given_prev_k_delta_left_and_this_Ij.iter(){
+        inter_sanity_check.iter_mut()
+            .zip(Ii)
+            .for_each(
+                |(a,b)| *a += b * prob
+            );
+    }
+    let prob = pk.k_density.delta.1 * len_recip;
+    for Ii in Ii_given_prev_k_delta_right_and_this_Ij.iter(){
+        inter_sanity_check.iter_mut()
+            .zip(Ii)
+            .for_each(
+                |(a,b)| *a += b * prob
+            );
+    }
+    normalize_vec(&mut inter_sanity_check, bin_size);
+    write_I(&inter_sanity_check, bin_size, "inter_sanity.dat");
+
 
     let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
 
