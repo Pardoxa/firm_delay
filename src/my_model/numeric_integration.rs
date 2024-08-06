@@ -202,7 +202,7 @@ impl Pk{
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ProbabilityDensity{
     pub func: Vec<f64>,
     pub delta: (f64, f64)
@@ -1100,14 +1100,150 @@ fn master_ansatz_i_test(
     let mut kij_given_prev_k_delta_right_and_this_Ij = vec![pk.k_density.create_zeroed(); len];
 
 
+    // func
     for (prev_k, kij_given_prev_k_Ij_unknown) in kij_given_prev_k_and_this_Ij.iter_mut().enumerate(){
         for (this_Ij, resulting_k_density) in kij_given_prev_k_Ij_unknown.iter_mut().enumerate()
         {
-            for mi in 0..len{
-
+            let kIj = prev_k + this_Ij;
+            if kIj+1 < len {
+                let range_delta_left = kIj+1..len;
+                let length = range_delta_left.len();
+                resulting_k_density.delta.0 += len_recip * length as f64 * bin_size;
+            }
+            let start = if kIj >= idx_s{
+                let end = kIj - idx_s;
+                //let range_delta_right = 0..=end;
+                let length = end + 1;
+                resulting_k_density.delta.1 += len_recip * length as f64 * bin_size;
+                end + 1
+            } else {
+                0
+            };
+            let end = kIj.min(len - 1);
+            let range = start..=end;
+            for mi in range{ // Optimizable
+                let k = kIj - mi;
+                resulting_k_density.func[k] += len_recip;
             }
         }
     }
+
+    // delta left
+    for (this_Ij, resulting_k_density) in kij_given_prev_k_delta_left_and_this_Ij.iter_mut().enumerate()
+    {
+        let kIj = this_Ij; // prev_k is 0
+        if kIj+1 < len {
+            let range_delta_left = kIj+1..len;
+            let length = range_delta_left.len();
+            resulting_k_density.delta.0 += len_recip * length as f64 * bin_size;
+        }
+        let start = if kIj >= idx_s{
+            let end = kIj - idx_s;
+            //let range_delta_right = 0..=end;
+            let length = end + 1;
+            resulting_k_density.delta.1 += len_recip * length as f64 * bin_size;
+            end + 1
+        } else {
+            0
+        };
+        let end = kIj.min(len - 1);
+        let range = start..=end;
+        for mi in range{ // Optimizable
+            let k = kIj - mi;
+            resulting_k_density.func[k] += len_recip;
+        }
+    }
+
+    // delta right
+    for (this_Ij, resulting_k_density) in kij_given_prev_k_delta_right_and_this_Ij.iter_mut().enumerate()
+    {
+        let kIj = this_Ij + idx_s;
+        if kIj+1 < len {
+            let range_delta_left = kIj+1..len;
+            let length = range_delta_left.len();
+            resulting_k_density.delta.0 += len_recip * length as f64 * bin_size;
+        }
+        let start = if kIj >= idx_s{
+            let end = kIj - idx_s;
+            //let range_delta_right = 0..=end;
+            let length = end + 1;
+            resulting_k_density.delta.1 += len_recip * length as f64 * bin_size;
+            end + 1
+        } else {
+            0
+        };
+        let end = kIj.min(len - 1);
+        let range = start..=end;
+        for mi in range{ // Optimizable
+            let k = kIj - mi;
+            resulting_k_density.func[k] += len_recip;
+        }
+    }
+
+    let mut sanity_check_k = pk.k_density.create_zeroed();
+
+    for (k_density, matr) in pk.k_density.func.iter().zip(kij_given_prev_k_and_this_Ij.iter())
+    {
+        let k_prob = k_density * bin_size;
+        let prob = k_prob * len_recip;
+        // all in line have same weight because Ij is uniform
+        for line in matr{
+            sanity_check_k.func
+                .iter_mut()
+                .zip(line.func.iter())
+                .for_each(
+                    |(a,b)|
+                    {
+                        *a += b * prob;
+                    }
+                );
+            
+            sanity_check_k.delta.0 += line.delta.0 * prob;
+            sanity_check_k.delta.1 += line.delta.1 * prob;
+        }
+    }
+    {
+        // delta left
+        let k_prob = pk.k_density.delta.0;
+        let prob = k_prob * len_recip;
+        // all in line have same weight because Ij is uniform
+        for line in kij_given_prev_k_delta_left_and_this_Ij.iter(){
+            sanity_check_k.func
+                .iter_mut()
+                .zip(line.func.iter())
+                .for_each(
+                    |(a,b)|
+                    {
+                        *a += b * prob;
+                    }
+                );
+            
+            sanity_check_k.delta.0 += line.delta.0 * prob;
+            sanity_check_k.delta.1 += line.delta.1 * prob;
+        }
+    }
+    {
+        // delta right 
+        let k_prob = pk.k_density.delta.1;
+        let prob = k_prob * len_recip;
+        // all in line have same weight because Ij is uniform
+        for line in kij_given_prev_k_delta_right_and_this_Ij.iter(){
+            sanity_check_k.func
+                .iter_mut()
+                .zip(line.func.iter())
+                .for_each(
+                    |(a,b)|
+                    {
+                        *a += b * prob;
+                    }
+                );
+            
+            sanity_check_k.delta.0 += line.delta.0 * prob;
+            sanity_check_k.delta.1 += line.delta.1 * prob;
+        }
+    }
+    sanity_check_k.normalize(bin_size);
+    sanity_check_k.write("check_k", bin_size, pk.s);
 
     let mut Ii_given_prev_k_and_this_Ij = vec![vec![vec![0.0; len]; len]; pk.k_density.func.len()];
     let mut Ii_given_prev_k_delta_left_and_this_Ij = vec![vec![0.0; len]; len];
@@ -1121,6 +1257,7 @@ fn master_ansatz_i_test(
         .enumerate()
         .progress();
 
+    println!("Calculating Ii given prev k and Ij");
     iter.for_each(
         |(prev_k, (prev_k_density, Ii_given_prev_k_and_this_Ij_matr))|
         {
@@ -1131,9 +1268,17 @@ fn master_ansatz_i_test(
                     for (k_idx, k_prob) in k_density.func.iter().enumerate(){
                         let prob_level_1 = len_recip2 * k_prob * prev_k_prob;
                         let kIj = next_Ij + k_idx;
-                        for mi in 0..len{
-                            let next_Ii = mi.min(kIj);
-                            Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob_level_1;
+
+                        let right = kIj.min(len);
+                        Ii_given_prev_k_and_this_Ij_line[..right]
+                            .iter_mut()
+                            .for_each(
+                                |a|
+                                *a += prob_level_1
+                            );
+                        let remaining = len - right;
+                        if remaining > 0 {
+                            Ii_given_prev_k_and_this_Ij_line[kIj] += prob_level_1 * remaining as f64;
                         }
                     }
     
@@ -1156,6 +1301,8 @@ fn master_ansatz_i_test(
             }
         }
     );
+
+    println!("Calculating prev delta left");
     // prev delta left
     let prev_k_prob = pk.k_density.delta.0;
     for (_this_Ij, k_density) in kij_given_prev_k_delta_left_and_this_Ij.iter().enumerate(){
@@ -1164,9 +1311,16 @@ fn master_ansatz_i_test(
             for (k_idx, k_prob) in k_density.func.iter().enumerate(){
                 let prob_level_1 = len_recip2 * k_prob * prev_k_prob;
                 let kIj = next_Ij + k_idx;
-                for mi in 0..len{
-                    let next_Ii = mi.min(kIj);
-                    Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob_level_1;
+                let right = kIj.min(len);
+                Ii_given_prev_k_and_this_Ij_line[..right]
+                    .iter_mut()
+                    .for_each(
+                        |a|
+                        *a += prob_level_1
+                    );
+                let remaining = len - right;
+                if remaining > 0 {
+                    Ii_given_prev_k_and_this_Ij_line[kIj] += prob_level_1 * remaining as f64;
                 }
             }
 
@@ -1187,7 +1341,7 @@ fn master_ansatz_i_test(
             }
         }
     }
-
+    println!("Calculating prev delta right");
     // prev delta right
     let prev_k_prob = pk.k_density.delta.1;
     for (_this_Ij, k_density) in kij_given_prev_k_delta_right_and_this_Ij.iter().enumerate(){
@@ -1196,9 +1350,16 @@ fn master_ansatz_i_test(
             for (k_idx, k_prob) in k_density.func.iter().enumerate(){
                 let prob_level_1 = len_recip2 * k_prob * prev_k_prob;
                 let kIj = next_Ij + k_idx;
-                for mi in 0..len{
-                    let next_Ii = mi.min(kIj);
-                    Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob_level_1;
+                let right = kIj.min(len);
+                Ii_given_prev_k_and_this_Ij_line[..right]
+                    .iter_mut()
+                    .for_each(
+                        |a|
+                        *a += prob_level_1
+                    );
+                let remaining = len - right;
+                if remaining > 0 {
+                    Ii_given_prev_k_and_this_Ij_line[kIj] += prob_level_1 * remaining as f64;
                 }
             }
 
@@ -1234,9 +1395,12 @@ fn master_ansatz_i_test(
 
     let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
 
+    println!("Calculating Ii given prev Ii");
+
     let iter = Ii_given_prev_k_and_this_Ij.iter()
         .zip(pk.k_density.func.iter())
-        .enumerate();
+        .enumerate()
+        .progress();
 
     for (prev_k, (Ii_given_prev_k_and_this_Ij_matr, prev_k_density)) in iter
     {
