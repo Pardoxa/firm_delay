@@ -1,6 +1,7 @@
 use std::{io::BufReader, num::NonZeroUsize, time::Duration};
 use indicatif::ProgressIterator;
 use itertools::*;
+use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use derivative::Derivative;
 use std::io::Write;
@@ -1093,6 +1094,134 @@ fn master_ansatz_i_test(
     normalize_vec(&mut sanity_check, bin_size);
 
     write_I(&sanity_check, bin_size, "sanity_gone.dat");
+
+    let mut kij_given_prev_k_and_this_Ij = vec![vec![pk.k_density.create_zeroed(); len]; pk.k_density.func.len()];
+    let mut kij_given_prev_k_delta_left_and_this_Ij = vec![pk.k_density.create_zeroed(); len];
+    let mut kij_given_prev_k_delta_right_and_this_Ij = vec![pk.k_density.create_zeroed(); len];
+
+
+    for (prev_k, kij_given_prev_k_Ij_unknown) in kij_given_prev_k_and_this_Ij.iter_mut().enumerate(){
+        for (this_Ij, resulting_k_density) in kij_given_prev_k_Ij_unknown.iter_mut().enumerate()
+        {
+            for mi in 0..len{
+
+            }
+        }
+    }
+
+    let mut Ii_given_prev_k_and_this_Ij = vec![vec![vec![0.0; len]; len]; pk.k_density.func.len()];
+    let mut Ii_given_prev_k_delta_left_and_this_Ij = vec![vec![0.0; len]; len];
+    let mut Ii_given_prev_k_delta_right_and_this_Ij = vec![vec![0.0; len]; len];
+
+    for (prev_k, prev_k_density) in pk.k_density.func.iter().enumerate().progress(){
+        let prev_k_prob = prev_k_density * bin_size;
+        let Ii_given_prev_k_and_this_Ij_matr = Ii_given_prev_k_and_this_Ij[prev_k].as_mut_slice();
+        for this_Ij in 0..len{
+            let k_density = &kij_given_prev_k_and_this_Ij[prev_k][this_Ij];
+            for (next_Ij, Ii_given_prev_k_and_this_Ij_line) in Ii_given_prev_k_and_this_Ij_matr.iter_mut().enumerate(){
+                for (k_idx, k_prob) in k_density.func.iter().enumerate(){
+                    let prob_level_1 = len_recip2 * k_prob * prev_k_prob;
+                    let kIj = next_Ij + k_idx;
+                    for mi in 0..len{
+                        let next_Ii = mi.min(kIj);
+                        Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob_level_1;
+                    }
+                }
+
+                // delta left
+                let prob = len_recip2 * k_density.delta.0 * prev_k_prob / bin_size;
+                let kIj = next_Ij; // k = 0
+                for mi in 0..len{
+                    let next_Ii = mi.min(kIj);
+                    Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob;
+                }
+
+                // delta right
+                let prob = len_recip2 * k_density.delta.1 * prev_k_prob / bin_size;
+                let kIj = next_Ij + idx_s; // k = 0
+                for mi in 0..len{
+                    let next_Ii = mi.min(kIj);
+                    Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob;
+                }
+            }
+        }
+    }
+
+    // prev delta left
+    let prev_k_prob = pk.k_density.delta.0;
+    for (_this_Ij, k_density) in kij_given_prev_k_delta_left_and_this_Ij.iter().enumerate(){
+        let Ii_given_prev_k_and_this_Ij_matr = Ii_given_prev_k_delta_left_and_this_Ij.as_mut_slice();
+        for (next_Ij, Ii_given_prev_k_and_this_Ij_line) in Ii_given_prev_k_and_this_Ij_matr.iter_mut().enumerate(){
+            for (k_idx, k_prob) in k_density.func.iter().enumerate(){
+                let prob_level_1 = len_recip2 * k_prob * prev_k_prob;
+                let kIj = next_Ij + k_idx;
+                for mi in 0..len{
+                    let next_Ii = mi.min(kIj);
+                    Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob_level_1;
+                }
+            }
+
+            // delta left
+            let prob = len_recip2 * k_density.delta.0 * prev_k_prob / bin_size;
+            let kIj = next_Ij; // k = 0
+            for mi in 0..len{
+                let next_Ii = mi.min(kIj);
+                Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob;
+            }
+
+            // delta right
+            let prob = len_recip2 * k_density.delta.1 * prev_k_prob / bin_size;
+            let kIj = next_Ij + idx_s; // k = 0
+            for mi in 0..len{
+                let next_Ii = mi.min(kIj);
+                Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob;
+            }
+        }
+    }
+
+    // prev delta right
+    let prev_k_prob = pk.k_density.delta.1;
+    for (_this_Ij, k_density) in kij_given_prev_k_delta_right_and_this_Ij.iter().enumerate(){
+        let Ii_given_prev_k_and_this_Ij_matr = Ii_given_prev_k_delta_right_and_this_Ij.as_mut_slice();
+        for (next_Ij, Ii_given_prev_k_and_this_Ij_line) in Ii_given_prev_k_and_this_Ij_matr.iter_mut().enumerate(){
+            for (k_idx, k_prob) in k_density.func.iter().enumerate(){
+                let prob_level_1 = len_recip2 * k_prob * prev_k_prob;
+                let kIj = next_Ij + k_idx;
+                for mi in 0..len{
+                    let next_Ii = mi.min(kIj);
+                    Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob_level_1;
+                }
+            }
+
+            // delta left
+            let prob = len_recip2 * k_density.delta.0 * prev_k_prob / bin_size;
+            let kIj = next_Ij; // k = 0
+            for mi in 0..len{
+                let next_Ii = mi.min(kIj);
+                Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob;
+            }
+
+            // delta right
+            let prob = len_recip2 * k_density.delta.1 * prev_k_prob / bin_size;
+            let kIj = next_Ij + idx_s; // k = 0
+            for mi in 0..len{
+                let next_Ii = mi.min(kIj);
+                Ii_given_prev_k_and_this_Ij_line[next_Ii] += prob;
+            }
+        }
+    }
+
+    // normalization
+    Ii_given_prev_k_and_this_Ij.par_iter_mut()
+        .for_each(
+            |matr|
+            {
+                normalize_prob_matrix(matr, bin_size)
+            }
+        );
+    normalize_prob_matrix(&mut Ii_given_prev_k_delta_left_and_this_Ij, bin_size);
+    normalize_prob_matrix(&mut Ii_given_prev_k_delta_right_and_this_Ij, bin_size);
+    
 
     /*let mut k_t0_given_Ij0 = vec![pk.k_density.create_zeroed(); len];
 
