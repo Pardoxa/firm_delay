@@ -1436,12 +1436,12 @@ fn master_ansatz_i_test(
 
     for (prev_k, (Ii_given_prev_k_and_this_Ij_matr, prev_k_density)) in iter
     {
-        let prev_k_prob = bin_size * prev_k_density;
+        let prev_k_prob = prev_k_density;
         for (this_Ij, final_Ii_density) in Ii_given_prev_k_and_this_Ij_matr.iter().enumerate(){
             let prev_kIj = prev_k + this_Ij;
             for m in 0..len {
-                let Ii = m.min(prev_kIj);
-                let Ii_slice = Ii_given_prev_Ii[Ii].as_mut_slice();
+                let prev_Ii = m.min(prev_kIj);
+                let Ii_slice = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
                 Ii_slice.iter_mut()
                     .zip(final_Ii_density)
                     .for_each(
@@ -1455,7 +1455,7 @@ fn master_ansatz_i_test(
     }
 
     // delta left 
-    let prev_k_prob = pk.k_density.delta.0;
+    let prev_k_prob = pk.k_density.delta.0 / bin_size;
     for (this_Ij, final_Ii_density) in Ii_given_prev_k_delta_left_and_this_Ij.iter().enumerate(){
         let prev_kIj = this_Ij; // prev_k = 0
         for m in 0..len {
@@ -1473,8 +1473,8 @@ fn master_ansatz_i_test(
     }
 
     // delta right 
-    let prev_k_prob = pk.k_density.delta.1;
-    for (this_Ij, final_Ii_density) in Ii_given_prev_k_delta_left_and_this_Ij.iter().enumerate(){
+    let prev_k_prob = pk.k_density.delta.1 / bin_size;
+    for (this_Ij, final_Ii_density) in Ii_given_prev_k_delta_right_and_this_Ij.iter().enumerate(){
         let prev_kIj = this_Ij + idx_s;
         for m in 0..len {
             let Ii = m.min(prev_kIj);
