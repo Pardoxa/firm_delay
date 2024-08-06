@@ -1,4 +1,4 @@
-use std::{io::BufReader, num::NonZeroUsize, time::Duration};
+use std::{io::BufReader, num::NonZeroUsize, sync::Mutex, time::Duration};
 use indicatif::{ParallelProgressIterator, ProgressIterator};
 use itertools::*;
 use rayon::prelude::*;
@@ -1334,72 +1334,84 @@ fn master_ansatz_i_test(
     write_I(&another_sanity, bin_size, "another_sanity.dat");
 
 
-    let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
+    let Ii_given_prev_Ii_global = Mutex::new(vec![vec![0.0; len]; len]);
 
-    for (prev_k, k_density) in pk.k_density.func.iter().enumerate().progress()
-    {
-        let prev_k_prob = k_density * bin_size;
-        let prev_k_prob_and_prev_Ij_and_prev_m = prev_k_prob * len_recip2;
-        for prev_Ij in 0..len{
-            let prev_kIj = prev_k + prev_Ij;
-            for m in 0..len{
-                let prev_Ii = m.min(prev_kIj);
-                let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
+    let chunk_vec = pk.k_density
+        .func.iter()
+        .enumerate()
+        .collect_vec();
 
-                let Ii_given_k_slice = if m > prev_kIj{
-                    // delta left 
-                    Ii_given_this_k_delta_left_and_this_Ij.as_slice()
-                } else if prev_kIj - m >= idx_s{
-                    // delta right
-                    &Ii_given_this_k_delta_right_and_this_Ij
-                } else {
-                    let k = prev_kIj - m;
-                    // normal
-                    &Ii_given_this_k_and_this_Ij[k]
-                };
-                
-
-                for next_Ii_density in Ii_given_k_slice.iter(){
-                    // iterating through next_Ij
-                    // for future: If Ij depends upon the previous stuff, insert that here
-                    let prob = prev_k_prob_and_prev_Ij_and_prev_m * len_recip;
-                    res_Ii_vec
-                        .iter_mut()
-                        .zip(next_Ii_density)
-                        .for_each(
-                            |(res, Ii_prob)|
-                            {
-                                *res += Ii_prob * prob
-                            }
-                        );
+    let chunk_size = (chunk_vec.len() as f64 / 24.0).ceil() as usize;
+    chunk_vec.par_chunks(chunk_size)
+        .progress()
+        .for_each(
+        |chunk: &[(usize, &f64)]|
+        {
+            let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
+            for (prev_k, &k_density) in chunk{
+                let prob: f64 = k_density * bin_size * len_recip2;
+                for prev_Ij in 0..len{
+                    let prev_kIj = prev_k + prev_Ij;
+                    for m in 0..len{
+                        let prev_Ii = m.min(prev_kIj);
+                        let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
+                        let other_k = (prev_kIj - prev_Ii).min(idx_s);
+                        let Ii_given_k_slice = Ii_given_this_k_and_this_Ij
+                            .get(other_k)
+                            .unwrap_or(&Ii_given_this_k_delta_right_and_this_Ij);
+        
+                        for next_Ii_density in Ii_given_k_slice.iter(){
+                            // iterating through next_Ij
+                            // for future: If Ij depends upon the previous stuff, insert that here
+                            res_Ii_vec
+                                .iter_mut()
+                                .zip(next_Ii_density)
+                                .for_each(
+                                    |(res, Ii_prob)|
+                                    {
+                                        *res += Ii_prob * prob
+                                    }
+                                );
+                        }
+                    }
                 }
             }
+
+            let mut guard = Ii_given_prev_Ii_global.lock().unwrap();
+            guard.iter_mut()
+                .zip(Ii_given_prev_Ii)
+                .for_each(
+                    |(res, input)|
+                    {
+                        res.iter_mut()
+                            .zip(input)
+                            .for_each(
+                                |(a,b)|
+                                *a += b
+                            );
+                    }
+                );
+            drop(guard);
+            
         }
-    }
+    );
+    let mut Ii_given_prev_Ii = Ii_given_prev_Ii_global.into_inner().unwrap();
     // delta left
     let prev_k_prob = pk.k_density.delta.0;
-    let prev_k_prob_and_prev_Ij_and_prev_m = prev_k_prob * len_recip2;
+    let prob = prev_k_prob * len_recip2;
     for prev_Ij in 0..len{
         let prev_kIj = prev_Ij; // k = 0
         for m in 0..len{
             let prev_Ii = m.min(prev_kIj);
             let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
 
-            let Ii_given_k_slice = if m > prev_kIj{
-                // delta left 
-                Ii_given_this_k_delta_left_and_this_Ij.as_slice()
-            } else if prev_kIj - m >= idx_s{
-                // delta right
-                &Ii_given_this_k_delta_right_and_this_Ij
-            } else {
-                let k = prev_kIj - m;
-                // normal
-                &Ii_given_this_k_and_this_Ij[k]
-            };
+            let other_k = (prev_kIj - prev_Ii).min(idx_s);
+            let Ii_given_k_slice = Ii_given_this_k_and_this_Ij
+                .get(other_k)
+                .unwrap_or(&Ii_given_this_k_delta_right_and_this_Ij);
             for next_Ii_density in Ii_given_k_slice.iter(){
                 // iterating through next_Ij
                 // for future: If Ij depends upon the previous stuff, insert that here
-                let prob = prev_k_prob_and_prev_Ij_and_prev_m * len_recip;
                 res_Ii_vec
                     .iter_mut()
                     .zip(next_Ii_density)
@@ -1414,28 +1426,20 @@ fn master_ansatz_i_test(
     }
     // delta right
     let prev_k_prob = pk.k_density.delta.1;
-    let prev_k_prob_and_prev_Ij_and_prev_m = prev_k_prob * len_recip2;
+    let prob = prev_k_prob * len_recip2;
     for prev_Ij in 0..len{
         let prev_kIj = prev_Ij + idx_s; 
         for m in 0..len{
             let prev_Ii = m.min(prev_kIj);
             let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
 
-            let Ii_given_k_slice = if m > prev_kIj{
-                // delta left 
-                Ii_given_this_k_delta_left_and_this_Ij.as_slice()
-            } else if prev_kIj - m >= idx_s{
-                // delta right
-                &Ii_given_this_k_delta_right_and_this_Ij
-            } else {
-                let k = prev_kIj - m;
-                // normal
-                &Ii_given_this_k_and_this_Ij[k]
-            };
+            let other_k = (prev_kIj - prev_Ii).min(idx_s);
+            let Ii_given_k_slice = Ii_given_this_k_and_this_Ij
+                .get(other_k)
+                .unwrap_or(&Ii_given_this_k_delta_right_and_this_Ij);
             for next_Ii_density in Ii_given_k_slice.iter(){
                 // iterating through next_Ij
                 // for future: If Ij depends upon the previous stuff, insert that here
-                let prob = prev_k_prob_and_prev_Ij_and_prev_m * len_recip;
                 res_Ii_vec
                     .iter_mut()
                     .zip(next_Ii_density)
@@ -1458,7 +1462,7 @@ fn master_ansatz_i_test(
         let prob = prob_density * bin_size;
         sanity_check_final
             .iter_mut()
-                .zip(slice)
+            .zip(slice)
             .for_each(
                 |(a,b)|
                 {
@@ -1466,6 +1470,7 @@ fn master_ansatz_i_test(
                 }
             );
     }
+    write_I(&sanity_check_final, bin_size, "sanity_check_final_non_normalized.dat");
     normalize_vec(&mut sanity_check_final, bin_size);
     write_I(&sanity_check_final, bin_size, "sanity_check_final.dat");
     todo!()   
