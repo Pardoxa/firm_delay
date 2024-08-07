@@ -6,6 +6,7 @@ use serde::{Serialize, Deserialize};
 use derivative::Derivative;
 use std::io::Write;
 use crate::misc::*;
+use std::collections::*;
 
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize, PartialEq)]
@@ -1183,7 +1184,21 @@ fn master_ansatz_i_test(
         .enumerate()
         .collect_vec();
 
-    let chunk_size = (chunk_vec.len() as f64 / 24.0).ceil() as usize;
+    let chunk_size = (chunk_vec.len() as f64 / 12.0).ceil() as usize;
+
+    let agg_counting = |res_Ii_vec: &mut [f64], aggregate: &[f64], prob: f64|
+    {
+        res_Ii_vec
+            .iter_mut()
+            .zip(aggregate)
+            .for_each(
+                |(res, Ii_prob)|
+                {
+                    *res += Ii_prob * prob
+                }
+            );
+    };
+
     chunk_vec.par_chunks(chunk_size)
         .progress()
         .for_each(
@@ -1203,33 +1218,10 @@ fn master_ansatz_i_test(
                         let other_k = (prev_kIj - prev_Ii).min(idx_s);
                         if other_k < idx_s {
                             let ag = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
-                            res_Ii_vec
-                                .iter_mut()
-                                .zip(ag)
-                                .for_each(
-                                    |(res, Ii_prob)|
-                                    {
-                                        *res += Ii_prob * prob
-                                    }
-                                );
+                            agg_counting(res_Ii_vec, ag, prob);
                         } else {
-                            let Ii_given_k_slice = Ii_given_this_k_and_this_Ij
-                                .get(other_k)
-                                .unwrap_or(&Ii_given_this_k_delta_right_and_this_Ij);
-        
-                            for next_Ii_density in Ii_given_k_slice.iter(){
-                                // iterating through next_Ij
-                                // for future: If Ij depends upon the previous stuff, insert that here
-                                res_Ii_vec
-                                    .iter_mut()
-                                    .zip(next_Ii_density)
-                                    .for_each(
-                                        |(res, Ii_prob)|
-                                        {
-                                            *res += Ii_prob * prob
-                                        }
-                                    );
-                            }
+                            let Ii_given_k_slice_agg = &aggregated_Ii_given_this_k_delta_right_and_this_Ij;
+                            agg_counting(res_Ii_vec, Ii_given_k_slice_agg, prob);
                         }
                         
                     }
@@ -1240,24 +1232,9 @@ fn master_ansatz_i_test(
                         let prev_Ii = prev_kIj;
                         let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
                         let other_k = (prev_kIj - prev_Ii).min(idx_s);
-                        let Ii_given_k_slice = Ii_given_this_k_and_this_Ij
-                            .get(other_k)
-                            .unwrap_or(&Ii_given_this_k_delta_right_and_this_Ij);
-        
-                        for next_Ii_density in Ii_given_k_slice.iter(){
-                            // iterating through next_Ij
-                            // for future: If Ij depends upon the previous stuff, insert that here
-                            res_Ii_vec
-                                .iter_mut()
-                                .zip(next_Ii_density)
-                                .for_each(
-                                    |(res, Ii_prob)|
-                                    {
-                                        *res += Ii_prob * prob
-                                    }
-                                );
-                        }
-                        
+                        let agg = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
+
+                        agg_counting(res_Ii_vec, agg, prob);
                     }
                 }
             }
@@ -1281,10 +1258,13 @@ fn master_ansatz_i_test(
                     );
             }
             drop(guard);
-            
         }
     );
+
     let mut Ii_given_prev_Ii = Ii_given_prev_Ii_global.into_inner().unwrap();
+
+
+
     // delta left
     let prev_k_prob = pk.k_density.delta.0;
     let prob = prev_k_prob * len_recip2;
