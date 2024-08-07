@@ -806,7 +806,7 @@ fn calk_k_master_test(
     {
         // first border exlusive
         let m_range_delta_left = kI.min(len_of_1)..len_of_1;
-        let weight = if m_range_delta_left.contains(&0){
+        let weight = if kI == 0{
             m_range_delta_left.len() - 1
         } else {
             m_range_delta_left.len()
@@ -837,9 +837,8 @@ fn calk_k_master_test(
         dbg!(kI - m_range_mid.end);
         dbg!(&k_range);
         */
-        let w_sum = weight + m_range_delta_right.len() + k_range.len();
-        assert_eq!(
-            w_sum,
+        debug_assert_eq!(
+            weight + m_range_delta_right.len() + k_range.len(),
             len_of_1
         );
         update_k_vec.func[k_range]
