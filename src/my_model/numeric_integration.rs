@@ -815,26 +815,50 @@ fn calk_k_master_test(
                     let probability_increment = k_prob * level_2_prob;
                     let kI = Ij_idx + k;
 
-                    let right_border = kI.min(len_of_1);
-                    if right_border < len_of_1m1
-                    {
-                        let weight = len_of_1m1-right_border;
-                        update_k_vec.delta.0 += probability_increment * weight as f64;
-                    }
-
-                    let left_border = if idx_s >= kI {
-                        0
+                    dbg!(kI);
+                    
+                    // first border exlusive
+                    let m_range_delta_left = kI.min(len_of_1)..len_of_1;
+                    let weight = if m_range_delta_left.contains(&0){
+                        m_range_delta_left.len() - 1
                     } else {
-                        kI - idx_s
+                        m_range_delta_left.len()
                     };
-                    if left_border > 0 {
-                        update_k_vec.delta.1 += probability_increment * left_border as f64;
-                    }
+                    update_k_vec.delta.0 += probability_increment * weight as f64;
 
-                    let new_left = kI-right_border;
-                    let new_right = kI-left_border;
+                    let m_range_delta_right = if kI + 1 >= idx_s{
+                        let end = if kI >= idx_s{
+                            kI - idx_s
+                        } else {
+                            0
+                        };
+                        0..end
+                    } else {
+                        0..0
+                    };
+                    update_k_vec.delta.1 += probability_increment * m_range_delta_right.len() as f64;
 
-                    update_k_vec.func[new_left..=new_right]
+                    let m_range_mid = (m_range_delta_right.end)..m_range_delta_left.start;
+
+                    dbg!(&m_range_delta_left);
+                    dbg!(&m_range_delta_left.len());
+                    dbg!(&m_range_delta_right);
+                    dbg!(&m_range_delta_right.len());
+                    dbg!(&m_range_mid);
+                    dbg!(&m_range_mid.len());
+                    dbg!(kI-m_range_mid.start);
+                    dbg!(kI - m_range_mid.end);
+                    let k_range = (kI-m_range_mid.end)..(kI-m_range_mid.start).max(1);
+                    dbg!(&k_range);
+
+                    let w_sum = weight + m_range_delta_right.len() + k_range.len();
+
+                    assert_eq!(
+                        w_sum,
+                        len_of_1
+                    );
+
+                    update_k_vec.func[k_range]
                         .iter_mut()
                         .for_each(
                             |val| *val += probability_increment
@@ -1534,7 +1558,7 @@ fn master_ansatz_i_test(
     write_I(&sanity_check_final, bin_size, "sanity_check_final_non_normalized.dat");
     normalize_vec(&mut sanity_check_final, bin_size);
     write_I(&sanity_check_final, bin_size, "sanity_check_final.dat");
-    todo!()   
+    Ii_given_prev_Ii 
 }
 
 fn master_ansatz_k(
