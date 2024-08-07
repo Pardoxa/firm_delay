@@ -26,7 +26,7 @@ pub struct ModelInput{
 #[derive(Serialize, Deserialize)]
 pub struct SaveState{
     input: ModelInput,
-    pkij_given_pre_Ij: Vec<ProbabilityDensity>,
+    kij_t0_given_Ij_t0: Vec<ProbabilityDensity>,
     pk_N2: ProbabilityDensity,
     Ij: Vec<f64>,
     Ij_given_pre_Ij: Vec<Vec<f64>>,
@@ -77,9 +77,9 @@ pub fn line_test(input: ModelInput)
             let production_N1 = calc_I(&pk_N1, &production_N0, counter); 
             write_I(&production_N1, pk_N1.bin_size, "I_2_bla1.dat");
 
-            let P_I_N1_given_prior_I_N1 = master_ansatz_i_test(&pk_N1, &production_N1);
+            let P_I_N1_given_prior_I_N1 = master_ansatz_i_Ij_independent(&pk_N1, &production_N1);
 
-            let (pk_N2_given_I_N1, pk_N2) = calk_k_master_test(
+            let (kij_t0_given_Ij_t0, pk_N2) = calk_k_master_test(
                 &pk_N1,
                 &P_I_N1_given_prior_I_N1,
                 &production_N1,
@@ -92,7 +92,7 @@ pub fn line_test(input: ModelInput)
 
             let save_state = SaveState{
                 input,
-                pkij_given_pre_Ij: pk_N2_given_I_N1,
+                kij_t0_given_Ij_t0,
                 Ij: production_N1,
                 Ij_given_pre_Ij: P_I_N1_given_prior_I_N1,
                 len_of_1: pk_N1.len_of_1,
@@ -100,10 +100,10 @@ pub fn line_test(input: ModelInput)
                 idx_s: pk_N1.index_s,
                 pk_N2
             };
-            //let buf = create_buf(save_name);
-            //bincode::serialize_into(buf, &save_state)
-            //    .expect("Serialization Issue");
-            //println!("SAVED");
+            let buf = create_buf(save_name);
+            bincode::serialize_into(buf, &save_state)
+                .expect("Serialization Issue");
+            println!("SAVED");
             save_state
         },
         Some(save_state) => {
@@ -111,59 +111,22 @@ pub fn line_test(input: ModelInput)
         }
     };
 
+    let pk = &Pk { 
+        k_density: save_state.pk_N2, 
+        bin_size: save_state.bin_size, 
+        s: save_state.input.s, 
+        len_of_1: save_state.len_of_1, 
+        index_s: save_state.idx_s 
+    };
+
+    let Ii_given_prev_Ii = master_ansatz_i_Ij_dependent(
+        pk, 
+        &save_state.Ij, 
+        &save_state.Ij_given_pre_Ij,
+        &save_state.kij_t0_given_Ij_t0
+    );
 
     
-
-    for i in 3..5{
-
-        let calc_result = calc_next_test(
-            &save_state.pkij_given_pre_Ij, 
-            &save_state.Ij,
-            &save_state.Ij_given_pre_Ij,
-            save_state.len_of_1,
-            save_state.idx_s,
-            save_state.bin_size,
-            save_state.input.s
-        );
-
-        let name_I = format!("I_{i}_bla1.dat");
-        write_I(&calc_result.I2_density, save_state.bin_size, &name_I);
-        panic!("TEST PANIC");
-        let pk = Pk{
-            bin_size: save_state.bin_size,
-            k_density: save_state.pk_N2,
-            s: save_state.input.s,
-            len_of_1: save_state.len_of_1,
-            index_s: save_state.idx_s
-        };
-    
-        let (pk_N3_given_I_N2, pk_N3) = calk_k_master_test(
-            &pk,
-            &calc_result.I2_given_prev_I2,
-            &calc_result.I2_density,
-            1e-6
-        );
-
-        let stub = format!("pk_N{i}_test_res");
-        pk_N3.write(&stub, save_state.bin_size, save_state.input.s);
-
-        save_state = SaveState{
-            input: save_state.input,
-            pkij_given_pre_Ij: pk_N3_given_I_N2,
-            Ij: calc_result.I2_density,
-            Ij_given_pre_Ij: calc_result.I2_given_prev_I2,
-            len_of_1: save_state.len_of_1,
-            bin_size: save_state.bin_size,
-            idx_s: save_state.idx_s,
-            pk_N2: pk_N3
-        };
-
-        let save_name = format!("SAVE{i}.save");
-        let buf = create_buf(save_name);
-        bincode::serialize_into(buf, &save_state)
-            .expect("Serialization Issue");
-        println!("SAVED");
-    }
 
 }
 
@@ -784,11 +747,12 @@ fn calk_k_master_test(
     threshold: f64
 ) -> (Vec<ProbabilityDensity>, ProbabilityDensity)
 {
-    let mut current_estimate_given_prior_I = (0..input_P_I_given_prior_I.len())
+    /// I hope I named these correctly!!! I named them way after writing the function, not entirely sure if it is correct 
+    let mut current_kij_t0_estimate_given_Ij_t0 = (0..input_P_I_given_prior_I.len())
         .map(|_| ProbabilityDensity::new(prior_pk.len(), prior_pk.bin_size))
         .collect_vec();
 
-    let mut next_estimate_given_prior_I = (0..input_P_I_given_prior_I.len())
+    let mut next_kij_t0_estimate_given_Ij_t0 = (0..input_P_I_given_prior_I.len())
         .map(|_| ProbabilityDensity::new_zeroed(prior_pk.len()))
         .collect_vec();
 
@@ -846,13 +810,12 @@ fn calk_k_master_test(
             );
     };
     loop {
-        /// Maybe there is an off by one somewhere here. Maybe the issue is instead that the density of k is 1 to long
-        for (prior_I_idx, current_Ij_distribution) in input_P_I_given_prior_I.iter().enumerate().progress(){
-            let current_k = &current_estimate_given_prior_I[prior_I_idx];
-            let prior_I_prob = prior_I_for_normalization[prior_I_idx];
+        for (prior_Ij_idx, current_Ij_distribution) in input_P_I_given_prior_I.iter().enumerate().progress(){
+            let current_k = &current_kij_t0_estimate_given_Ij_t0[prior_Ij_idx];
+            let prior_I_prob = prior_I_for_normalization[prior_Ij_idx];
             let m_factor_times_prior_I_prob = prior_I_prob * m_factor;
             for (Ij_idx, Ij_prob) in current_Ij_distribution.iter().enumerate(){
-                let update_k_vec = &mut next_estimate_given_prior_I[Ij_idx];
+                let update_k_vec = &mut next_kij_t0_estimate_given_Ij_t0[Ij_idx];
                 let level_2_prob = m_factor_times_prior_I_prob * Ij_prob;
                 for (k, k_prob) in current_k.func.iter().enumerate(){
                     let probability_increment = k_prob * level_2_prob;
@@ -868,7 +831,7 @@ fn calk_k_master_test(
             let left_increment = m_factor_times_prior_I_prob * current_k.delta.0 / bin_size; 
             for (Ij_idx, Ij_prob) in current_Ij_distribution.iter().enumerate(){
                 let kI = Ij_idx;
-                let update_k_vec = &mut next_estimate_given_prior_I[Ij_idx];
+                let update_k_vec = &mut next_kij_t0_estimate_given_Ij_t0[Ij_idx];
                 let probability_increment = left_increment * Ij_prob;
                 
                 for_helper(kI, update_k_vec, probability_increment);
@@ -879,14 +842,14 @@ fn calk_k_master_test(
             for (Ij_idx, Ij_prob) in current_Ij_distribution.iter().enumerate(){
                 let kI: usize = Ij_idx + idx_s;
                 let probability_increment = right_increment * Ij_prob;
-                let update_k_vec = &mut next_estimate_given_prior_I[Ij_idx];
+                let update_k_vec = &mut next_kij_t0_estimate_given_Ij_t0[Ij_idx];
                 
                 for_helper(kI, update_k_vec, probability_increment);
             }
 
         }
     
-        next_estimate_given_prior_I.iter_mut()
+        next_kij_t0_estimate_given_Ij_t0.iter_mut()
             .for_each(
                 |estimate| 
                 {
@@ -901,7 +864,7 @@ fn calk_k_master_test(
                 }
             );
 
-        for (estimate, norm) in next_estimate_given_prior_I.iter().zip(prior_I_for_normalization){
+        for (estimate, norm) in next_kij_t0_estimate_given_Ij_t0.iter().zip(prior_I_for_normalization){
             resulting_density.func
                 .iter_mut()
                 .zip(estimate.func.iter())
@@ -916,8 +879,8 @@ fn calk_k_master_test(
             resulting_density.delta.1 += estimate.delta.1 * delta_norm;
         }
 
-        let estimate_diff: f64 = current_estimate_given_prior_I.iter()
-            .zip(next_estimate_given_prior_I.iter())
+        let estimate_diff: f64 = current_kij_t0_estimate_given_Ij_t0.iter()
+            .zip(next_kij_t0_estimate_given_Ij_t0.iter())
             .map(
                 |(current_estimate, next_estimate)|
                 {
@@ -931,17 +894,17 @@ fn calk_k_master_test(
                 }
             ).sum();
         println!("Estimate_diff: {estimate_diff}");
-        std::mem::swap(&mut next_estimate_given_prior_I, &mut current_estimate_given_prior_I);
+        std::mem::swap(&mut next_kij_t0_estimate_given_Ij_t0, &mut current_kij_t0_estimate_given_Ij_t0);
         if estimate_diff <= threshold {
             break;
         }
-        next_estimate_given_prior_I
+        next_kij_t0_estimate_given_Ij_t0
             .iter_mut()
             .for_each(ProbabilityDensity::make_zero);
         resulting_density.make_zero();
     }
     
-    (current_estimate_given_prior_I, resulting_density)
+    (current_kij_t0_estimate_given_Ij_t0, resulting_density)
 
 }
 
@@ -952,10 +915,18 @@ struct Ii_given_k {
     func: Vec<Vec<f64>>
 }
 
+impl Ii_given_k{
+    pub fn normalize(&mut self, bin_size: f64){
+        normalize_vec(self.delta_left.as_mut(), bin_size);
+        normalize_vec(self.delta_right.as_mut(), bin_size);
+        normalize_prob_matrix(&mut self.func, bin_size);
+    }
+}
+
 /// For now only for N-2
 /// this assumes that J (jump prob) is not dependent on k
 #[allow(non_snake_case)]
-fn master_ansatz_i_test(
+fn master_ansatz_i_Ij_independent(
     pk: &Pk,
     prob_Ii: &[f64]
 ) -> Vec<Vec<f64>>
@@ -1015,9 +986,7 @@ fn master_ansatz_i_test(
         Ii_given_k_for_helper(Ii_delta_right, kIj);
     }
 
-    normalize_prob_matrix(&mut Ii_given_k.func, bin_size);
-    normalize_vec(&mut Ii_given_k.delta_left, bin_size);
-    normalize_vec(&mut Ii_given_k.delta_right, bin_size);
+    Ii_given_k.normalize(bin_size);
 
     // SANITY CHECK
     {
@@ -1264,6 +1233,290 @@ fn master_ansatz_i_test(
     normalize_vec(&mut sanity_check_final, bin_size);
     write_I(&sanity_check_final, bin_size, "sanity_check_final.dat");
     Ii_given_prev_Ii 
+}
+
+/// For now only for N-2
+/// this assumes that J (jump prob) is not dependent on k
+#[allow(non_snake_case)]
+fn master_ansatz_i_Ij_dependent(
+    pk: &Pk,
+    prob_Ij: &[f64],
+    Ij_given_prev_Ij: &[Vec<f64>],
+    kij_t0_given_Ij_t0: &[ProbabilityDensity]
+) -> Vec<Vec<f64>>
+{
+    let len = prob_Ij.len();
+    let idx_s = pk.index_s;
+    let bin_size = pk.bin_size;
+
+    let Ii_given_k_zeroed = Ii_given_k{
+        delta_left: vec![0.0; len],
+        delta_right: vec![0.0; len],
+        func: vec![vec![0.0; len]; pk.k_density.func.len()]
+    };
+
+    let mut Ii_given_k_and_Ij = vec![Ii_given_k_zeroed; len];
+
+    let len_recip = (len as f64).recip();
+    let len_recip2 = len_recip * len_recip;
+
+    let Ii_given_k_for_helper = |Ii: &mut [f64], kIj: usize, prob: f64| 
+    {
+
+        let right = kIj.min(len);
+        // Ij is independent of k here, thank god
+        // (its uniform)
+        let internal_prob = prob * len_recip2;
+        Ii[..right]
+            .iter_mut()
+            .for_each(
+                |entry|
+                {
+                    *entry += internal_prob;
+                }
+            );
+        let remaining = len - right;
+        if remaining > 0{
+            Ii[kIj] += internal_prob * remaining as f64;
+        }
+    };
+
+    let prob = len_recip2;
+    for (Ij, Ii_given_Ij_given_k) in Ii_given_k_and_Ij.iter_mut().enumerate(){
+        for (k, Ii) in Ii_given_Ij_given_k.func.iter_mut().enumerate()
+        {
+            let kIj = k + Ij;
+            Ii_given_k_for_helper(Ii, kIj, prob);
+        
+        }
+    
+        // delta left 
+        let Ii_delta_left = Ii_given_Ij_given_k.delta_left.as_mut_slice();
+        
+        let kIj = Ij;
+        Ii_given_k_for_helper(Ii_delta_left, kIj, prob);
+        
+    
+        // delta right 
+        let Ii_delta_right = Ii_given_Ij_given_k.delta_right.as_mut_slice();
+        
+        let kIj = Ij + idx_s;
+        Ii_given_k_for_helper(Ii_delta_right, kIj, prob);
+        
+    }
+    
+    Ii_given_k_and_Ij.iter_mut()
+        .for_each(|Ii_given_k| Ii_given_k.normalize(bin_size));
+
+    // SANITY CHECK
+    {
+        let mut sanity_check = vec![0.0; len];
+        println!("Current sanity check");
+        for (Ij_t0_idx, Ij_t0_density) in prob_Ij.iter().enumerate().progress(){
+            let k_density_t0 = &kij_t0_given_Ij_t0[Ij_t0_idx];
+            let Ij_t1_density = Ij_given_prev_Ij[Ij_t0_idx].as_slice();
+
+            let level_0_prob = Ij_t0_density * bin_size;
+            for (Ij_t1_dens, Ii_given_Ij_t1) in Ij_t1_density.iter().zip(Ii_given_k_and_Ij.iter())
+            {
+                // Iterating through Ij_t1
+                let level_1_prob = level_0_prob * Ij_t1_dens * bin_size;
+                for (k_density, Ii_given_Ij_t1_kij_t0_density) in k_density_t0.func.iter().zip(Ii_given_Ij_t1.func.iter()){
+
+                    let level_2_prob = level_1_prob * k_density * bin_size;
+
+                    sanity_check.iter_mut()
+                        .zip(Ii_given_Ij_t1_kij_t0_density)
+                        .for_each(
+                            |(a,b)| *a += b * level_2_prob
+                        );
+
+                }
+
+                // delta_left 
+                let level_2_prob = level_1_prob * k_density_t0.delta.0;
+                sanity_check.iter_mut()
+                    .zip(Ii_given_Ij_t1.delta_left.iter())
+                    .for_each(
+                        |(a,b)| *a += b * level_2_prob
+                    );
+                // delta_right 
+                let level_2_prob = level_1_prob * k_density_t0.delta.1;
+                sanity_check.iter_mut()
+                    .zip(Ii_given_Ij_t1.delta_right.iter())
+                    .for_each(
+                        |(a,b)| *a += b * level_2_prob
+                    );
+            }
+
+        }
+        normalize_vec(&mut sanity_check, bin_size);
+        write_I(&sanity_check, bin_size, "next_sanity_gone.dat");
+    }
+
+    // I think the below might calculate the same thing
+
+    /*
+    let mut Ii_given_this_k_and_this_Ij = vec![vec![vec![0.0; len]; len]; pk.k_density.func.len()];
+    let mut Ii_given_this_k_delta_left_and_this_Ij = vec![vec![0.0; len]; len];
+    let mut Ii_given_this_k_delta_right_and_this_Ij = vec![vec![0.0; len]; len];
+
+    let Ii_given_this_k_and_this_Ij_for_helper = |kIj: usize, Ii_given_k_and_Ij: &mut [f64]|
+    {
+        let right = kIj.min(len);
+        Ii_given_k_and_Ij[..right]
+            .iter_mut()
+            .for_each(
+                |val| *val += len_recip
+            );
+        let remaining = len - right;
+        if remaining > 0 {
+            Ii_given_k_and_Ij[kIj] += len_recip * remaining as f64;
+        }
+    };
+
+    for (k, Ii_given_k) in Ii_given_this_k_and_this_Ij.iter_mut().enumerate() {
+        for (Ij, Ii_given_k_and_Ij) in Ii_given_k.iter_mut().enumerate(){
+            let kIj = k + Ij;
+            Ii_given_this_k_and_this_Ij_for_helper(kIj, Ii_given_k_and_Ij);
+        }
+    }
+    // delta left 
+    for (Ij, Ii_given_k_and_Ij) in Ii_given_this_k_delta_left_and_this_Ij.iter_mut().enumerate()
+    {
+        let kIj = Ij; // k = 0
+        Ii_given_this_k_and_this_Ij_for_helper(kIj, Ii_given_k_and_Ij);
+    }
+    // delta right 
+    for (Ij, Ii_given_k_and_Ij) in Ii_given_this_k_delta_right_and_this_Ij.iter_mut().enumerate()
+    {
+        let kIj = Ij + idx_s; 
+        Ii_given_this_k_and_this_Ij_for_helper(kIj, Ii_given_k_and_Ij);
+    }
+
+    Ii_given_this_k_and_this_Ij
+        .par_iter_mut()
+        .for_each(
+            |line|
+            {
+                normalize_prob_matrix(line, bin_size)
+            }
+        );
+    normalize_prob_matrix(&mut Ii_given_this_k_delta_left_and_this_Ij, bin_size);
+    normalize_prob_matrix(&mut Ii_given_this_k_delta_right_and_this_Ij, bin_size);
+
+    
+
+    // This aggregation only works for Ij uniform. Otherwise I need to also multiply with the prob of Ij
+    let aggregate = |matr: &Vec<Vec<f64>>|
+    {
+        let mut sum = matr[0].clone();
+        for line in &matr[1..]
+        {
+            sum.iter_mut()
+                .zip(line)
+                .for_each(|(a,b)| *a += b);
+        }
+        sum
+    };
+
+
+    // This aggregation only works for Ij uniform. Otherwise I need to also multiply with the prob of Ij
+    let aggregated_Ii_given_this_k_and_this_Ij = Ii_given_this_k_and_this_Ij
+        .iter()
+        .map(aggregate)
+        .collect_vec();
+    let aggregated_Ii_given_this_k_delta_right_and_this_Ij = aggregate(&Ii_given_this_k_delta_right_and_this_Ij);
+
+    let agg_counting = |res_Ii_vec: &mut [f64], aggregate: &[f64], prob: f64|
+    {
+        res_Ii_vec
+            .iter_mut()
+            .zip(aggregate)
+            .for_each(
+                |(res, Ii_prob)|
+                {
+                    *res += Ii_prob * prob
+                }
+            );
+    };
+    let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
+    let mut Ii_given_prev_Ii_for_helper = |prev_k: usize, prob: f64|
+    {
+        for prev_Ij in 0..len{
+            let prev_kIj = prev_k + prev_Ij;
+
+            let end = prev_kIj.min(len);
+            let m_smaller_range = 0..end;
+            for m in m_smaller_range{
+                let prev_Ii = m;
+                let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
+                let other_k = (prev_kIj - prev_Ii).min(idx_s);
+                if other_k < idx_s {
+                    let ag = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
+                    agg_counting(res_Ii_vec, ag, prob);
+                } else {
+                    let Ii_given_k_slice_agg = &aggregated_Ii_given_this_k_delta_right_and_this_Ij;
+                    agg_counting(res_Ii_vec, Ii_given_k_slice_agg, prob);
+                }
+                
+            }
+            if len > end {
+                let kIj_range = end..len;
+                let remaining = kIj_range.len();
+                let prob = prob * remaining as f64;
+                let prev_Ii = prev_kIj;
+                let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
+                let other_k = (prev_kIj - prev_Ii).min(idx_s);
+                let agg = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
+
+                agg_counting(res_Ii_vec, agg, prob);
+            }
+        }
+    };
+
+    let iter = pk.k_density
+        .func.iter()
+        .enumerate();
+
+    for (prev_k, k_density) in iter {
+        let prob: f64 = k_density * bin_size * len_recip2;
+        Ii_given_prev_Ii_for_helper(prev_k, prob);
+    }
+
+    // delta left
+    let prev_k_prob = pk.k_density.delta.0;
+    let prob = prev_k_prob * len_recip2;
+    Ii_given_prev_Ii_for_helper(0, prob);
+    
+    // delta right
+    let prev_k_prob = pk.k_density.delta.1;
+    let prob = prev_k_prob * len_recip2;
+    Ii_given_prev_Ii_for_helper(idx_s, prob);
+
+    normalize_prob_matrix(&mut Ii_given_prev_Ii, bin_size);
+
+    let mut sanity_check_final = vec![0.0; len];
+
+    for (slice, prob_density) in Ii_given_prev_Ii.iter().zip(prob_Ii)
+    {
+        let prob = prob_density * bin_size;
+        sanity_check_final
+            .iter_mut()
+            .zip(slice)
+            .for_each(
+                |(a,b)|
+                {
+                    *a += b * prob;
+                }
+            );
+    }
+    write_I(&sanity_check_final, bin_size, "sanity_check_final_non_normalized.dat");
+    normalize_vec(&mut sanity_check_final, bin_size);
+    write_I(&sanity_check_final, bin_size, "sanity_check_final.dat");
+    Ii_given_prev_Ii 
+     */
+    todo!()
 }
 
 fn master_ansatz_k(
