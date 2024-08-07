@@ -1107,10 +1107,26 @@ fn master_ansatz_i_test(
     normalize_prob_matrix(&mut Ii_given_this_k_delta_left_and_this_Ij, bin_size);
     normalize_prob_matrix(&mut Ii_given_this_k_delta_right_and_this_Ij, bin_size);
 
-    let mut another_sanity = vec![0.0; len];
-    for (matr, k_prob) in Ii_given_this_k_and_this_Ij.iter().zip(pk.k_density.func.iter()){
-        let prob = k_prob * bin_size * len_recip;
-        for line in matr{
+    // sanity
+    {
+        let mut another_sanity = vec![0.0; len];
+        for (matr, k_prob) in Ii_given_this_k_and_this_Ij.iter().zip(pk.k_density.func.iter()){
+            let prob = k_prob * bin_size * len_recip;
+            for line in matr{
+                another_sanity
+                    .iter_mut()
+                    .zip(line)
+                    .for_each(
+                        |(a,b)|
+                        {
+                            *a += b * prob;
+                        }
+                    )
+            }
+        }
+        // left 
+        let prob = pk.k_density.delta.0  * len_recip;
+        for line in Ii_given_this_k_delta_left_and_this_Ij.iter(){
             another_sanity
                 .iter_mut()
                 .zip(line)
@@ -1121,56 +1137,46 @@ fn master_ansatz_i_test(
                     }
                 )
         }
+        // right
+        let prob = pk.k_density.delta.1  * len_recip;
+        for line in Ii_given_this_k_delta_right_and_this_Ij.iter(){
+            another_sanity
+                .iter_mut()
+                .zip(line)
+                .for_each(
+                    |(a,b)|
+                    {
+                        *a += b * prob;
+                    }
+                )
+        }
+        normalize_vec(&mut another_sanity, bin_size);
+        write_I(&another_sanity, bin_size, "another_sanity.dat");
     }
-    // left 
-    let prob = pk.k_density.delta.0  * len_recip;
-    for line in Ii_given_this_k_delta_left_and_this_Ij.iter(){
-        another_sanity
-            .iter_mut()
-            .zip(line)
-            .for_each(
-                |(a,b)|
-                {
-                    *a += b * prob;
-                }
-            )
-    }
-    // right
-    let prob = pk.k_density.delta.1  * len_recip;
-    for line in Ii_given_this_k_delta_right_and_this_Ij.iter(){
-        another_sanity
-            .iter_mut()
-            .zip(line)
-            .for_each(
-                |(a,b)|
-                {
-                    *a += b * prob;
-                }
-            )
-    }
-    normalize_vec(&mut another_sanity, bin_size);
-    write_I(&another_sanity, bin_size, "another_sanity.dat");
-
-
-
-    // This aggregation only works for Ij uniform
-    let aggregated = Ii_given_this_k_and_this_Ij
-        .iter()
-        .map(
-            |matr|
-            {
-                let mut sum = matr[0].clone();
-                for line in &matr[1..]
-                {
-                    sum.iter_mut()
-                        .zip(line)
-                        .for_each(|(a,b)| *a += b);
-                }
-                sum
-            }
-        ).collect_vec();
     
-    let Ii_given_prev_Ii_global = Mutex::new(vec![vec![0.0; len]; len]);
+
+    // This aggregation only works for Ij uniform. Otherwise I need to also multiply with the prob of Ij
+    let aggregate = |matr: &Vec<Vec<f64>>|
+    {
+        let mut sum = matr[0].clone();
+        for line in &matr[1..]
+        {
+            sum.iter_mut()
+                .zip(line)
+                .for_each(|(a,b)| *a += b);
+        }
+        sum
+    };
+
+
+    // This aggregation only works for Ij uniform. Otherwise I need to also multiply with the prob of Ij
+    let aggregated_Ii_given_this_k_and_this_Ij = Ii_given_this_k_and_this_Ij
+        .iter()
+        .map(aggregate)
+        .collect_vec();
+    let aggregated_Ii_given_this_k_delta_right_and_this_Ij = aggregate(&Ii_given_this_k_delta_right_and_this_Ij);
+    
+    let Ii_given_prev_Ii_global: Mutex<Vec<Vec<f64>>> = Mutex::new(Vec::new());
 
     let chunk_vec = pk.k_density
         .func.iter()
@@ -1196,7 +1202,7 @@ fn master_ansatz_i_test(
                         let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
                         let other_k = (prev_kIj - prev_Ii).min(idx_s);
                         if other_k < idx_s {
-                            let ag = aggregated[other_k].as_slice();
+                            let ag = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
                             res_Ii_vec
                                 .iter_mut()
                                 .zip(ag)
@@ -1257,19 +1263,23 @@ fn master_ansatz_i_test(
             }
 
             let mut guard = Ii_given_prev_Ii_global.lock().unwrap();
-            guard.iter_mut()
-                .zip(Ii_given_prev_Ii)
-                .for_each(
-                    |(res, input)|
-                    {
-                        res.iter_mut()
-                            .zip(input)
-                            .for_each(
-                                |(a,b)|
-                                *a += b
-                            );
-                    }
-                );
+            if guard.is_empty(){
+                *guard = Ii_given_prev_Ii;
+            } else {
+                guard.iter_mut()
+                    .zip(Ii_given_prev_Ii)
+                    .for_each(
+                        |(res, input)|
+                        {
+                            res.iter_mut()
+                                .zip(input)
+                                .for_each(
+                                    |(a,b)|
+                                    *a += b
+                                );
+                        }
+                    );
+            }
             drop(guard);
             
         }
