@@ -1176,8 +1176,6 @@ fn master_ansatz_i_test(
         .map(aggregate)
         .collect_vec();
     let aggregated_Ii_given_this_k_delta_right_and_this_Ij = aggregate(&Ii_given_this_k_delta_right_and_this_Ij);
-    
-    let Ii_given_prev_Ii_global: Mutex<Vec<Vec<f64>>> = Mutex::new(Vec::new());
 
     let agg_counting = |res_Ii_vec: &mut [f64], aggregate: &[f64], prob: f64|
     {
@@ -1238,59 +1236,12 @@ fn master_ansatz_i_test(
     // delta left
     let prev_k_prob = pk.k_density.delta.0;
     let prob = prev_k_prob * len_recip2;
-    for prev_Ij in 0..len{
-        let prev_kIj = prev_Ij; // k = 0
-        for m in 0..len{
-            let prev_Ii = m.min(prev_kIj);
-            let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
-
-            let other_k = (prev_kIj - prev_Ii).min(idx_s);
-            let Ii_given_k_slice = Ii_given_this_k_and_this_Ij
-                .get(other_k)
-                .unwrap_or(&Ii_given_this_k_delta_right_and_this_Ij);
-            for next_Ii_density in Ii_given_k_slice.iter(){
-                // iterating through next_Ij
-                // for future: If Ij depends upon the previous stuff, insert that here
-                res_Ii_vec
-                    .iter_mut()
-                    .zip(next_Ii_density)
-                    .for_each(
-                        |(res, Ii_prob)|
-                        {
-                            *res += Ii_prob * prob
-                        }
-                    );
-            }
-        }
-    }
+    Ii_given_prev_Ii_for_helper(0, prob);
+    
     // delta right
     let prev_k_prob = pk.k_density.delta.1;
     let prob = prev_k_prob * len_recip2;
-    for prev_Ij in 0..len{
-        let prev_kIj = prev_Ij + idx_s; 
-        for m in 0..len{
-            let prev_Ii = m.min(prev_kIj);
-            let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
-
-            let other_k = (prev_kIj - prev_Ii).min(idx_s);
-            let Ii_given_k_slice = Ii_given_this_k_and_this_Ij
-                .get(other_k)
-                .unwrap_or(&Ii_given_this_k_delta_right_and_this_Ij);
-            for next_Ii_density in Ii_given_k_slice.iter(){
-                // iterating through next_Ij
-                // for future: If Ij depends upon the previous stuff, insert that here
-                res_Ii_vec
-                    .iter_mut()
-                    .zip(next_Ii_density)
-                    .for_each(
-                        |(res, Ii_prob)|
-                        {
-                            *res += Ii_prob * prob
-                        }
-                    );
-            }
-        }
-    }
+    Ii_given_prev_Ii_for_helper(idx_s, prob);
 
     normalize_prob_matrix(&mut Ii_given_prev_Ii, bin_size);
 
