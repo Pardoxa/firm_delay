@@ -1179,13 +1179,6 @@ fn master_ansatz_i_test(
     
     let Ii_given_prev_Ii_global: Mutex<Vec<Vec<f64>>> = Mutex::new(Vec::new());
 
-    let chunk_vec = pk.k_density
-        .func.iter()
-        .enumerate()
-        .collect_vec();
-
-    let chunk_size = (chunk_vec.len() as f64 / 12.0).ceil() as usize;
-
     let agg_counting = |res_Ii_vec: &mut [f64], aggregate: &[f64], prob: f64|
     {
         res_Ii_vec
@@ -1198,72 +1191,49 @@ fn master_ansatz_i_test(
                 }
             );
     };
+    let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
+    let mut Ii_given_prev_Ii_for_helper = |prev_k: usize, prob: f64|
+    {
+        for prev_Ij in 0..len{
+            let prev_kIj = prev_k + prev_Ij;
 
-    chunk_vec.par_chunks(chunk_size)
-        .progress()
-        .for_each(
-        |chunk: &[(usize, &f64)]|
-        {
-            let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
-            for (prev_k, &k_density) in chunk{
-                let prob: f64 = k_density * bin_size * len_recip2;
-                for prev_Ij in 0..len{
-                    let prev_kIj = prev_k + prev_Ij;
-
-                    let end = prev_kIj.min(len);
-                    let m_smaller_range = 0..end;
-                    for m in m_smaller_range{
-                        let prev_Ii = m;
-                        let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
-                        let other_k = (prev_kIj - prev_Ii).min(idx_s);
-                        if other_k < idx_s {
-                            let ag = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
-                            agg_counting(res_Ii_vec, ag, prob);
-                        } else {
-                            let Ii_given_k_slice_agg = &aggregated_Ii_given_this_k_delta_right_and_this_Ij;
-                            agg_counting(res_Ii_vec, Ii_given_k_slice_agg, prob);
-                        }
-                        
-                    }
-                    if len > end {
-                        let kIj_range = end..len;
-                        let remaining = kIj_range.len();
-                        let prob = prob * remaining as f64;
-                        let prev_Ii = prev_kIj;
-                        let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
-                        let other_k = (prev_kIj - prev_Ii).min(idx_s);
-                        let agg = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
-
-                        agg_counting(res_Ii_vec, agg, prob);
-                    }
+            let end = prev_kIj.min(len);
+            let m_smaller_range = 0..end;
+            for m in m_smaller_range{
+                let prev_Ii = m;
+                let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
+                let other_k = (prev_kIj - prev_Ii).min(idx_s);
+                if other_k < idx_s {
+                    let ag = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
+                    agg_counting(res_Ii_vec, ag, prob);
+                } else {
+                    let Ii_given_k_slice_agg = &aggregated_Ii_given_this_k_delta_right_and_this_Ij;
+                    agg_counting(res_Ii_vec, Ii_given_k_slice_agg, prob);
                 }
+                
             }
+            if len > end {
+                let kIj_range = end..len;
+                let remaining = kIj_range.len();
+                let prob = prob * remaining as f64;
+                let prev_Ii = prev_kIj;
+                let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
+                let other_k = (prev_kIj - prev_Ii).min(idx_s);
+                let agg = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
 
-            let mut guard = Ii_given_prev_Ii_global.lock().unwrap();
-            if guard.is_empty(){
-                *guard = Ii_given_prev_Ii;
-            } else {
-                guard.iter_mut()
-                    .zip(Ii_given_prev_Ii)
-                    .for_each(
-                        |(res, input)|
-                        {
-                            res.iter_mut()
-                                .zip(input)
-                                .for_each(
-                                    |(a,b)|
-                                    *a += b
-                                );
-                        }
-                    );
+                agg_counting(res_Ii_vec, agg, prob);
             }
-            drop(guard);
         }
-    );
+    };
 
-    let mut Ii_given_prev_Ii = Ii_given_prev_Ii_global.into_inner().unwrap();
+    let iter = pk.k_density
+        .func.iter()
+        .enumerate();
 
-
+    for (prev_k, k_density) in iter {
+        let prob: f64 = k_density * bin_size * len_recip2;
+        Ii_given_prev_Ii_for_helper(prev_k, prob);
+    }
 
     // delta left
     let prev_k_prob = pk.k_density.delta.0;
