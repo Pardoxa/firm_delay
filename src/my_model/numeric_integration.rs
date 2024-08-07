@@ -1063,33 +1063,37 @@ fn master_ansatz_i_test(
     let mut Ii_given_this_k_delta_left_and_this_Ij = vec![vec![0.0; len]; len];
     let mut Ii_given_this_k_delta_right_and_this_Ij = vec![vec![0.0; len]; len];
 
+    let Ii_given_this_k_and_this_Ij_for_helper = |kIj: usize, Ii_given_k_and_Ij: &mut [f64]|
+    {
+        let right = kIj.min(len);
+        Ii_given_k_and_Ij[..right]
+            .iter_mut()
+            .for_each(
+                |val| *val += len_recip
+            );
+        let remaining = len - right;
+        if remaining > 0 {
+            Ii_given_k_and_Ij[kIj] += len_recip * remaining as f64;
+        }
+    };
 
     for (k, Ii_given_k) in Ii_given_this_k_and_this_Ij.iter_mut().enumerate() {
         for (Ij, Ii_given_k_and_Ij) in Ii_given_k.iter_mut().enumerate(){
             let kIj = k + Ij;
-            for m in 0..len{
-                let Ii = m.min(kIj);
-                Ii_given_k_and_Ij[Ii] += len_recip;
-            }
+            Ii_given_this_k_and_this_Ij_for_helper(kIj, Ii_given_k_and_Ij);
         }
     }
     // delta left 
     for (Ij, Ii_given_k_and_Ij) in Ii_given_this_k_delta_left_and_this_Ij.iter_mut().enumerate()
     {
         let kIj = Ij; // k = 0
-        for m in 0..len{
-            let Ii = m.min(kIj);
-            Ii_given_k_and_Ij[Ii] += len_recip;
-        }
+        Ii_given_this_k_and_this_Ij_for_helper(kIj, Ii_given_k_and_Ij);
     }
     // delta right 
     for (Ij, Ii_given_k_and_Ij) in Ii_given_this_k_delta_right_and_this_Ij.iter_mut().enumerate()
     {
         let kIj = Ij + idx_s; 
-        for m in 0..len{
-            let Ii = m.min(kIj);
-            Ii_given_k_and_Ij[Ii] += len_recip;
-        }
+        Ii_given_this_k_and_this_Ij_for_helper(kIj, Ii_given_k_and_Ij);
     }
 
     Ii_given_this_k_and_this_Ij
