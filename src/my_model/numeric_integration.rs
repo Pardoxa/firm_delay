@@ -79,7 +79,7 @@ pub fn line_test(input: ModelInput)
 
 
 
-            let P_I_N1_given_prior_I_N1 = master_ansatz_i_test(&pk_N1, &production_N0);
+            let P_I_N1_given_prior_I_N1 = master_ansatz_i_test(&pk_N1, &production_N1);
 
             let (pk_N2_given_I_N1, pk_N2) = calk_k_master_test(
                 &pk_N1,
@@ -1334,6 +1334,24 @@ fn master_ansatz_i_test(
     write_I(&another_sanity, bin_size, "another_sanity.dat");
 
 
+
+    // This aggregation only works for Ij uniform
+    let aggregated = Ii_given_this_k_and_this_Ij
+        .iter()
+        .map(
+            |matr|
+            {
+                let mut sum = matr[0].clone();
+                for line in &matr[1..]
+                {
+                    sum.iter_mut()
+                        .zip(line)
+                        .for_each(|(a,b)| *a += b);
+                }
+                sum
+            }
+        ).collect_vec();
+    
     let Ii_given_prev_Ii_global = Mutex::new(vec![vec![0.0; len]; len]);
 
     let chunk_vec = pk.k_density
@@ -1352,8 +1370,50 @@ fn master_ansatz_i_test(
                 let prob: f64 = k_density * bin_size * len_recip2;
                 for prev_Ij in 0..len{
                     let prev_kIj = prev_k + prev_Ij;
-                    for m in 0..len{
-                        let prev_Ii = m.min(prev_kIj);
+
+                    let end = prev_kIj.min(len);
+                    let m_smaller_range = 0..end;
+                    for m in m_smaller_range{
+                        let prev_Ii = m;
+                        let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
+                        let other_k = (prev_kIj - prev_Ii).min(idx_s);
+                        if other_k < idx_s {
+                            let ag = aggregated[other_k].as_slice();
+                            res_Ii_vec
+                                .iter_mut()
+                                .zip(ag)
+                                .for_each(
+                                    |(res, Ii_prob)|
+                                    {
+                                        *res += Ii_prob * prob
+                                    }
+                                );
+                        } else {
+                            let Ii_given_k_slice = Ii_given_this_k_and_this_Ij
+                                .get(other_k)
+                                .unwrap_or(&Ii_given_this_k_delta_right_and_this_Ij);
+        
+                            for next_Ii_density in Ii_given_k_slice.iter(){
+                                // iterating through next_Ij
+                                // for future: If Ij depends upon the previous stuff, insert that here
+                                res_Ii_vec
+                                    .iter_mut()
+                                    .zip(next_Ii_density)
+                                    .for_each(
+                                        |(res, Ii_prob)|
+                                        {
+                                            *res += Ii_prob * prob
+                                        }
+                                    );
+                            }
+                        }
+                        
+                    }
+                    if len > end {
+                        let kIj_range = end..len;
+                        let remaining = kIj_range.len();
+                        let prob = prob * remaining as f64;
+                        let prev_Ii = prev_kIj;
                         let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
                         let other_k = (prev_kIj - prev_Ii).min(idx_s);
                         let Ii_given_k_slice = Ii_given_this_k_and_this_Ij
@@ -1373,6 +1433,7 @@ fn master_ansatz_i_test(
                                     }
                                 );
                         }
+                        
                     }
                 }
             }
