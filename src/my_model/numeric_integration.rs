@@ -1429,6 +1429,13 @@ fn master_ansatz_i_Ij_dependent(
         k_tm1_density.normalize(bin_size);
     } 
 
+    let mut k_sanity = pk.k_density.create_zeroed();
+    for (Ij_prob, k_density) in sanity_check.iter().zip(k_tm1_given_Ij_t.iter())
+    {
+        k_sanity.add_scaled(k_density, Ij_prob * bin_size);
+    }
+    k_sanity.write("k_sanity", bin_size, pk.s);
+
     let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
 
     let agg_counting = |res_Ii_vec: &mut [f64], aggregate: &[f64], prob: f64|
