@@ -25,8 +25,6 @@ pub struct ModelInput{
     pub precision: NonZeroUsize,
     /// Save name
     pub input_save: Option<String>,
-    /// For creating the output saves
-    pub output_save_stub: String,
     /// where to stop
     #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
     pub n_max: NonZeroUsize,
