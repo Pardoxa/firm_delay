@@ -239,6 +239,18 @@ impl ProbabilityDensity{
             self.delta.1
         ).unwrap();
     }
+
+    pub fn add_scaled(&mut self, other: &Self, scaling_factor: f64)
+    {
+        self.delta.0 += other.delta.0 * scaling_factor;
+        self.delta.1 += other.delta.1 * scaling_factor;
+        self.func
+            .iter_mut()
+            .zip(other.func.iter())
+            .for_each(
+                |(a, b)| *a += b * scaling_factor
+            );
+    }
 }
 
 // matrix needs to be square matrix
@@ -1407,10 +1419,17 @@ fn master_ansatz_i_Ij_dependent(
     let mut k_tm1_given_Ij_t = vec![pk.k_density.create_zeroed(); len];
     for (Ij0, k_tm1_density) in k_tm1_given_Ij_t.iter_mut().enumerate()
     {
-       // kij_t0_given_Ij_t0
+        // k_tm1_density is target quantity
+        for (&Ij_tm1, k_tm1_density_given_Ij_tm1) in prev_Ij_given_this_Ij[Ij0].iter().zip(kij_t0_given_Ij_t0.iter()){
+            k_tm1_density.add_scaled(
+                k_tm1_density_given_Ij_tm1, 
+                Ij_tm1 * bin_size
+            )   
+        }
+        k_tm1_density.normalize(bin_size);
     } 
 
-    /* 
+    let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
 
     let agg_counting = |res_Ii_vec: &mut [f64], aggregate: &[f64], prob: f64|
     {
@@ -1424,59 +1443,54 @@ fn master_ansatz_i_Ij_dependent(
                 }
             );
     };
-    let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
-    let mut Ii_given_prev_Ii_for_helper = |prev_k: usize, prob: f64|
+
+    let mut Ii_given_prev_Ii_for_helper = |prev_kIj: usize, prob: f64|
     {
-        for prev_Ij in 0..len{
-            let prev_kIj = prev_k + prev_Ij;
-
-            let end = prev_kIj.min(len);
-            let m_smaller_range = 0..end;
-            for m in m_smaller_range{
-                let prev_Ii = m;
-                let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
-                let other_k = (prev_kIj - prev_Ii).min(idx_s);
-                if other_k < idx_s {
-                    let ag = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
-                    agg_counting(res_Ii_vec, ag, prob);
-                } else {
-                    let Ii_given_k_slice_agg = &aggregated_Ii_given_this_k_delta_right_and_this_Ij;
-                    agg_counting(res_Ii_vec, Ii_given_k_slice_agg, prob);
-                }
-                
+        let end = prev_kIj.min(len);
+        let m_smaller_range = 0..end;
+        for m in m_smaller_range{
+            let prev_Ii = m;
+            let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
+            let other_k = (prev_kIj - prev_Ii).min(idx_s);
+            if other_k < idx_s {
+                let ag = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
+                agg_counting(res_Ii_vec, ag, prob);
+            } else {
+                let Ii_given_k_slice_agg = &aggregated_Ii_given_this_k_delta_right_and_this_Ij;
+                agg_counting(res_Ii_vec, Ii_given_k_slice_agg, prob);
             }
-            if len > end {
-                let kIj_range = end..len;
-                let remaining = kIj_range.len();
-                let prob = prob * remaining as f64;
-                let prev_Ii = prev_kIj;
-                let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
-                let other_k = (prev_kIj - prev_Ii).min(idx_s);
-                let agg = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
-
-                agg_counting(res_Ii_vec, agg, prob);
-            }
+            
         }
+        if len > end {
+            let kIj_range = end..len;
+            let remaining = kIj_range.len();
+            let prob = prob * remaining as f64;
+            let prev_Ii = prev_kIj;
+            let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
+            let other_k = (prev_kIj - prev_Ii).min(idx_s);
+            let agg = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
+            agg_counting(res_Ii_vec, agg, prob);
+        }
+        
     };
 
-    let iter = pk.k_density
-        .func.iter()
-        .enumerate();
+    for (Ij_t0, Ij_t0_dens) in prob_Ij.iter().enumerate()
+    {
+        let Ij_t0_prob = Ij_t0_dens * bin_size;
+        let k_tm1_density = &k_tm1_given_Ij_t[Ij_t0];
+        for (kij_tm1, k_tm1_dens) in k_tm1_density.func.iter().enumerate()
+        {
+            let kIj_t0 = Ij_t0 + kij_tm1;
+            let prob = k_tm1_dens * bin_size * Ij_t0_prob;
+            Ii_given_prev_Ii_for_helper(kIj_t0, prob);
+        }
 
-    for (prev_k, k_density) in iter {
-        let prob: f64 = k_density * bin_size * len_recip2;
-        Ii_given_prev_Ii_for_helper(prev_k, prob);
+        let delta_left_prob = Ij_t0_prob * k_tm1_density.delta.0;
+        Ii_given_prev_Ii_for_helper(Ij_t0, delta_left_prob);
+
+        let delta_right_prob = Ij_t0_prob * k_tm1_density.delta.1;
+        Ii_given_prev_Ii_for_helper(Ij_t0 + idx_s, delta_right_prob);  
     }
-
-    // delta left
-    let prev_k_prob = pk.k_density.delta.0;
-    let prob = prev_k_prob * len_recip2;
-    Ii_given_prev_Ii_for_helper(0, prob);
-    
-    // delta right
-    let prev_k_prob = pk.k_density.delta.1;
-    let prob = prev_k_prob * len_recip2;
-    Ii_given_prev_Ii_for_helper(idx_s, prob);
 
     normalize_prob_matrix(&mut Ii_given_prev_Ii, bin_size);
 
@@ -1499,8 +1513,7 @@ fn master_ansatz_i_Ij_dependent(
     normalize_vec(&mut sanity_check_final, bin_size);
     write_I(&sanity_check_final, bin_size, "Tsanity_check_final.dat");
     todo!();
-    Ii_given_prev_Ii */
-    todo!()
+    Ii_given_prev_Ii 
      
 }
 
