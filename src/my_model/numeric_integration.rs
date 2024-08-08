@@ -1,4 +1,5 @@
-use std::{io::BufReader, num::NonZeroUsize};
+use std::{io::BufWriter, num::*};
+use fs_err::File;
 use indicatif::ProgressIterator;
 use itertools::*;
 use rayon::prelude::*;
@@ -33,28 +34,6 @@ pub struct ModelInput{
     pub write_densities_stub: Option<String>
 }
 
-#[allow(non_snake_case)]
-#[derive(Serialize, Deserialize)]
-pub struct SaveState{
-    input: ModelInput,
-    kij_t0_given_Ij_t0: Vec<ProbabilityDensity>,
-    pk_N2: ProbabilityDensity,
-    Ij: Vec<f64>,
-    Ij_given_pre_Ij: Vec<Vec<f64>>,
-    len_of_1: usize,
-    idx_s: usize,
-    bin_size: f64
-}
-
-impl SaveState{
-    pub fn try_read(name: &str) -> Option<Self>
-    {
-        let reader = fs_err::File::open(name).ok()?;
-        let buf_reader = BufReader::new(reader);
-
-        bincode::deserialize_from(buf_reader).ok()
-    }
-}
 
 pub struct Crit{
     left: f64,
@@ -162,10 +141,41 @@ pub fn compute_line(input: ModelInput)
         &k_i1j0
     );
 
-    let mut Ij = I1;
-    let mut Ij_given_prev_Ij = I1_given_prev_I1;
+    let Ij = I1;
+    let Ij_given_prev_Ij = I1_given_prev_I1;
 
-    for i in 2..=input.n_max.get(){
+    let save = SaveState{
+        f_stub,
+        Ij,
+        Ij_given_prev_Ij,
+        j_idx: 1,
+        parameter
+    };
+
+    continue_calculation(
+        save, 
+        input.n_max, 
+        s_buf, 
+        input.write_densities_stub
+    );
+
+
+}
+
+#[allow(non_snake_case)]
+pub fn continue_calculation(
+    save: SaveState, 
+    max_n: NonZeroUsize, 
+    mut s_buf: BufWriter<File>,
+    write_densities_stub: Option<String>
+)
+{
+    let mut Ij_given_prev_Ij = save.Ij_given_prev_Ij;
+    let mut Ij = save.Ij;
+    let parameter = save.parameter;
+    let f_stub = save.f_stub;
+
+    for i in 2..=max_n.get(){
         println!("i = {i};");
         let (k_ij_given_Ij, k_ij) = calk_k_master_test(
             &parameter,
@@ -185,7 +195,7 @@ pub fn compute_line(input: ModelInput)
         let crit = calc_crit(&Ii, &parameter);
         crit.write(&mut s_buf, i);
 
-        if let Some(stub) = input.write_densities_stub.as_deref(){
+        if let Some(stub) = write_densities_stub.as_deref(){
             let stub = format!("{stub}_{f_stub}_1");
             let name = format!("{stub}_I.dat");
             write_I(&Ii, parameter.bin_size, &name);
@@ -196,7 +206,34 @@ pub fn compute_line(input: ModelInput)
         Ij_given_prev_Ij = Ii_given_prev_Ii;
     }
 
+    let save_name_json = format!("{f_stub}_{}.json", max_n);
+    let save_name_bincode = format!("{f_stub}_{}.bincode", max_n);
+    println!("saving: {save_name_json}");
+    let save_buf = create_buf(save_name_json);
+    let save = SaveState{
+        Ij,
+        Ij_given_prev_Ij,
+        j_idx: max_n.get(),
+        parameter,
+        f_stub
+    };
+    serde_json::to_writer_pretty(save_buf, &save)
+        .unwrap();
+    println!("saving: {save_name_bincode}");
+    let save_buf = create_buf(save_name_bincode);
+    bincode::serialize_into(save_buf, &save)
+        .unwrap();
+}
 
+
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SaveState{
+    Ij: Vec<f64>,
+    Ij_given_prev_Ij: Vec<Vec<f64>>,
+    j_idx: usize,
+    parameter: Parameter,
+    f_stub: String
 }
 
 #[allow(non_snake_case)]
@@ -212,6 +249,7 @@ pub fn write_I(I: &[f64], bin_size: f64, name: &str)
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Parameter{
     bin_size: f64,
     s: f64,
