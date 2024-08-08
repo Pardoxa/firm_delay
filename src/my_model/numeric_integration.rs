@@ -1414,23 +1414,21 @@ fn master_ansatz_i_Ij_dependent(
         .map(|all| all.delta_right.as_slice());
     let aggregated_Ii_given_this_k_delta_right_and_this_Ij = aggregate(delta_right_matr, Ij_given_prev_Ij, bin_size);
 
-    let prev_Ij_given_this_Ij = reverse_prob_matrix(Ij_given_prev_Ij, &sanity_check, bin_size);
-
     let mut k_tm1_given_Ij_t = vec![pk.k_density.create_zeroed(); len];
-    for (Ij0, k_tm1_density) in k_tm1_given_Ij_t.iter_mut().enumerate()
-    {
-        // k_tm1_density is target quantity
-        for (&Ij_tm1, k_tm1_density_given_Ij_tm1) in prev_Ij_given_this_Ij[Ij0].iter().zip(kij_t0_given_Ij_t0.iter()){
-            k_tm1_density.add_scaled(
-                k_tm1_density_given_Ij_tm1, 
-                Ij_tm1 * bin_size
-            )   
+    
+    let bin_size2 = bin_size * bin_size;
+    for (Ij_tm1, Ij_tm1_density) in prob_Ij.iter().enumerate() {
+        let kij_tm1_density = &kij_t0_given_Ij_t0[Ij_tm1];
+        for (Ij_t0, Ij_t0_density) in Ij_given_prev_Ij[Ij_tm1].iter().enumerate()
+        {
+            k_tm1_given_Ij_t[Ij_t0].add_scaled(kij_tm1_density, Ij_tm1_density * Ij_t0_density * bin_size2);
         }
-        k_tm1_density.normalize(bin_size);
-    } 
+    }
+    k_tm1_given_Ij_t.iter_mut()
+        .for_each(|density| density.normalize(bin_size));
 
     let mut k_sanity = pk.k_density.create_zeroed();
-    for (Ij_prob, k_density) in sanity_check.iter().zip(k_tm1_given_Ij_t.iter())
+    for (Ij_prob, k_density) in prob_Ij.iter().zip(k_tm1_given_Ij_t.iter())
     {
         k_sanity.add_scaled(k_density, Ij_prob * bin_size);
     }
