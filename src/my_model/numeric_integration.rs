@@ -1436,6 +1436,19 @@ fn master_ansatz_i_Ij_dependent(
 
             }
         ).collect_vec();
+
+    let use_aggregation = |res_Ii_vec: &mut [f64], aggregate: &[f64], prob: f64|
+    {
+        res_Ii_vec
+            .iter_mut()
+            .zip(aggregate)
+            .for_each(
+                |(a, b)|
+                {
+                    *a += b * prob
+                }
+            );
+    };
     
 
     let mut Ii_given_prev_Ii_for_helper = |kij_tm1: usize, Ij_t0: usize, prob: f64|
@@ -1449,27 +1462,19 @@ fn master_ansatz_i_Ij_dependent(
             let other_k = (kIj_t0 - prev_Ii).min(idx_s);
             if other_k < idx_s {
                 let aggregate = aggregated_func[Ij_t0][other_k].as_slice();
-                res_Ii_vec
-                    .iter_mut()
-                    .zip(aggregate)
-                    .for_each(
-                        |(a, b)|
-                        {
-                            *a += b * prob
-                        }
-                    );
+                use_aggregation(
+                    res_Ii_vec,
+                    aggregate,
+                    prob
+                );
             } else {
                 // delta right
                 let aggregate = aggregated_delta_right[Ij_t0].as_slice();
-                res_Ii_vec
-                    .iter_mut()
-                    .zip(aggregate)
-                    .for_each(
-                        |(a, b)|
-                        {
-                            *a += b * prob
-                        }
-                    );
+                use_aggregation(
+                    res_Ii_vec,
+                    aggregate,
+                    prob
+                );
             }
             
         }
@@ -1481,19 +1486,12 @@ fn master_ansatz_i_Ij_dependent(
             let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
             let other_k = (kIj_t0 - prev_Ii).min(idx_s);
 
-            for (Ij_t1, Ij_t0_prob) in Ij_given_prev_Ij[Ij_t0].iter().enumerate(){
-                let density = Ii_given_Ij_and_kij[Ij_t1].func[other_k].as_slice();
-                let outer_prob = Ij_t0_prob * bin_size2 * prob;
-                res_Ii_vec.iter_mut()
-                    .zip(density)
-                    .for_each(
-                        |(a,b)|
-                        {
-                            *a += b * outer_prob
-                        }
-                    );
-            }
-
+            let aggregate = aggregated_func[Ij_t0][other_k].as_slice();
+            use_aggregation(
+                res_Ii_vec,
+                aggregate,
+                prob
+            );
         }
         
     };
