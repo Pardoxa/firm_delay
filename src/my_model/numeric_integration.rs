@@ -58,8 +58,26 @@ impl SaveState{
 
 pub struct Crit{
     left: f64,
+    left_prob: f64,
     right: f64,
+    right_prob: f64,
     total: f64
+}
+
+impl Crit{
+    pub fn write<W>(&self, mut buf: W, n: usize)
+    where W: std::io::Write
+    {
+        writeln!(
+            buf,
+            "{n} {} {} {} {} {}",
+            self.left,
+            self.left_prob,
+            self.right,
+            self.right_prob,
+            self.total
+        ).unwrap()
+    }
 }
 
 #[allow(non_snake_case)]
@@ -77,6 +95,8 @@ pub fn calc_crit(I: &[f64], param: &Parameter) -> Crit
                 I_density * bin_size2 * idx as f64
             }
         ).sum();
+    let mut left_prob = left_slice.iter().sum();
+    left_prob *= param.bin_size;
     let right = right_slice.iter()
         .zip(param.index_s..)
         .map(
@@ -85,17 +105,27 @@ pub fn calc_crit(I: &[f64], param: &Parameter) -> Crit
                 I_density * bin_size2 * idx as f64
             }
         ).sum();
+    let mut right_prob = right_slice.iter()
+        .sum();
+    right_prob *= param.bin_size;
     Crit{
         left,
         right,
-        total: left + right
+        total: left + right,
+        left_prob,
+        right_prob
     }
 }
 
 #[allow(non_snake_case)]
 pub fn compute_line(input: ModelInput)
 {
-    let mut s_buf = create_buf_with_command_and_version("s.dat");
+    /// TODO: p "s0.5_pr401__s.dat" u 1:3 w lp, "" u 1:5 w lp, "s0.5_pr501__s.dat" u 1:3 w lp, "" u 1:5 w lp
+    /// The probability to be left should be the same as the probability to be right!
+    let f_stub = format!("s{}_pr{}", input.s, input.precision);
+    
+    let s_name = format!("{f_stub}_s.dat");
+    let mut s_buf = create_buf_with_command_and_version(s_name);
 
     // here I count: N=0 is leaf, N=1 is first node after etc
     let I0 = vec![1.0; input.precision.get()];
@@ -107,13 +137,7 @@ pub fn compute_line(input: ModelInput)
     );
 
     let crit = calc_crit(&I0, &parameter);
-    writeln!(
-        s_buf,
-        "0 {} {} {}",
-        crit.left,
-        crit.right,
-        crit.total
-    ).unwrap();
+    crit.write(&mut s_buf, 0);
 
     let I1 = calc_I(
         &parameter,
@@ -121,19 +145,13 @@ pub fn compute_line(input: ModelInput)
         &I0
     ); 
     let crit = calc_crit(&I1, &parameter);
-    writeln!(
-        s_buf,
-        "1 {} {} {}",
-        crit.left,
-        crit.right,
-        crit.total
-    ).unwrap();
+    crit.write(&mut s_buf, 1);
 
     if let Some(stub) = input.write_densities_stub.as_deref(){
-        let stub = format!("{stub}_k_1");
-        let name = format!("{stub}_I_1.dat");
+        let stub = format!("{stub}_{f_stub}_1");
+        let name = format!("{stub}_I.dat");
         write_I(&I1, parameter.bin_size, &name);
-        let name = format!("{stub}_I_0.dat");
+        let name = format!("{f_stub}_0_I.dat");
         write_I(&I0, parameter.bin_size, &name);
         k_i1j0.write(&stub, &parameter);
     }
@@ -148,6 +166,7 @@ pub fn compute_line(input: ModelInput)
     let mut Ij_given_prev_Ij = I1_given_prev_I1;
 
     for i in 2..=input.n_max.get(){
+        println!("i = {i};");
         let (k_ij_given_Ij, k_ij) = calk_k_master_test(
             &parameter,
             &Ij_given_prev_Ij,
@@ -164,17 +183,11 @@ pub fn compute_line(input: ModelInput)
             &k_ij_given_Ij
         );
         let crit = calc_crit(&Ii, &parameter);
-        writeln!(
-            s_buf,
-            "{i} {} {} {}",
-            crit.left,
-            crit.right,
-            crit.total
-        ).unwrap();
+        crit.write(&mut s_buf, i);
 
         if let Some(stub) = input.write_densities_stub.as_deref(){
-            let stub = format!("{stub}_k_{i}");
-            let name = format!("{stub}_I_{i}.dat");
+            let stub = format!("{stub}_{f_stub}_1");
+            let name = format!("{stub}_I.dat");
             write_I(&Ii, parameter.bin_size, &name);
             k_ij.write(&stub, &parameter);
         }
