@@ -89,39 +89,36 @@ pub fn compute_line(input: ModelInput)
         &k_i1j0
     );
 
-    let (k_i2j1_t0_given_I1_t0, k_i2j1) = calk_k_master_test(
-        &parameter,
-        &I1_given_prev_I1,
-        &I1,
-        1e-7
-    );
+    let mut Ij = I1;
+    let mut Ij_given_prev_Ij = I1_given_prev_I1;
 
+    for i in 2..=input.n_max.get(){
+        let (k_ij_given_Ij, k_ij) = calk_k_master_test(
+            &parameter,
+            &Ij_given_prev_Ij,
+            &Ij,
+            1e-7
+        );
+    
+    
+        let (Ii_given_prev_Ii, Ii) = master_ansatz_i_Ij_dependent(
+            &parameter,
+            &k_ij, 
+            &Ij, 
+            &Ij_given_prev_Ij,
+            &k_ij_given_Ij
+        );
+        if let Some(stub) = input.write_densities_stub.as_deref(){
+            let stub = format!("{stub}_k_{i}");
+            let name = format!("{stub}_I_{i}.dat");
+            write_I(&Ii, parameter.bin_size, &name);
+            k_ij.write(&stub, &parameter);
+        }
 
+        Ij = Ii;
+        Ij_given_prev_Ij = Ii_given_prev_Ii;
+    }
 
-    let (Ii_given_prev_Ii, Ii) = master_ansatz_i_Ij_dependent(
-        &parameter,
-        &k_i2j1, 
-        &I1, 
-        &I1_given_prev_I1,
-        &k_i2j1_t0_given_I1_t0
-    );
-
-    let (kij_t0_given_Ij_t0, kij_density) = calk_k_master_test(
-        &parameter,
-        &Ii_given_prev_Ii,
-        &Ii,
-        1e-7
-    );
-
-    let (Ii_given_prev_Ii, Ii) = master_ansatz_i_Ij_dependent(
-        &parameter, 
-        &kij_density,
-        &Ii, 
-        &Ii_given_prev_Ii,
-        &kij_t0_given_Ij_t0
-    );
-
-    write_I(&Ii, parameter.bin_size, "I4.dat");
 
 }
 
