@@ -1365,54 +1365,6 @@ fn master_ansatz_i_Ij_dependent(
         normalize_vec(&mut sanity_check, bin_size);
         write_I(&sanity_check, bin_size, "next_sanity_gone.dat");
     }
-    
-
-    // This aggregation only works for Ij uniform. Otherwise I need to also multiply with the prob of Ij
-    fn aggregate<'a, I>(mut matr: I, Ij_given_prev_Ij: &[Vec<f64>], bin_size: f64) -> Vec<f64>
-    where I: Iterator<Item = &'a [f64]>
-    {
-        let first_Ij_density = &Ij_given_prev_Ij[0];
-        let mut sum = matr
-            .next()
-            .unwrap()
-            .iter()
-            .zip(first_Ij_density)
-            .map(|(a, b)| a * b)
-            .collect_vec();
-        for (line, density) in matr.zip(Ij_given_prev_Ij[1..].iter())
-        {
-            sum.iter_mut()
-                .zip(line)
-                .zip(density)
-                .for_each(|((a,b), c)| *a += b * c);
-        }
-        // normalization
-        sum.iter_mut()
-            .for_each(|val| *val *= bin_size);
-        sum
-    }
-
-
-    // This aggregation only works for Ij uniform. Otherwise I need to also multiply with the prob of Ij
-    let aggregated_Ii_given_this_k_and_this_Ij = (0..idx_s)
-        .map(
-            |k| 
-            {
-                let matr = Ii_given_Ij_and_kij
-                    .iter()
-                    .map(
-                        |given_Ij|
-                        {
-                            given_Ij.func[k].as_slice()
-                        }
-                    );
-                aggregate(matr, Ij_given_prev_Ij, bin_size)
-            }
-        ).collect_vec();
-    let delta_right_matr = Ii_given_Ij_and_kij
-        .iter()
-        .map(|all| all.delta_right.as_slice());
-    let aggregated_Ii_given_this_k_delta_right_and_this_Ij = aggregate(delta_right_matr, Ij_given_prev_Ij, bin_size);
 
     let mut k_tm1_given_Ij_t = vec![pk.k_density.create_zeroed(); len];
     
@@ -1436,33 +1388,42 @@ fn master_ansatz_i_Ij_dependent(
 
     let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
 
-    let agg_counting = |res_Ii_vec: &mut [f64], aggregate: &[f64], prob: f64|
+    let mut Ii_given_prev_Ii_for_helper = |kij_tm1: usize, Ij_t0: usize, prob: f64|
     {
-        res_Ii_vec
-            .iter_mut()
-            .zip(aggregate)
-            .for_each(
-                |(res, Ii_prob)|
-                {
-                    *res += Ii_prob * prob
-                }
-            );
-    };
-
-    let mut Ii_given_prev_Ii_for_helper = |prev_kIj: usize, prob: f64|
-    {
-        let end = prev_kIj.min(len);
+        let kIj_t0 = Ij_t0 + kij_tm1;
+        let end = kIj_t0.min(len);
         let m_smaller_range = 0..end;
         for m in m_smaller_range{
             let prev_Ii = m;
             let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
-            let other_k = (prev_kIj - prev_Ii).min(idx_s);
+            let other_k = (kIj_t0 - prev_Ii).min(idx_s);
             if other_k < idx_s {
-                let ag = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
-                agg_counting(res_Ii_vec, ag, prob);
+                for (Ij_t1, Ij_t0_prob) in Ij_given_prev_Ij[Ij_t0].iter().enumerate(){
+                    let density = Ii_given_Ij_and_kij[Ij_t1].func[other_k].as_slice();
+                    let outer_prob = Ij_t0_prob * bin_size2 * prob;
+                    res_Ii_vec.iter_mut()
+                        .zip(density)
+                        .for_each(
+                            |(a,b)|
+                            {
+                                *a += b * outer_prob
+                            }
+                        );
+                }
             } else {
-                let Ii_given_k_slice_agg = &aggregated_Ii_given_this_k_delta_right_and_this_Ij;
-                agg_counting(res_Ii_vec, Ii_given_k_slice_agg, prob);
+                // delta right
+                for (Ij_t1, Ij_t0_prob) in Ij_given_prev_Ij[Ij_t0].iter().enumerate(){
+                    let density = Ii_given_Ij_and_kij[Ij_t1].delta_right.as_slice();
+                    let outer_prob = Ij_t0_prob * bin_size2 * prob;
+                    res_Ii_vec.iter_mut()
+                        .zip(density)
+                        .for_each(
+                            |(a,b)|
+                            {
+                                *a += b * outer_prob
+                            }
+                        );
+                }
             }
             
         }
@@ -1470,31 +1431,42 @@ fn master_ansatz_i_Ij_dependent(
             let kIj_range = end..len;
             let remaining = kIj_range.len();
             let prob = prob * remaining as f64;
-            let prev_Ii = prev_kIj;
+            let prev_Ii = kIj_t0;
             let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
-            let other_k = (prev_kIj - prev_Ii).min(idx_s);
-            let agg = aggregated_Ii_given_this_k_and_this_Ij[other_k].as_slice();
-            agg_counting(res_Ii_vec, agg, prob);
+            let other_k = (kIj_t0 - prev_Ii).min(idx_s);
+
+            for (Ij_t1, Ij_t0_prob) in Ij_given_prev_Ij[Ij_t0].iter().enumerate(){
+                let density = Ii_given_Ij_and_kij[Ij_t1].func[other_k].as_slice();
+                let outer_prob = Ij_t0_prob * bin_size2 * prob;
+                res_Ii_vec.iter_mut()
+                    .zip(density)
+                    .for_each(
+                        |(a,b)|
+                        {
+                            *a += b * outer_prob
+                        }
+                    );
+            }
+
         }
         
     };
 
-    for (Ij_t0, Ij_t0_dens) in prob_Ij.iter().enumerate()
+    for (Ij_t0, Ij_t0_dens) in prob_Ij.iter().enumerate().progress()
     {
         let Ij_t0_prob = Ij_t0_dens * bin_size;
         let k_tm1_density = &k_tm1_given_Ij_t[Ij_t0];
         for (kij_tm1, k_tm1_dens) in k_tm1_density.func.iter().enumerate()
         {
-            let kIj_t0 = Ij_t0 + kij_tm1;
             let prob = k_tm1_dens * bin_size * Ij_t0_prob;
-            Ii_given_prev_Ii_for_helper(kIj_t0, prob);
+            Ii_given_prev_Ii_for_helper(kij_tm1, Ij_t0, prob);
         }
 
         let delta_left_prob = Ij_t0_prob * k_tm1_density.delta.0;
-        Ii_given_prev_Ii_for_helper(Ij_t0, delta_left_prob);
+        Ii_given_prev_Ii_for_helper(0, Ij_t0, delta_left_prob);
 
         let delta_right_prob = Ij_t0_prob * k_tm1_density.delta.1;
-        Ii_given_prev_Ii_for_helper(Ij_t0 + idx_s, delta_right_prob);  
+        Ii_given_prev_Ii_for_helper(idx_s, Ij_t0, delta_right_prob);  
     }
 
     normalize_prob_matrix(&mut Ii_given_prev_Ii, bin_size);
