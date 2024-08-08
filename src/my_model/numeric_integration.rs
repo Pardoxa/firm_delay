@@ -1255,7 +1255,7 @@ fn master_ansatz_i_Ij_dependent(
         func: vec![vec![0.0; len]; pk.k_density.func.len()]
     };
 
-    let mut Ii_given_k_and_Ij = vec![Ii_given_k_zeroed; len];
+    let mut Ii_given_Ij_and_kij = vec![Ii_given_k_zeroed; len];
 
     let len_recip = (len as f64).recip();
     let len_recip2 = len_recip * len_recip;
@@ -1282,7 +1282,7 @@ fn master_ansatz_i_Ij_dependent(
     };
 
     let prob = len_recip2;
-    for (Ij, Ii_given_Ij_given_k) in Ii_given_k_and_Ij.iter_mut().enumerate(){
+    for (Ij, Ii_given_Ij_given_k) in Ii_given_Ij_and_kij.iter_mut().enumerate(){
         for (k, Ii) in Ii_given_Ij_given_k.func.iter_mut().enumerate()
         {
             let kIj = k + Ij;
@@ -1305,19 +1305,19 @@ fn master_ansatz_i_Ij_dependent(
         
     }
     
-    Ii_given_k_and_Ij.iter_mut()
+    Ii_given_Ij_and_kij.iter_mut()
         .for_each(|Ii_given_k| Ii_given_k.normalize(bin_size));
 
     // SANITY CHECK
+    let mut sanity_check = vec![0.0; len];
     {
-        let mut sanity_check = vec![0.0; len];
         println!("Current sanity check");
         for (Ij_t0_idx, Ij_t0_density) in prob_Ij.iter().enumerate().progress(){
             let k_density_t0 = &kij_t0_given_Ij_t0[Ij_t0_idx];
             let Ij_t1_density = Ij_given_prev_Ij[Ij_t0_idx].as_slice();
 
             let level_0_prob = Ij_t0_density * bin_size;
-            for (Ij_t1_dens, Ii_given_Ij_t1) in Ij_t1_density.iter().zip(Ii_given_k_and_Ij.iter())
+            for (Ij_t1_dens, Ii_given_Ij_t1) in Ij_t1_density.iter().zip(Ii_given_Ij_and_kij.iter())
             {
                 // Iterating through Ij_t1
                 let level_1_prob = level_0_prob * Ij_t1_dens * bin_size;
@@ -1353,80 +1353,64 @@ fn master_ansatz_i_Ij_dependent(
         normalize_vec(&mut sanity_check, bin_size);
         write_I(&sanity_check, bin_size, "next_sanity_gone.dat");
     }
-
-    // I think the below might calculate the same thing
-
-    /*
-    let mut Ii_given_this_k_and_this_Ij = vec![vec![vec![0.0; len]; len]; pk.k_density.func.len()];
-    let mut Ii_given_this_k_delta_left_and_this_Ij = vec![vec![0.0; len]; len];
-    let mut Ii_given_this_k_delta_right_and_this_Ij = vec![vec![0.0; len]; len];
-
-    let Ii_given_this_k_and_this_Ij_for_helper = |kIj: usize, Ii_given_k_and_Ij: &mut [f64]|
-    {
-        let right = kIj.min(len);
-        Ii_given_k_and_Ij[..right]
-            .iter_mut()
-            .for_each(
-                |val| *val += len_recip
-            );
-        let remaining = len - right;
-        if remaining > 0 {
-            Ii_given_k_and_Ij[kIj] += len_recip * remaining as f64;
-        }
-    };
-
-    for (k, Ii_given_k) in Ii_given_this_k_and_this_Ij.iter_mut().enumerate() {
-        for (Ij, Ii_given_k_and_Ij) in Ii_given_k.iter_mut().enumerate(){
-            let kIj = k + Ij;
-            Ii_given_this_k_and_this_Ij_for_helper(kIj, Ii_given_k_and_Ij);
-        }
-    }
-    // delta left 
-    for (Ij, Ii_given_k_and_Ij) in Ii_given_this_k_delta_left_and_this_Ij.iter_mut().enumerate()
-    {
-        let kIj = Ij; // k = 0
-        Ii_given_this_k_and_this_Ij_for_helper(kIj, Ii_given_k_and_Ij);
-    }
-    // delta right 
-    for (Ij, Ii_given_k_and_Ij) in Ii_given_this_k_delta_right_and_this_Ij.iter_mut().enumerate()
-    {
-        let kIj = Ij + idx_s; 
-        Ii_given_this_k_and_this_Ij_for_helper(kIj, Ii_given_k_and_Ij);
-    }
-
-    Ii_given_this_k_and_this_Ij
-        .par_iter_mut()
-        .for_each(
-            |line|
-            {
-                normalize_prob_matrix(line, bin_size)
-            }
-        );
-    normalize_prob_matrix(&mut Ii_given_this_k_delta_left_and_this_Ij, bin_size);
-    normalize_prob_matrix(&mut Ii_given_this_k_delta_right_and_this_Ij, bin_size);
-
     
 
     // This aggregation only works for Ij uniform. Otherwise I need to also multiply with the prob of Ij
-    let aggregate = |matr: &Vec<Vec<f64>>|
+    fn aggregate<'a, I>(mut matr: I, Ij_given_prev_Ij: &[Vec<f64>], bin_size: f64) -> Vec<f64>
+    where I: Iterator<Item = &'a [f64]>
     {
-        let mut sum = matr[0].clone();
-        for line in &matr[1..]
+        let first_Ij_density = &Ij_given_prev_Ij[0];
+        let mut sum = matr
+            .next()
+            .unwrap()
+            .iter()
+            .zip(first_Ij_density)
+            .map(|(a, b)| a * b)
+            .collect_vec();
+        for (line, density) in matr.zip(Ij_given_prev_Ij[1..].iter())
         {
             sum.iter_mut()
                 .zip(line)
-                .for_each(|(a,b)| *a += b);
+                .zip(density)
+                .for_each(|((a,b), c)| *a += b * c);
         }
+        // normalization
+        sum.iter_mut()
+            .for_each(|val| *val *= bin_size);
         sum
-    };
+    }
 
 
     // This aggregation only works for Ij uniform. Otherwise I need to also multiply with the prob of Ij
-    let aggregated_Ii_given_this_k_and_this_Ij = Ii_given_this_k_and_this_Ij
+    let aggregated_Ii_given_this_k_and_this_Ij = (0..idx_s)
+        .map(
+            |k| 
+            {
+                let matr = Ii_given_Ij_and_kij
+                    .iter()
+                    .map(
+                        |given_Ij|
+                        {
+                            given_Ij.func[k].as_slice()
+                        }
+                    );
+                aggregate(matr, Ij_given_prev_Ij, bin_size)
+            }
+        ).collect_vec();
+    let delta_right_matr = Ii_given_Ij_and_kij
         .iter()
-        .map(aggregate)
-        .collect_vec();
-    let aggregated_Ii_given_this_k_delta_right_and_this_Ij = aggregate(&Ii_given_this_k_delta_right_and_this_Ij);
+        .map(|all| all.delta_right.as_slice());
+    let aggregated_Ii_given_this_k_delta_right_and_this_Ij = aggregate(delta_right_matr, Ij_given_prev_Ij, bin_size);
+
+    let prev_Ij_given_this_Ij = reverse_prob_matrix(Ij_given_prev_Ij, &sanity_check, bin_size);
+
+    let mut k_tm1_given_Ij_t = vec![pk.k_density.create_zeroed(); len];
+    for (Ij0, k_tm1_density) in k_tm1_given_Ij_t.iter_mut().enumerate()
+    {
+       // kij_t0_given_Ij_t0
+    } 
+
+    /* 
 
     let agg_counting = |res_Ii_vec: &mut [f64], aggregate: &[f64], prob: f64|
     {
@@ -1498,7 +1482,7 @@ fn master_ansatz_i_Ij_dependent(
 
     let mut sanity_check_final = vec![0.0; len];
 
-    for (slice, prob_density) in Ii_given_prev_Ii.iter().zip(prob_Ii)
+    for (slice, prob_density) in Ii_given_prev_Ii.iter().zip(sanity_check)
     {
         let prob = prob_density * bin_size;
         sanity_check_final
@@ -1511,12 +1495,13 @@ fn master_ansatz_i_Ij_dependent(
                 }
             );
     }
-    write_I(&sanity_check_final, bin_size, "sanity_check_final_non_normalized.dat");
+    write_I(&sanity_check_final, bin_size, "Tsanity_check_final_non_normalized.dat");
     normalize_vec(&mut sanity_check_final, bin_size);
-    write_I(&sanity_check_final, bin_size, "sanity_check_final.dat");
-    Ii_given_prev_Ii 
-     */
+    write_I(&sanity_check_final, bin_size, "Tsanity_check_final.dat");
+    todo!();
+    Ii_given_prev_Ii */
     todo!()
+     
 }
 
 fn master_ansatz_k(
