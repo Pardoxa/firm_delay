@@ -1388,7 +1388,8 @@ fn master_ansatz_i_Ij_dependent(
 
     let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
 
-    let aggregated_func = (0..len)
+    let aggregated_func: Vec<_> = (0..len)
+        .into_par_iter()
         .map(
             |Ij_t0|
             {
@@ -1413,7 +1414,7 @@ fn master_ansatz_i_Ij_dependent(
                         }
                     ).collect_vec()
             }
-        ).collect_vec();
+        ).collect();
     let aggregated_delta_right = (0..len)
         .map(
             |Ij_t0|
