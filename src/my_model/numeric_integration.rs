@@ -1,12 +1,19 @@
-use std::{io::BufReader, num::NonZeroUsize, sync::Mutex, time::Duration};
-use indicatif::{ParallelProgressIterator, ProgressIterator};
+use std::{io::BufReader, num::NonZeroUsize, time::Duration};
+use indicatif::ProgressIterator;
 use itertools::*;
 use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use derivative::Derivative;
 use std::io::Write;
 use crate::misc::*;
-use std::collections::*;
+/*
+    IMPORTANT:
+
+    To understand the relations between the quantities I recommend looking at:
+    https://nxt.yfeld.de/apps/files_sharing/publicpreview/rTjakkQiiDcsCpH?file=/&fileId=53661&x=2560&y=1440&a=true&etag=22fca54f9c79ad4e9453e05457e29686
+
+
+*/
 
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize, PartialEq)]
@@ -60,7 +67,7 @@ pub fn line_test(input: ModelInput)
         }
     }
 
-    let mut save_state = match save_state_opt{
+    let save_state = match save_state_opt{
         None => {
             // here I count: N=0 is leaf, N=1 is first node after etc
             let production_N0 = vec![1.0; input.precision.get()];
@@ -83,7 +90,7 @@ pub fn line_test(input: ModelInput)
                 &pk_N1,
                 &P_I_N1_given_prior_I_N1,
                 &production_N1,
-                1e-6
+                1e-7
             );
 
 
@@ -119,14 +126,37 @@ pub fn line_test(input: ModelInput)
         index_s: save_state.idx_s 
     };
 
-    let Ii_given_prev_Ii = master_ansatz_i_Ij_dependent(
+    let (Ii_given_prev_Ii, Ii) = master_ansatz_i_Ij_dependent(
         pk, 
         &save_state.Ij, 
         &save_state.Ij_given_pre_Ij,
         &save_state.kij_t0_given_Ij_t0
     );
 
-    
+    let (kij_t0_given_Ij_t0, pk_N3) = calk_k_master_test(
+        pk,
+        &Ii_given_prev_Ii,
+        &Ii,
+        1e-7
+    );
+    pk_N3.write("3", pk.bin_size, pk.s);
+
+    let pk = &Pk { 
+        k_density: pk_N3, 
+        bin_size: save_state.bin_size, 
+        s: save_state.input.s, 
+        len_of_1: save_state.len_of_1, 
+        index_s: save_state.idx_s 
+    };
+
+    let (Ii_given_prev_Ii, Ii) = master_ansatz_i_Ij_dependent(
+        pk, 
+        &Ii, 
+        &Ii_given_prev_Ii,
+        &kij_t0_given_Ij_t0
+    );
+
+    write_I(&Ii, pk.bin_size, "I4.dat");
 
 }
 
@@ -1255,7 +1285,7 @@ fn master_ansatz_i_Ij_dependent(
     prob_Ij: &[f64],
     Ij_given_prev_Ij: &[Vec<f64>],
     kij_t0_given_Ij_t0: &[ProbabilityDensity]
-) -> Vec<Vec<f64>>
+) -> (Vec<Vec<f64>>, Vec<f64>)
 {
     let len = prob_Ij.len();
     let idx_s = pk.index_s;
@@ -1321,7 +1351,7 @@ fn master_ansatz_i_Ij_dependent(
         .for_each(|Ii_given_k| Ii_given_k.normalize(bin_size));
 
     // SANITY CHECK
-    let mut sanity_check = vec![0.0; len];
+    let mut Ii_probability_density = vec![0.0; len];
     {
         println!("Current sanity check");
         for (Ij_t0_idx, Ij_t0_density) in prob_Ij.iter().enumerate().progress(){
@@ -1337,7 +1367,7 @@ fn master_ansatz_i_Ij_dependent(
 
                     let level_2_prob = level_1_prob * k_density * bin_size;
 
-                    sanity_check.iter_mut()
+                    Ii_probability_density.iter_mut()
                         .zip(Ii_given_Ij_t1_kij_t0_density)
                         .for_each(
                             |(a,b)| *a += b * level_2_prob
@@ -1347,14 +1377,14 @@ fn master_ansatz_i_Ij_dependent(
 
                 // delta_left 
                 let level_2_prob = level_1_prob * k_density_t0.delta.0;
-                sanity_check.iter_mut()
+                Ii_probability_density.iter_mut()
                     .zip(Ii_given_Ij_t1.delta_left.iter())
                     .for_each(
                         |(a,b)| *a += b * level_2_prob
                     );
                 // delta_right 
                 let level_2_prob = level_1_prob * k_density_t0.delta.1;
-                sanity_check.iter_mut()
+                Ii_probability_density.iter_mut()
                     .zip(Ii_given_Ij_t1.delta_right.iter())
                     .for_each(
                         |(a,b)| *a += b * level_2_prob
@@ -1362,8 +1392,8 @@ fn master_ansatz_i_Ij_dependent(
             }
 
         }
-        normalize_vec(&mut sanity_check, bin_size);
-        write_I(&sanity_check, bin_size, "next_sanity_gone.dat");
+        normalize_vec(&mut Ii_probability_density, bin_size);
+        write_I(&Ii_probability_density, bin_size, "next_sanity_gone.dat");
     }
 
     let mut k_tm1_given_Ij_t = vec![pk.k_density.create_zeroed(); len];
@@ -1513,12 +1543,12 @@ fn master_ansatz_i_Ij_dependent(
         let delta_right_prob = Ij_t0_prob * k_tm1_density.delta.1;
         Ii_given_prev_Ii_for_helper(idx_s, Ij_t0, delta_right_prob);  
     }
-
+    
     normalize_prob_matrix(&mut Ii_given_prev_Ii, bin_size);
 
     let mut sanity_check_final = vec![0.0; len];
 
-    for (slice, prob_density) in Ii_given_prev_Ii.iter().zip(sanity_check)
+    for (slice, prob_density) in Ii_given_prev_Ii.iter().zip(Ii_probability_density.iter())
     {
         let prob = prob_density * bin_size;
         sanity_check_final
@@ -1534,8 +1564,7 @@ fn master_ansatz_i_Ij_dependent(
     write_I(&sanity_check_final, bin_size, "Tsanity_check_final_non_normalized.dat");
     normalize_vec(&mut sanity_check_final, bin_size);
     write_I(&sanity_check_final, bin_size, "Tsanity_check_final.dat");
-    todo!();
-    Ii_given_prev_Ii 
+    (Ii_given_prev_Ii, Ii_probability_density)
      
 }
 
