@@ -56,9 +56,47 @@ impl SaveState{
     }
 }
 
+pub struct Crit{
+    left: f64,
+    right: f64,
+    total: f64
+}
+
+#[allow(non_snake_case)]
+pub fn calc_crit(I: &[f64], param: &Parameter) -> Crit
+{
+    let bin_size2 = param.bin_size * param.bin_size;
+
+    let (left_slice, right_slice) = I.split_at(param.index_s);
+
+    let left: f64 = left_slice.iter()
+        .enumerate()
+        .map(
+            |(idx, I_density)|
+            {
+                I_density * bin_size2 * idx as f64
+            }
+        ).sum();
+    let right = right_slice.iter()
+        .zip(param.index_s..)
+        .map(
+            |(I_density, idx)|
+            {
+                I_density * bin_size2 * idx as f64
+            }
+        ).sum();
+    Crit{
+        left,
+        right,
+        total: left + right
+    }
+}
+
 #[allow(non_snake_case)]
 pub fn compute_line(input: ModelInput)
 {
+    let mut s_buf = create_buf_with_command_and_version("s.dat");
+
     // here I count: N=0 is leaf, N=1 is first node after etc
     let I0 = vec![1.0; input.precision.get()];
 
@@ -68,11 +106,28 @@ pub fn compute_line(input: ModelInput)
         1e-8
     );
 
+    let crit = calc_crit(&I0, &parameter);
+    writeln!(
+        s_buf,
+        "0 {} {} {}",
+        crit.left,
+        crit.right,
+        crit.total
+    ).unwrap();
+
     let I1 = calc_I(
         &parameter,
         &k_i1j0, 
         &I0
     ); 
+    let crit = calc_crit(&I1, &parameter);
+    writeln!(
+        s_buf,
+        "1 {} {} {}",
+        crit.left,
+        crit.right,
+        crit.total
+    ).unwrap();
 
     if let Some(stub) = input.write_densities_stub.as_deref(){
         let stub = format!("{stub}_k_1");
@@ -108,6 +163,15 @@ pub fn compute_line(input: ModelInput)
             &Ij_given_prev_Ij,
             &k_ij_given_Ij
         );
+        let crit = calc_crit(&Ii, &parameter);
+        writeln!(
+            s_buf,
+            "{i} {} {} {}",
+            crit.left,
+            crit.right,
+            crit.total
+        ).unwrap();
+
         if let Some(stub) = input.write_densities_stub.as_deref(){
             let stub = format!("{stub}_k_{i}");
             let name = format!("{stub}_I_{i}.dat");
