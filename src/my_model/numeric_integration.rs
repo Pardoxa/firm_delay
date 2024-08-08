@@ -1,4 +1,4 @@
-use std::{io::BufReader, num::NonZeroUsize, time::Duration};
+use std::{io::BufReader, num::NonZeroUsize};
 use indicatif::ProgressIterator;
 use itertools::*;
 use rayon::prelude::*;
@@ -19,12 +19,18 @@ use crate::misc::*;
     
 pub struct ModelInput{
     pub s: f64,
-    // Branch- or Child-count
-    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
-    pub z: NonZeroUsize,
     /// should be at least 1000
     #[derivative(Default(value="NonZeroUsize::new(10000).unwrap()"))]
-    pub precision: NonZeroUsize
+    pub precision: NonZeroUsize,
+    /// Save name
+    pub input_save: Option<String>,
+    /// For creating the output saves
+    pub output_save_stub: String,
+    /// where to stop
+    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
+    pub n_max: NonZeroUsize,
+    /// If none exist, no k_densities will be written
+    pub write_densities_stub: Option<String>
 }
 
 #[allow(non_snake_case)]
@@ -51,110 +57,71 @@ impl SaveState{
 }
 
 #[allow(non_snake_case)]
-pub fn line_test(input: ModelInput)
+pub fn compute_line(input: ModelInput)
 {
-    let save_name = "test.save";
+    // here I count: N=0 is leaf, N=1 is first node after etc
+    let I0 = vec![1.0; input.precision.get()];
 
-    let mut save_state_opt = SaveState::try_read(save_name);
-
-    if let Some(save_state) = save_state_opt.as_ref(){
-        if !save_state.input.eq(&input){
-            save_state_opt = None;
-            println!("SAVE STATE INPUT IS MISMATCHED!");
-            std::thread::sleep(Duration::from_secs(5));
-        }
-    }
-
-    let save_state = match save_state_opt{
-        None => {
-            // here I count: N=0 is leaf, N=1 is first node after etc
-            let production_N0 = vec![1.0; input.precision.get()];
-
-            let counter = 0;
-            let pk_N1 = master_ansatz_k(
-                &production_N0, 
-                input.s, 
-                1e-8
-            );
-            let stub = format!("_PK{counter}");
-            pk_N1.write_files(&stub);
-
-            let production_N1 = calc_I(&pk_N1, &production_N0, counter); 
-            write_I(&production_N1, pk_N1.bin_size, "I_2_bla1.dat");
-
-            let P_I_N1_given_prior_I_N1 = master_ansatz_i_Ij_independent(&pk_N1, &production_N1);
-
-            let (kij_t0_given_Ij_t0, pk_N2) = calk_k_master_test(
-                &pk_N1,
-                &P_I_N1_given_prior_I_N1,
-                &production_N1,
-                1e-7
-            );
-
-
-
-            pk_N2.write("pk_N2_res", pk_N1.bin_size, input.s);
-
-            let save_state = SaveState{
-                input,
-                kij_t0_given_Ij_t0,
-                Ij: production_N1,
-                Ij_given_pre_Ij: P_I_N1_given_prior_I_N1,
-                len_of_1: pk_N1.len_of_1,
-                bin_size: pk_N1.bin_size,
-                idx_s: pk_N1.index_s,
-                pk_N2
-            };
-            let buf = create_buf(save_name);
-            bincode::serialize_into(buf, &save_state)
-                .expect("Serialization Issue");
-            println!("SAVED");
-            save_state
-        },
-        Some(save_state) => {
-            save_state
-        }
-    };
-
-    let pk = &Pk { 
-        k_density: save_state.pk_N2, 
-        bin_size: save_state.bin_size, 
-        s: save_state.input.s, 
-        len_of_1: save_state.len_of_1, 
-        index_s: save_state.idx_s 
-    };
-
-    let (Ii_given_prev_Ii, Ii) = master_ansatz_i_Ij_dependent(
-        pk, 
-        &save_state.Ij, 
-        &save_state.Ij_given_pre_Ij,
-        &save_state.kij_t0_given_Ij_t0
+    let (parameter, k_i1j0) = master_ansatz_k(
+        &I0, 
+        input.s, 
+        1e-8
     );
 
-    let (kij_t0_given_Ij_t0, pk_N3) = calk_k_master_test(
-        pk,
+    let I1 = calc_I(
+        &parameter,
+        &k_i1j0, 
+        &I0
+    ); 
+
+    if let Some(stub) = input.write_densities_stub.as_deref(){
+        let stub = format!("{stub}_k_1");
+        let name = format!("{stub}_I_1.dat");
+        write_I(&I1, parameter.bin_size, &name);
+        let name = format!("{stub}_I_0.dat");
+        write_I(&I0, parameter.bin_size, &name);
+        k_i1j0.write(&stub, &parameter);
+    }
+
+    let I1_given_prev_I1 = master_ansatz_i_Ij_independent(
+        &parameter,
+        &I1,
+        &k_i1j0
+    );
+
+    let (k_i2j1_t0_given_I1_t0, k_i2j1) = calk_k_master_test(
+        &parameter,
+        &I1_given_prev_I1,
+        &I1,
+        1e-7
+    );
+
+
+
+    let (Ii_given_prev_Ii, Ii) = master_ansatz_i_Ij_dependent(
+        &parameter,
+        &k_i2j1, 
+        &I1, 
+        &I1_given_prev_I1,
+        &k_i2j1_t0_given_I1_t0
+    );
+
+    let (kij_t0_given_Ij_t0, kij_density) = calk_k_master_test(
+        &parameter,
         &Ii_given_prev_Ii,
         &Ii,
         1e-7
     );
-    pk_N3.write("3", pk.bin_size, pk.s);
-
-    let pk = &Pk { 
-        k_density: pk_N3, 
-        bin_size: save_state.bin_size, 
-        s: save_state.input.s, 
-        len_of_1: save_state.len_of_1, 
-        index_s: save_state.idx_s 
-    };
 
     let (Ii_given_prev_Ii, Ii) = master_ansatz_i_Ij_dependent(
-        pk, 
+        &parameter, 
+        &kij_density,
         &Ii, 
         &Ii_given_prev_Ii,
         &kij_t0_given_Ij_t0
     );
 
-    write_I(&Ii, pk.bin_size, "I4.dat");
+    write_I(&Ii, parameter.bin_size, "I4.dat");
 
 }
 
@@ -171,24 +138,12 @@ pub fn write_I(I: &[f64], bin_size: f64, name: &str)
     }
 }
 
-pub struct Pk{
-    k_density: ProbabilityDensity,
+pub struct Parameter{
     bin_size: f64,
     s: f64,
     len_of_1: usize,
-    index_s: usize
-}
-
-impl Pk{
-    pub fn write_files(&self, stub: &str)
-    {
-        self.k_density.write(stub, self.bin_size, self.s)
-    }
-
-    pub fn len(&self) -> usize 
-    {
-        self.k_density.func.len()
-    }
+    index_s: usize,
+    len_of_k_func: usize
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -244,13 +199,13 @@ impl ProbabilityDensity{
             .for_each(|val| *val = 0.0);
     }
 
-    pub fn write(&self, stub: &str, bin_size: f64, s: f64)
+    pub fn write(&self, stub: &str, parameter: &Parameter)
     {
         let name_func = format!("{stub}_func.dat");
         let mut buf = create_buf_with_command_and_version(name_func);
 
         for (i, val) in self.func.iter().enumerate() {
-            let x = i as f64 * bin_size;
+            let x = i as f64 * parameter.bin_size;
             writeln!(
                 buf,
                 "{x} {val}"
@@ -263,7 +218,7 @@ impl ProbabilityDensity{
             buf,
             "0 {}\n{} {}",
             self.delta.0,
-            s,
+            parameter.s,
             self.delta.1
         ).unwrap();
     }
@@ -327,26 +282,26 @@ fn normalize_vec(vec: &mut [f64], bin_size: f64)
 
 #[allow(non_snake_case)]
 fn calk_k_master_test(
-    prior_pk: &Pk,
+    parameter: &Parameter,
     input_P_I_given_prior_I: &[Vec<f64>],
     prior_I_for_normalization: &[f64],
     threshold: f64
 ) -> (Vec<ProbabilityDensity>, ProbabilityDensity)
 {
     let mut current_kij_t0_estimate_given_Ij_t0 = (0..input_P_I_given_prior_I.len())
-        .map(|_| ProbabilityDensity::new(prior_pk.len(), prior_pk.bin_size))
+        .map(|_| ProbabilityDensity::new(parameter.len_of_k_func, parameter.bin_size))
         .collect_vec();
 
     let mut next_kij_t0_estimate_given_Ij_t0 = (0..input_P_I_given_prior_I.len())
-        .map(|_| ProbabilityDensity::new_zeroed(prior_pk.len()))
+        .map(|_| ProbabilityDensity::new_zeroed(parameter.len_of_k_func))
         .collect_vec();
 
-    let idx_s = prior_pk.index_s;
-    let len_of_1 = prior_pk.len_of_1;
-    let bin_size = prior_pk.bin_size;
+    let idx_s = parameter.index_s;
+    let len_of_1 = parameter.len_of_1;
+    let bin_size = parameter.bin_size;
 
 
-    let mut resulting_density = ProbabilityDensity::new_zeroed(prior_pk.len());
+    let mut resulting_density = ProbabilityDensity::new_zeroed(parameter.len_of_k_func);
     let m_factor = (len_of_1 as f64).recip();
 
     let for_helper = |kI: usize, update_k_vec: &mut ProbabilityDensity, probability_increment: f64|
@@ -513,18 +468,19 @@ impl Ii_given_k{
 /// this assumes that J (jump prob) is not dependent on k
 #[allow(non_snake_case)]
 fn master_ansatz_i_Ij_independent(
-    pk: &Pk,
-    prob_Ii: &[f64]
+    parameter: &Parameter,
+    prob_Ii: &[f64],
+    kij_density: &ProbabilityDensity
 ) -> Vec<Vec<f64>>
 {
     let len = prob_Ii.len();
-    let idx_s = pk.index_s;
-    let bin_size = pk.bin_size;
+    let idx_s = parameter.index_s;
+    let bin_size = parameter.bin_size;
 
     let mut Ii_given_k = Ii_given_k{
         delta_left: vec![0.0; len],
         delta_right: vec![0.0; len],
-        func: vec![vec![0.0; len]; pk.k_density.func.len()]
+        func: vec![vec![0.0; len]; parameter.len_of_k_func]
     };
 
     let len_recip = (len as f64).recip();
@@ -578,7 +534,7 @@ fn master_ansatz_i_Ij_independent(
     {
         let mut  sanity_check = vec![0.0; len];
 
-        for (prob, vec) in pk.k_density.func.iter().zip(Ii_given_k.func.iter())
+        for (prob, vec) in kij_density.func.iter().zip(Ii_given_k.func.iter())
         {
             let prob = prob * bin_size;
             sanity_check.iter_mut()
@@ -591,7 +547,7 @@ fn master_ansatz_i_Ij_independent(
                 );
         }
     
-        let prob = pk.k_density.delta.0;
+        let prob = kij_density.delta.0;
         sanity_check.iter_mut()
             .zip(Ii_given_k.delta_left.iter())
             .for_each(
@@ -600,7 +556,7 @@ fn master_ansatz_i_Ij_independent(
                     *a += b * prob;
                 }
             );
-        let prob = pk.k_density.delta.1;
+        let prob = kij_density.delta.1;
         sanity_check.iter_mut()
             .zip(Ii_given_k.delta_right.iter())
             .for_each(
@@ -615,7 +571,7 @@ fn master_ansatz_i_Ij_independent(
         write_I(&sanity_check, bin_size, "sanity_gone.dat");
     }
 
-    let mut Ii_given_this_k_and_this_Ij = vec![vec![vec![0.0; len]; len]; pk.k_density.func.len()];
+    let mut Ii_given_this_k_and_this_Ij = vec![vec![vec![0.0; len]; len]; kij_density.func.len()];
     let mut Ii_given_this_k_delta_left_and_this_Ij = vec![vec![0.0; len]; len];
     let mut Ii_given_this_k_delta_right_and_this_Ij = vec![vec![0.0; len]; len];
 
@@ -666,7 +622,7 @@ fn master_ansatz_i_Ij_independent(
     // sanity
     {
         let mut another_sanity = vec![0.0; len];
-        for (matr, k_prob) in Ii_given_this_k_and_this_Ij.iter().zip(pk.k_density.func.iter()){
+        for (matr, k_prob) in Ii_given_this_k_and_this_Ij.iter().zip(kij_density.func.iter()){
             let prob = k_prob * bin_size * len_recip;
             for line in matr{
                 another_sanity
@@ -681,7 +637,7 @@ fn master_ansatz_i_Ij_independent(
             }
         }
         // left 
-        let prob = pk.k_density.delta.0  * len_recip;
+        let prob = kij_density.delta.0  * len_recip;
         for line in Ii_given_this_k_delta_left_and_this_Ij.iter(){
             another_sanity
                 .iter_mut()
@@ -694,7 +650,7 @@ fn master_ansatz_i_Ij_independent(
                 )
         }
         // right
-        let prob = pk.k_density.delta.1  * len_recip;
+        let prob = kij_density.delta.1  * len_recip;
         for line in Ii_given_this_k_delta_right_and_this_Ij.iter(){
             another_sanity
                 .iter_mut()
@@ -779,7 +735,7 @@ fn master_ansatz_i_Ij_independent(
         }
     };
 
-    let iter = pk.k_density
+    let iter = kij_density
         .func.iter()
         .enumerate();
 
@@ -789,12 +745,12 @@ fn master_ansatz_i_Ij_independent(
     }
 
     // delta left
-    let prev_k_prob = pk.k_density.delta.0;
+    let prev_k_prob = kij_density.delta.0;
     let prob = prev_k_prob * len_recip2;
     Ii_given_prev_Ii_for_helper(0, prob);
     
     // delta right
-    let prev_k_prob = pk.k_density.delta.1;
+    let prev_k_prob = kij_density.delta.1;
     let prob = prev_k_prob * len_recip2;
     Ii_given_prev_Ii_for_helper(idx_s, prob);
 
@@ -825,20 +781,21 @@ fn master_ansatz_i_Ij_independent(
 /// this assumes that J (jump prob) is not dependent on k
 #[allow(non_snake_case)]
 fn master_ansatz_i_Ij_dependent(
-    pk: &Pk,
+    parameter: &Parameter,
+    kij_density: &ProbabilityDensity,
     prob_Ij: &[f64],
     Ij_given_prev_Ij: &[Vec<f64>],
     kij_t0_given_Ij_t0: &[ProbabilityDensity]
 ) -> (Vec<Vec<f64>>, Vec<f64>)
 {
     let len = prob_Ij.len();
-    let idx_s = pk.index_s;
-    let bin_size = pk.bin_size;
+    let idx_s = parameter.index_s;
+    let bin_size = parameter.bin_size;
 
     let Ii_given_k_zeroed = Ii_given_k{
         delta_left: vec![0.0; len],
         delta_right: vec![0.0; len],
-        func: vec![vec![0.0; len]; pk.k_density.func.len()]
+        func: vec![vec![0.0; len]; kij_density.func.len()]
     };
 
     let mut Ii_given_Ij_and_kij = vec![Ii_given_k_zeroed; len];
@@ -940,7 +897,7 @@ fn master_ansatz_i_Ij_dependent(
         write_I(&Ii_probability_density, bin_size, "next_sanity_gone.dat");
     }
 
-    let mut k_tm1_given_Ij_t = vec![pk.k_density.create_zeroed(); len];
+    let mut k_tm1_given_Ij_t = vec![kij_density.create_zeroed(); len];
     
     let bin_size2 = bin_size * bin_size;
     for (Ij_tm1, Ij_tm1_density) in prob_Ij.iter().enumerate() {
@@ -953,12 +910,12 @@ fn master_ansatz_i_Ij_dependent(
     k_tm1_given_Ij_t.iter_mut()
         .for_each(|density| density.normalize(bin_size));
 
-    let mut k_sanity = pk.k_density.create_zeroed();
+    let mut k_sanity = kij_density.create_zeroed();
     for (Ij_prob, k_density) in prob_Ij.iter().zip(k_tm1_given_Ij_t.iter())
     {
         k_sanity.add_scaled(k_density, Ij_prob * bin_size);
     }
-    k_sanity.write("k_sanity", bin_size, pk.s);
+    k_sanity.write("k_sanity", parameter);
 
     let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
 
@@ -1116,7 +1073,7 @@ fn master_ansatz_k(
     a: &[f64], 
     s: f64, 
     threshold: f64
-)-> Pk
+)-> (Parameter, ProbabilityDensity)
 {
     let len = a.len();
     let bin_size = ((len) as f64).recip();
@@ -1242,13 +1199,14 @@ fn master_ansatz_k(
                 delta: (delta_left, delta_right)
             };
             density.normalize(bin_size);
-            return Pk{
-                k_density: density,
+            let parameter = Parameter{
                 bin_size,
                 s,
                 len_of_1: len,
-                index_s
+                index_s,
+                len_of_k_func: density.func.len()
             };
+            return (parameter, density)
         }
         std::mem::swap(&mut k_guess, &mut k_result);
     }
@@ -1258,57 +1216,57 @@ fn master_ansatz_k(
 
 #[allow(non_snake_case)]
 fn calc_I(
-    pk: &Pk, 
-    a_ij: &[f64], 
-    counter: usize
+    parameter: &Parameter, 
+    kij_density: &ProbabilityDensity,
+    a_ij: &[f64]
 ) -> Vec<f64>
 {
 
-    let p_ka = (0..(pk.k_density.func.len() + pk.len_of_1))
+    let p_ka = (0..(kij_density.func.len() + parameter.len_of_1))
         .map(
             |x|
             {
                 let mut integral = 0.0;
-                let start = if x < pk.len_of_1 {
+                let start = if x < parameter.len_of_1 {
                     0
                 } else {
-                    x - (pk.len_of_1 - 1)
+                    x - (parameter.len_of_1 - 1)
                 };
-                let end = if x >= pk.k_density.func.len(){
-                    pk.k_density.func.len() - 1
+                let end = if x >= kij_density.func.len(){
+                    kij_density.func.len() - 1
                 } else {
                     x
                 };
                 for j in start..=end{
-                    integral += pk.k_density.func[j] * a_ij[x-j];
+                    integral += kij_density.func[j] * a_ij[x-j];
                 }
-                integral *= pk.bin_size;
+                integral *= parameter.bin_size;
 
                 if start == 0{
-                    integral += pk.k_density.delta.0 * a_ij[x]; 
+                    integral += kij_density.delta.0 * a_ij[x]; 
                 }
-                if x >= pk.index_s && x-pk.index_s < a_ij.len() {
-                    integral += pk.k_density.delta.1 * a_ij[x-pk.index_s];
+                if x >= parameter.index_s && x-parameter.index_s < a_ij.len() {
+                    integral += kij_density.delta.1 * a_ij[x-parameter.index_s];
                 }
 
                 integral
             }
         ).collect_vec();
-
+    /// I probably want to normalize p_ka here
     let p_ka_total: f64 = p_ka.iter()
         .map(
             |val|
             {
-                val * pk.bin_size
+                val * parameter.bin_size
             }
         ).sum();
     println!("pka total: {p_ka_total}");
 
-    let name = format!("s{}p_ka_{counter}.dat", pk.s);
+    let name = format!("s{}p_ka_1.dat", parameter.s);
     let mut buf = create_buf(name);
     for (index, val) in p_ka.iter().enumerate()
     {
-        let x = index as f64 * pk.bin_size;
+        let x = index as f64 * parameter.bin_size;
         writeln!(
             buf,
             "{} {}",
@@ -1324,11 +1282,11 @@ fn calc_I(
                 let sum: f64 = p_ka[i..]
                     .iter()
                     .sum();
-                sum * pk.bin_size
+                sum * parameter.bin_size
             }
         ).collect_vec();
 
-    let name = format!("s{}prob_{counter}.dat", pk.s);
+    let name = format!("s{}prob_1.dat", parameter.s);
     let mut buf = create_buf(name);
 
     let error = prob[0];
@@ -1338,7 +1296,7 @@ fn calc_I(
 
     for (index, val) in prob.iter().enumerate()
     {
-        let x = index as f64 * pk.bin_size;
+        let x = index as f64 * parameter.bin_size;
         writeln!(
             buf,
             "{} {}",
@@ -1354,17 +1312,17 @@ fn calc_I(
         .for_each(
             |(idx, val)|
             {
-                let x = idx as f64 * pk.bin_size;
+                let x = idx as f64 * parameter.bin_size;
                 *val = 1.0 - (1.0 - x) * *val;
             }
         );
 
-    let name = format!("s{}cum_prob_{counter}.dat", pk.s);
+    let name = format!("s{}cum_prob_1.dat", parameter.s);
 
     let mut buf = create_buf(name);
     for (index, val) in prob.iter().enumerate()
     {
-        let x = index as f64 * pk.bin_size;
+        let x = index as f64 * parameter.bin_size;
         writeln!(
             buf,
             "{} {}",
@@ -1374,12 +1332,12 @@ fn calc_I(
     }
 
     //let mut derivative = sampling::glue::derivative::derivative(&prob[..pk.len_of_1]);
-    let derivative_left = sampling::glue::derivative::derivative(&prob[..pk.index_s]);
-    let derivative_right = sampling::glue::derivative::derivative(&prob[pk.index_s..pk.len_of_1]);
+    let derivative_left = sampling::glue::derivative::derivative(&prob[..parameter.index_s]);
+    let derivative_right = sampling::glue::derivative::derivative(&prob[parameter.index_s..parameter.len_of_1]);
     let mut derivative = derivative_left;
     derivative.extend_from_slice(&derivative_right);
 
-    let len = pk.len_of_1 as f64;
+    let len = parameter.len_of_1 as f64;
     derivative.iter_mut()
         .for_each(
             |val|
@@ -1388,11 +1346,11 @@ fn calc_I(
             }
         );
 
-    let name = format!("s{}derivative_{counter}.dat", pk.s);
+    let name = format!("s{}derivative_1.dat", parameter.s);
     let mut buf = create_buf(name);
     for (index, val) in derivative.iter().enumerate()
     {
-        let x = index as f64 * pk.bin_size;
+        let x = index as f64 * parameter.bin_size;
         writeln!(
             buf,
             "{} {}",

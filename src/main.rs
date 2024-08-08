@@ -274,7 +274,7 @@ fn main() {
                 },
                 MyModelCommand::Num(test) => {
                     let input: ModelInput = parse_and_add_to_global(test.json);
-                    my_model::numeric_integration::line_test(input);
+                    my_model::numeric_integration::compute_line(input);
                 }
 
             }
