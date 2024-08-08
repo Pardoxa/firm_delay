@@ -1388,25 +1388,7 @@ fn master_ansatz_i_Ij_dependent(
 
     let mut Ii_given_prev_Ii = vec![vec![0.0; len]; len];
 
-    let aggregate = |Ij_t0: usize, other_k: usize|
-    {
-        let mut agg = vec![0.0; len];
-        for (Ij_t1, Ij_t0_prob) in Ij_given_prev_Ij[Ij_t0].iter().enumerate(){
-            let density = Ii_given_Ij_and_kij[Ij_t1].func[other_k].as_slice();
-            let outer_prob = Ij_t0_prob * bin_size2;
-            agg.iter_mut()
-                .zip(density)
-                .for_each(
-                    |(a,b)|
-                    {
-                        *a += b * outer_prob
-                    }
-                );
-        }
-        agg
-    };
-
-    let aggregated = (0..len)
+    let aggregated_func = (0..len)
         .map(
             |Ij_t0|
             {
@@ -1414,11 +1396,47 @@ fn master_ansatz_i_Ij_dependent(
                     .map(
                         |other_k: usize|
                         {
-                            aggregate(Ij_t0, other_k)
+                            let mut agg = vec![0.0; len];
+                            for (Ij_t1, Ij_t0_prob) in Ij_given_prev_Ij[Ij_t0].iter().enumerate(){
+                                let density = Ii_given_Ij_and_kij[Ij_t1].func[other_k].as_slice();
+                                let outer_prob = Ij_t0_prob * bin_size2;
+                                agg.iter_mut()
+                                    .zip(density)
+                                    .for_each(
+                                        |(a,b)|
+                                        {
+                                            *a += b * outer_prob
+                                        }
+                                    );
+                            }
+                            agg
                         }
                     ).collect_vec()
             }
         ).collect_vec();
+    let aggregated_delta_right = (0..len)
+        .map(
+            |Ij_t0|
+            {
+
+                let mut agg = vec![0.0; len];
+                for (Ij_t1, Ij_t0_prob) in Ij_given_prev_Ij[Ij_t0].iter().enumerate(){
+                    let density = Ii_given_Ij_and_kij[Ij_t1].delta_right.as_slice();
+                    let outer_prob = Ij_t0_prob * bin_size2;
+                    agg.iter_mut()
+                        .zip(density)
+                        .for_each(
+                            |(a,b)|
+                            {
+                                *a += b * outer_prob
+                            }
+                        );
+                }
+                agg
+
+            }
+        ).collect_vec();
+    
 
     let mut Ii_given_prev_Ii_for_helper = |kij_tm1: usize, Ij_t0: usize, prob: f64|
     {
@@ -1430,7 +1448,7 @@ fn master_ansatz_i_Ij_dependent(
             let res_Ii_vec = Ii_given_prev_Ii[prev_Ii].as_mut_slice();
             let other_k = (kIj_t0 - prev_Ii).min(idx_s);
             if other_k < idx_s {
-                let aggregate = aggregated[Ij_t0][other_k].as_slice();
+                let aggregate = aggregated_func[Ij_t0][other_k].as_slice();
                 res_Ii_vec
                     .iter_mut()
                     .zip(aggregate)
@@ -1442,18 +1460,16 @@ fn master_ansatz_i_Ij_dependent(
                     );
             } else {
                 // delta right
-                for (Ij_t1, Ij_t0_prob) in Ij_given_prev_Ij[Ij_t0].iter().enumerate(){
-                    let density = Ii_given_Ij_and_kij[Ij_t1].delta_right.as_slice();
-                    let outer_prob = Ij_t0_prob * bin_size2 * prob;
-                    res_Ii_vec.iter_mut()
-                        .zip(density)
-                        .for_each(
-                            |(a,b)|
-                            {
-                                *a += b * outer_prob
-                            }
-                        );
-                }
+                let aggregate = aggregated_delta_right[Ij_t0].as_slice();
+                res_Ii_vec
+                    .iter_mut()
+                    .zip(aggregate)
+                    .for_each(
+                        |(a, b)|
+                        {
+                            *a += b * prob
+                        }
+                    );
             }
             
         }
