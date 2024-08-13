@@ -194,7 +194,7 @@ pub fn continue_calculation(
         crit.write(&mut s_buf, i);
 
         if let Some(stub) = write_densities_stub.as_deref(){
-            let stub = format!("{stub}_{f_stub}_1");
+            let stub = format!("{stub}_{f_stub}_{i}");
             let name = format!("{stub}_I.dat");
             write_I(&Ii, parameter.bin_size, &name);
             k_ij.write(&stub, &parameter);
@@ -460,6 +460,7 @@ fn calk_k_master_test(
             );
     };
     loop {
+
         for (prior_Ij_idx, current_Ij_distribution) in input_P_I_given_prior_I.iter().enumerate().progress(){
             let current_k = &current_kij_t0_estimate_given_Ij_t0[prior_Ij_idx];
             let prior_I_prob = prior_I_for_normalization[prior_Ij_idx];
