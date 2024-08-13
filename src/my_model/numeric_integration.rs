@@ -14,6 +14,31 @@ use crate::misc::*;
     https://nxt.yfeld.de/apps/files_sharing/publicpreview/rTjakkQiiDcsCpH?file=/&fileId=53661&x=2560&y=1440&a=true&etag=22fca54f9c79ad4e9453e05457e29686
 */
 
+fn dreieck_integrations_helfer(slice: &[f64]) -> Vec<f64>
+{
+    let mut result = Vec::with_capacity(slice.len());
+    result.extend(
+        slice.windows(2)
+            .map(
+                |w|
+                {
+                    0.5 * (w[0] + w[1])
+                }
+            )
+        );
+    let last = &slice[slice.len()-2..];
+    debug_assert_eq!(last.len(), 2);
+    // extrapolate last value
+    //let extrapolated_value = 2.0*(last[1]-last[0])+last[0];
+    //let triangle_val = (extrapolated_value + last[1])*0.5;
+    // val is mathematically equal to triangle_val
+    let val = (3.0 * last[1]-last[0])*0.5;
+    result.push(
+        val
+    );
+    result
+}
+
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize, PartialEq)]
 #[derivative(Default)]
