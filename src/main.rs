@@ -274,7 +274,11 @@ fn main() {
                 },
                 MyModelCommand::Num(test) => {
                     let input: ModelInput = parse_and_add_to_global(test.json);
-                    my_model::numeric_integration::compute_line(input);
+                    if input.triangle{
+                        my_model::numeric_integration_pre::compute_line(input)
+                    } else {
+                        my_model::numeric_integration::compute_line(input);
+                    }
                 }
 
             }

@@ -1,0 +1,270 @@
+use std::ops::*;
+
+use super::numeric_integration::*;
+use itertools::*;
+use fraction::Ratio;
+use fraction::ToPrimitive;
+use serde::Deserialize;
+use serde::Serialize;
+
+
+fn h1(z: f64, L: f64, R: f64) -> f64
+{
+    0.5*(L-R)*(L+R-2.0*(z+1.0))
+}
+
+fn h2(z: f64, L: f64, R: f64) -> f64
+{
+    0.5*(L-R)*(L+R-2.0*z+2.0)
+}
+
+fn h3(z: f64, L: f64, R: f64) -> f64
+{
+    h1(z, z, R) + h2(z, L, z)
+}
+
+fn H1(z: f64, L: f64, R: f64) -> f64
+{
+    let L2 = L*L;
+    (2.0*L2*L-3.0*L2*(z+1.0)+R*R*(3.0+3.0*z-2.0*R))/6.0
+}
+
+fn H2(z: f64, L: f64, R: f64) -> f64
+{
+    let L2 = L*L;
+    (-2.0*L2*L+3.0*L2*(z-1.0)+R*R*(3.0-3.0*z+2.0*R))/6.0
+}
+
+fn H3(z: f64, L: f64, R: f64) -> f64
+{
+    H1(z, z, R) + H2(z, L, z)
+}
+
+fn delta_left_b_update(L: f64, R: f64, b: f64) -> f64
+{
+    let rml = R-L;
+    b*(
+        0.5*(L-1.0)*(R-1.0)*(L-R)
+        + (L*L*L + rml*rml*rml)/6.0
+    )
+}
+
+fn delta_left_a_update(L: f64, R: f64, a: f64) -> f64
+{
+    let l2 = L*L;
+    a*(
+        (
+            (R-1.0)
+            *(-4.0*l2*L+3.0*l2*(R+1.0)+(R-3.0)*R*R)
+        )/12.0
+    )
+}
+
+struct LinearInterpolation{
+    a: f64,
+    b: f64
+}
+
+impl LinearInterpolation{
+    pub fn eval(&self, x: f64) -> f64
+    {
+        x.mul_add(self.a, self.b)
+    }
+}
+
+#[allow(non_snake_case)]
+pub fn compute_line(input: ModelInput)
+{
+    /// TODO: p "s0.5_pr401__s.dat" u 1:3 w lp, "" u 1:5 w lp, "s0.5_pr501__s.dat" u 1:3 w lp, "" u 1:5 w lp
+    /// The probability to be left should be the same as the probability to be right!
+    // let f_stub = format!("s{}_pr{}", input.s, input.precision);
+    // 
+    // let s_name = format!("{f_stub}_s.dat");
+    println!("Triangle");
+    let (
+        parameter,
+        k_density
+    ) = k_of_leaf_parent(input.s, 1e-8, input.precision.get());
+
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Bins {
+    bins_f64: Vec<f64>,
+    bins_ratio: Vec<Ratio<isize>>,
+    positive_bin_count: usize
+}
+
+impl Bins{
+    pub fn new(bin_count: usize) -> Self
+    {
+        let bin_count_isize = bin_count as isize;
+        let bins = (0..=bin_count*2)
+            .map(
+                |i|
+                {
+                    Ratio::new(i as isize - bin_count_isize, bin_count_isize)
+                }
+            ).collect_vec();
+        let bins_f64 = bins
+            .iter()
+            .map(|v| v.to_f64().unwrap())
+            .collect_vec();
+        Self{
+            bins_f64,
+            bins_ratio: bins,
+            positive_bin_count: bin_count
+        }
+    }
+
+    pub fn get_all_bin_borders_f64(&self) -> &[f64]
+    {
+        &self.bins_f64
+    }
+
+    pub fn get_positive_bin_borders_f64(&self) -> &[f64]
+    {
+        &self.bins_f64[self.positive_bin_idx_range()]
+    }
+
+    // excluding 0
+    pub fn get_negative_bin_borders_f64(&self) -> &[f64]
+    {
+        &self.bins_f64[self.negative_bin_idx_range()]
+    }
+
+    #[inline]
+    fn positive_bin_idx_range(&self) -> RangeFrom<usize>
+    {
+        self.positive_bin_count..
+    }
+
+    #[inline]
+    fn negative_bin_idx_range(&self) -> RangeTo<usize>
+    {
+        ..self.positive_bin_count
+    }
+
+    // k has to include bin border for s
+    fn interpolate_k<'a>(&'a self, k: &'a [f64]) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+    {
+        let bin_slice = self.get_positive_bin_borders_f64();
+        bin_slice.windows(2)
+            .zip(k.windows(2))
+            .map(
+                |(x, y)|
+                {
+                    let x_diff = x[1]-x[0];
+                    let a = (y[1]-y[0])/x_diff;
+                    let b = (y[0]*x[1]-y[1]*x[0])/x_diff;
+                    let inter = LinearInterpolation{
+                        a,
+                        b
+                    };
+                    (
+                        inter,
+                        (x[0], x[1])
+                    )
+                }
+            )
+
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DensityK {
+    bin_borders: Vec<f64>,
+    delta_left: f64,
+    delta_right: f64
+}
+
+impl DensityK{
+    pub fn new(num_borders: usize) -> Self
+    {
+        let delta_left = 0.2;
+        let delta_right = 0.2;
+
+        let height_rest = 0.6 / (num_borders - 1) as f64;
+        let bin_borders = vec![height_rest; num_borders];
+
+        Self { bin_borders, delta_left, delta_right }
+    }
+
+    pub fn new_zeroed(&self) -> Self
+    { 
+        Self{
+            delta_left: 0.0,
+            delta_right: 0.0,
+            bin_borders: vec![0.0; self.bin_borders.len()]
+        }
+    }
+    pub fn make_zeroed(&mut self)
+    {
+        self.delta_left = 0.0;
+        self.delta_right = 0.0;
+        self.bin_borders.iter_mut()
+            .for_each(|v| *v = 0.0);
+    }
+}
+
+fn k_of_leaf_parent(
+    s: f64, 
+    threshold: f64,
+    bin_count: usize
+)-> (Parameter, ProbabilityDensity)
+{
+    let bin_size = Ratio::new(1, bin_count);
+    let s_ratio = Ratio::approximate_float_unsigned(s).unwrap();
+    dbg!(s_ratio);
+    let s_index = s_ratio / bin_size;
+    dbg!(s_index);
+    let s_idx_ratio = s_index.ceil();
+    dbg!(s_idx_ratio);
+    let s_idx = s_idx_ratio.to_integer();
+    dbg!(s_idx);
+    let s_usable = s_idx_ratio * bin_size;
+    dbg!(s_usable);
+    let s_approx: f64 = s_usable.to_f64().unwrap();
+    dbg!(s_approx);
+    let left_range = 0..s_idx;
+    let right_range = s_idx..;
+    let bin_size_approx = bin_size.to_f64().unwrap();
+
+    let mut k_guess = DensityK::new(s_idx+1);
+    dbg!(&k_guess);
+    let mut k_result = k_guess.new_zeroed();
+
+    let bins = Bins::new(bin_count);
+    let bins_f64 = bins.get_all_bin_borders_f64();
+    dbg!(bins_f64);
+    let bins_positive = bins.get_positive_bin_borders_f64();
+    dbg!(bins_positive);
+
+
+    loop{
+        
+        let k_interpolation_iter = bins.interpolate_k(&k_guess.bin_borders);
+
+        // L is left border of k bin, R is right border of k bin
+        for (interpolation, (L, R)) in k_interpolation_iter
+        {
+            // use bin_borders of guess to update bin_borders of result
+            for (k_val, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
+                *k_val += if z -L <= 0.0{
+                    interpolation.a * H1(z, L, R) + interpolation.b * h1(z, L, R)
+                } else if z-R <= 0.0 {
+                    interpolation.a * H3(z, L, R) + interpolation.b * h3(z, L, R)
+                } else {
+                    interpolation.a * H2(z, L, R) + interpolation.b * h2(z, L, R)
+                };
+            }
+
+            // use bin_borders to update delta left of result
+            k_result.delta_left += delta_left_b_update(L, R, interpolation.b) 
+                + delta_left_a_update(L, R, interpolation.a);
+        }
+
+        std::mem::swap(&mut k_guess, &mut k_result);
+        k_result.make_zeroed();
+    }
+}

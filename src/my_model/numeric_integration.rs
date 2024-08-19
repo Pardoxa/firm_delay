@@ -54,7 +54,9 @@ pub struct ModelInput{
     #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
     pub n_max: NonZeroUsize,
     /// If none exist, no k_densities will be written
-    pub write_densities_stub: Option<String>
+    pub write_densities_stub: Option<String>,
+
+    pub triangle: bool
 }
 
 
@@ -274,11 +276,11 @@ pub fn write_I(I: &[f64], bin_size: f64, name: &str)
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Parameter{
-    bin_size: f64,
-    s: f64,
-    len_of_1: usize,
-    index_s: usize,
-    len_of_k_func: usize
+    pub bin_size: f64,
+    pub s: f64,
+    pub len_of_1: usize,
+    pub index_s: usize,
+    pub len_of_k_func: usize
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
