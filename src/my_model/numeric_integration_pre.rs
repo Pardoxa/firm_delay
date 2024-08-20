@@ -1,5 +1,7 @@
 use std::ops::*;
 
+use crate::create_buf_with_command_and_version;
+use std::io::Write;
 use super::numeric_integration::*;
 use itertools::*;
 use fraction::Ratio;
@@ -232,6 +234,30 @@ impl DensityK{
         self.bin_borders.iter_mut()
             .for_each(|v| *v = 0.0);
     }
+
+    pub fn write(&self, bins: &Bins, counter: u16, s: f64)
+    {
+        let name = format!("{counter}.dat");
+        let mut buf = create_buf_with_command_and_version(name);
+        let positive_bins = bins.get_positive_bin_borders_f64();
+
+        for (val, bin) in self.bin_borders.iter().zip(positive_bins)
+        {
+            writeln!(
+                buf,
+                "{bin} {val}"
+            ).unwrap();
+        }
+
+        let name = format!("{counter}_delta.dat");
+        let mut buf = create_buf_with_command_and_version(name);
+        writeln!(
+            buf,
+            "0 {}\n{s} {}",
+            self.delta_left,
+            self.delta_right
+        ).unwrap();
+    }
 }
 
 fn k_of_leaf_parent(
@@ -267,6 +293,8 @@ fn k_of_leaf_parent(
     let bins_positive = bins.get_positive_bin_borders_f64();
     dbg!(bins_positive);
 
+    let mut counter = 0;
+
 
     loop{
         
@@ -276,26 +304,54 @@ fn k_of_leaf_parent(
         for (interpolation, (L, R)) in k_interpolation_iter
         {
             // use bin_borders of guess to update bin_borders of result
-            for (k_val_result, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
-                *k_val_result += if z -L <= 0.0{
-                    interpolation.a * H1(z, L, R) + interpolation.b * h1(z, L, R)
-                } else if z-R <= 0.0 {
-                    interpolation.a * H3(z, L, R) + interpolation.b * h3(z, L, R)
-                } else {
-                    interpolation.a * H2(z, L, R) + interpolation.b * h2(z, L, R)
-                };
-            }
+            //for (k_val_result, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
+            //    *k_val_result += if z -L <= 0.0{
+            //        interpolation.a * H1(z, L, R) + interpolation.b * h1(z, L, R)
+            //    } else if z-R <= 0.0 {
+            //        interpolation.a * H3(z, L, R) + interpolation.b * h3(z, L, R)
+            //    } else {
+            //        interpolation.a * H2(z, L, R) + interpolation.b * h2(z, L, R)
+            //    };
+            //}
 
             // use bin_borders to update delta left of result
-            k_result.delta_left += delta_left_b_update(L, R, interpolation.b) 
-                + delta_left_a_update(L, R, interpolation.a);
-            
-            // use bin_borders to update delta right of result
-            k_result.delta_right += delta_right_b_update(L, R, interpolation.b, s)
-                + delta_right_a_update(L, R, interpolation.a, s);
+            //k_result.delta_left += delta_left_b_update(L, R, interpolation.b) 
+            //    + delta_left_a_update(L, R, interpolation.a);
+            //
+            //// use bin_borders to update delta right of result
+            //k_result.delta_right += delta_right_b_update(L, R, interpolation.b, s)
+            //    + delta_right_a_update(L, R, interpolation.a, s);
+        }
+
+        // delta left effect on bin_borders
+        for (k_val_result, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
+            *k_val_result += k_guess.delta_left * (1.0 - z); 
+        }
+        // delta left effect on delta left
+        k_result.delta_left += k_guess.delta_left * 0.5;
+        // delta left effect on delta right
+        let sm1 = 1.0 - s;
+        k_result.delta_right += k_guess.delta_left * sm1 * sm1 * 0.5;
+
+        // delta right effect on delta right
+        k_result.delta_right += k_guess.delta_right * 0.5;
+
+        // delta right effect on bin borders
+        for (k_val_result, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
+            *k_val_result += k_guess.delta_right * (1.0 + z - s);
+        }
+
+        // delta right effect on delta left
+        k_result.delta_left += k_guess.delta_right * 0.5 * sm1 * sm1;
+
+        counter += 1;
+        k_result.write(&bins, counter, s);
+        if counter == 20 {
+            break;
         }
 
         std::mem::swap(&mut k_guess, &mut k_result);
         k_result.make_zeroed();
     }
+    unimplemented!()
 }
