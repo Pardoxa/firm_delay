@@ -17,7 +17,7 @@ fn h1(z: f64, L: f64, R: f64) -> f64
 
 fn h2(z: f64, L: f64, R: f64) -> f64
 {
-    0.5*(L-R)*(L+R-2.0*z+2.0)
+    0.5*(R-L)*(L+R-2.0*z+2.0)
 }
 
 fn h3(z: f64, L: f64, R: f64) -> f64
@@ -46,8 +46,8 @@ fn delta_left_b_update(L: f64, R: f64, b: f64) -> f64
 {
     let rml = R-L;
     b*(
-        0.5*(L-1.0)*(R-1.0)*(L-R)
-        + (L*L*L + rml*rml*rml)/6.0
+        0.5*(L-1.0)*(R-1.0)*rml
+        + rml*rml*rml/6.0
     )
 }
 
@@ -66,7 +66,7 @@ fn delta_right_b_update(L: f64, R: f64, b: f64, s: f64) -> f64
 {
     let rml = R-L;
     b*(
-        0.5*(L-R)*(L-s+1.0)*(R-s+1.0)
+        0.5*rml*(L-s+1.0)*(R-s+1.0)
         + rml * rml * rml / 6.0
     )
 }
@@ -306,25 +306,27 @@ fn k_of_leaf_parent(
         for (interpolation, (L, R)) in k_interpolation_iter
         {
             // use bin_borders of guess to update bin_borders of result
-            //for (k_val_result, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
-            //    *k_val_result += if z -L <= 0.0{
-            //        interpolation.a * H1(z, L, R) + interpolation.b * h1(z, L, R)
-            //    } else if z-R <= 0.0 {
-            //        interpolation.a * H3(z, L, R) + interpolation.b * h3(z, L, R)
-            //    } else {
-            //        interpolation.a * H2(z, L, R) + interpolation.b * h2(z, L, R)
-            //    };
-            //}
+            for (k_val_result, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
+                *k_val_result += if z -L <= 0.0{
+                    interpolation.a * H1(z, L, R) + interpolation.b * h1(z, L, R)
+                } else if z-R <= 0.0 {
+                    interpolation.a * H3(z, L, R) + interpolation.b * h3(z, L, R)
+                } else {
+                    interpolation.a * H2(z, L, R) + interpolation.b * h2(z, L, R)
+                };
+            }
 
             // use bin_borders to update delta left of result
-            //k_result.delta_left += delta_left_b_update(L, R, interpolation.b) 
-            //    + delta_left_a_update(L, R, interpolation.a);
-            //
-            //// use bin_borders to update delta right of result
-            //k_result.delta_right += delta_right_b_update(L, R, interpolation.b, s)
-            //    + delta_right_a_update(L, R, interpolation.a, s);
+            k_result.delta_left += delta_left_b_update(L, R, interpolation.b)
+                + delta_left_a_update(L, R, interpolation.a);
+            
+            // use bin_borders to update delta right of result
+            k_result.delta_right += delta_right_b_update(L, R, interpolation.b, s)
+                + delta_right_a_update(L, R, interpolation.a, s);
+            
         }
 
+        
         // delta left effect on bin_borders
         for (k_val_result, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
             *k_val_result += k_guess.delta_left * (1.0 - z); 
@@ -345,10 +347,10 @@ fn k_of_leaf_parent(
 
         // delta right effect on delta left
         k_result.delta_left += k_guess.delta_right * 0.5 * sm1 * sm1;
-
+        
         counter += 1;
         k_result.write(&bins, counter, s);
-        if counter == 1 {
+        if counter == 5 {
             break;
         }
 
