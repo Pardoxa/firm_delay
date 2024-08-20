@@ -186,7 +186,6 @@ impl Bins{
                     let x_diff = x[1]-x[0];
                     let a = (y[1]-y[0])/x_diff;
                     let b = (y[0]*x[1]-y[1]*x[0])/x_diff;
-                    dbg!(b);
                     let inter = LinearInterpolation{
                         a,
                         b
@@ -303,6 +302,8 @@ fn k_of_leaf_parent(
         let k_interpolation_iter = bins.interpolate_k(&k_guess.bin_borders);
 
         // L is left border of k bin, R is right border of k bin
+        let mut a_update_left = 0.0;
+        let mut a_update_right = 0.0;
         for (interpolation, (L, R)) in k_interpolation_iter
         {
             // use bin_borders of guess to update bin_borders of result
@@ -316,15 +317,23 @@ fn k_of_leaf_parent(
                 };
             }
 
+            
             // use bin_borders to update delta left of result
+            a_update_left += delta_left_a_update(L, R, interpolation.a);
             k_result.delta_left += delta_left_b_update(L, R, interpolation.b)
-                + delta_left_a_update(L, R, interpolation.a);
+                + delta_left_a_update(L, R, interpolation.a); // the a part of the deltas is not symmetric yet!
             
             // use bin_borders to update delta right of result
+            a_update_right += delta_right_a_update(L, R, interpolation.a, s);
             k_result.delta_right += delta_right_b_update(L, R, interpolation.b, s)
                 + delta_right_a_update(L, R, interpolation.a, s);
-            
+            todo!("symetry of a part");
         }
+
+        dbg!(counter);
+        dbg!(a_update_left);
+        dbg!(a_update_right);
+        todo!("Currently a_update_right is sometimes negative! This is illegal");
 
         
         // delta left effect on bin_borders
@@ -350,7 +359,7 @@ fn k_of_leaf_parent(
         
         counter += 1;
         k_result.write(&bins, counter, s);
-        if counter == 5 {
+        if counter == 25 {
             break;
         }
 
