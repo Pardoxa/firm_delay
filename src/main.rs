@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 use std::process::exit;
 
 use complexer_firms::{auto, AutoOpts, SubstitutionVelocitySampleOpts};

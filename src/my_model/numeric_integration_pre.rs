@@ -60,6 +60,33 @@ fn delta_left_a_update(L: f64, R: f64, a: f64) -> f64
     )
 }
 
+fn delta_right_b_update(L: f64, R: f64, b: f64, s: f64) -> f64
+{
+    let rml = R-L;
+    b*(
+        0.5*(L-R)*(L-s+1.0)*(R-s+1.0)
+        + rml * rml * rml / 6.0
+    )
+}
+
+fn delta_right_a_update(L: f64, R: f64, a: f64, s: f64) -> f64
+{
+    let rml = R-L;
+    a * (
+        rml
+            * (L - s + 1.0)
+            * (
+                L * L
+                + L * (R - 3.0 * s + 3.0)
+                + R * (4.0 * R - 3.0 * s + 3.0)
+            ) 
+            / 12.0
+        + (rml * rml * rml) 
+            * (L + 3.0 * R)
+            / 24.0
+    ) 
+}
+
 struct LinearInterpolation{
     a: f64,
     b: f64
@@ -249,8 +276,8 @@ fn k_of_leaf_parent(
         for (interpolation, (L, R)) in k_interpolation_iter
         {
             // use bin_borders of guess to update bin_borders of result
-            for (k_val, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
-                *k_val += if z -L <= 0.0{
+            for (k_val_result, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
+                *k_val_result += if z -L <= 0.0{
                     interpolation.a * H1(z, L, R) + interpolation.b * h1(z, L, R)
                 } else if z-R <= 0.0 {
                     interpolation.a * H3(z, L, R) + interpolation.b * h3(z, L, R)
@@ -262,6 +289,10 @@ fn k_of_leaf_parent(
             // use bin_borders to update delta left of result
             k_result.delta_left += delta_left_b_update(L, R, interpolation.b) 
                 + delta_left_a_update(L, R, interpolation.a);
+            
+            // use bin_borders to update delta right of result
+            k_result.delta_right += delta_right_b_update(L, R, interpolation.b, s)
+                + delta_right_a_update(L, R, interpolation.a, s);
         }
 
         std::mem::swap(&mut k_guess, &mut k_result);
