@@ -186,6 +186,7 @@ impl Bins{
                     let x_diff = x[1]-x[0];
                     let a = (y[1]-y[0])/x_diff;
                     let b = (y[0]*x[1]-y[1]*x[0])/x_diff;
+                    dbg!(b);
                     let inter = LinearInterpolation{
                         a,
                         b
@@ -208,12 +209,12 @@ pub struct DensityK {
 }
 
 impl DensityK{
-    pub fn new(num_borders: usize) -> Self
+    pub fn new(num_borders: usize, s: f64) -> Self
     {
         let delta_left = 0.2;
         let delta_right = 0.2;
 
-        let height_rest = 0.6 / (num_borders - 1) as f64;
+        let height_rest = 0.6 / s;
         let bin_borders = vec![height_rest; num_borders];
 
         Self { bin_borders, delta_left, delta_right }
@@ -283,11 +284,12 @@ fn k_of_leaf_parent(
     let right_range = s_idx..;
     let bin_size_approx = bin_size.to_f64().unwrap();
 
-    let mut k_guess = DensityK::new(s_idx+1);
+    let mut k_guess = DensityK::new(s_idx+1, s);
     dbg!(&k_guess);
     let mut k_result = k_guess.new_zeroed();
-
+    
     let bins = Bins::new(bin_count);
+    k_guess.write(&bins, 100, s);
     let bins_f64 = bins.get_all_bin_borders_f64();
     dbg!(bins_f64);
     let bins_positive = bins.get_positive_bin_borders_f64();
@@ -346,7 +348,7 @@ fn k_of_leaf_parent(
 
         counter += 1;
         k_result.write(&bins, counter, s);
-        if counter == 20 {
+        if counter == 1 {
             break;
         }
 
