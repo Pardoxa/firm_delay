@@ -261,6 +261,32 @@ impl DensityK{
             self.delta_right
         ).unwrap();
     }
+
+    pub fn integral(&self, bin_size: f64) -> f64
+    {
+        let mut sum = 0.0;
+        for slice in self.bin_borders.windows(2)
+        {
+            let av = (slice[0]+slice[1]);
+            sum += av;
+        }
+        sum /= 2.0;
+        sum *= bin_size;
+        sum + self.delta_left + self.delta_right
+    }
+
+    pub fn normalize(&mut self, bin_size: f64)
+    {
+        let integral = self.integral(bin_size);
+        let factor = integral.recip();
+        self.delta_left *= factor;
+        self.delta_right *= factor;
+        self.bin_borders
+            .iter_mut()
+            .for_each(
+                |v| *v *= factor
+            );
+    }
 }
 
 fn k_of_leaf_parent(
@@ -287,28 +313,24 @@ fn k_of_leaf_parent(
     let bin_size_approx = bin_size.to_f64().unwrap();
 
     let mut k_guess = DensityK::new(s_idx+1, s);
-    dbg!(&k_guess);
     let mut k_result = k_guess.new_zeroed();
     
     let bins = Bins::new(bin_count);
     k_guess.write(&bins, 100, s);
     let bins_f64 = bins.get_all_bin_borders_f64();
-    dbg!(bins_f64);
     let bins_positive = bins.get_positive_bin_borders_f64();
-    dbg!(bins_positive);
+
 
     let mut counter = 0;
 
+    let original = k_guess.integral(bin_size_approx);
+    println!("Or: {original}");
 
     loop{
         
         let k_interpolation_iter = bins.interpolate_k(&k_guess.bin_borders);
 
         // L is left border of k bin, R is right border of k bin
-        let mut a_update_left = 0.0;
-        let mut a_update_right = 0.0;
-        let mut a_update = Vec::new();
-        let mut a_val = Vec::new();
         for (interpolation, (L, R)) in k_interpolation_iter
         {
             // use bin_borders of guess to update bin_borders of result
@@ -322,28 +344,14 @@ fn k_of_leaf_parent(
                 };
             }
 
-            a_val.push(interpolation.a);
             // use bin_borders to update delta left of result
-            let val = delta_left_a_update(L, R, interpolation.a);
-            
-            a_update_left += delta_left_a_update(L, R, interpolation.a);
             k_result.delta_left += delta_left_b_update(L, R, interpolation.b)
                 + delta_left_a_update(L, R, interpolation.a); // the a part of the deltas is not symmetric yet!
             
             // use bin_borders to update delta right of result
-            let val2 = delta_right_a_update(L, R, interpolation.a, s);
-            a_update.push((val, val2));
-            a_update_right += delta_right_a_update(L, R, interpolation.a, s);
             k_result.delta_right += delta_right_b_update(L, R, interpolation.b, s)
                 + delta_right_a_update(L, R, interpolation.a, s);
-            //todo!("symetry of a part");
         }
-        dbg!(a_update);
-        dbg!(counter);
-        dbg!(a_update_left);
-        dbg!(a_update_right);
-        dbg!(a_val);
-        //todo!("Currently a_update_right is sometimes negative! This is illegal");
 
         
         // delta left effect on bin_borders
@@ -368,7 +376,10 @@ fn k_of_leaf_parent(
         k_result.delta_left += k_guess.delta_right * 0.5 * sm1 * sm1;
         
         counter += 1;
+        k_result.normalize(bin_size_approx);
         k_result.write(&bins, counter, s);
+        let int = k_result.integral(bin_size_approx);
+        println!("{counter} {int}");
         if counter == 25 {
             break;
         }
