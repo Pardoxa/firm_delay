@@ -54,11 +54,14 @@ fn delta_left_b_update(L: f64, R: f64, b: f64) -> f64
 fn delta_left_a_update(L: f64, R: f64, a: f64) -> f64
 {
     let l2 = L*L;
+    let lmr = L-R;
     a*(
         (
             (R-1.0)
             *(-4.0*l2*L+3.0*l2*(R+1.0)+(R-3.0)*R*R)
-        )/12.0
+        ) /12.0
+        - lmr * lmr * lmr * (3.0 * L + R)
+          / 24.0
     )
 }
 
@@ -304,6 +307,8 @@ fn k_of_leaf_parent(
         // L is left border of k bin, R is right border of k bin
         let mut a_update_left = 0.0;
         let mut a_update_right = 0.0;
+        let mut a_update = Vec::new();
+        let mut a_val = Vec::new();
         for (interpolation, (L, R)) in k_interpolation_iter
         {
             // use bin_borders of guess to update bin_borders of result
@@ -317,23 +322,28 @@ fn k_of_leaf_parent(
                 };
             }
 
-            
+            a_val.push(interpolation.a);
             // use bin_borders to update delta left of result
+            let val = delta_left_a_update(L, R, interpolation.a);
+            
             a_update_left += delta_left_a_update(L, R, interpolation.a);
             k_result.delta_left += delta_left_b_update(L, R, interpolation.b)
                 + delta_left_a_update(L, R, interpolation.a); // the a part of the deltas is not symmetric yet!
             
             // use bin_borders to update delta right of result
+            let val2 = delta_right_a_update(L, R, interpolation.a, s);
+            a_update.push((val, val2));
             a_update_right += delta_right_a_update(L, R, interpolation.a, s);
             k_result.delta_right += delta_right_b_update(L, R, interpolation.b, s)
                 + delta_right_a_update(L, R, interpolation.a, s);
-            todo!("symetry of a part");
+            //todo!("symetry of a part");
         }
-
+        dbg!(a_update);
         dbg!(counter);
         dbg!(a_update_left);
         dbg!(a_update_right);
-        todo!("Currently a_update_right is sometimes negative! This is illegal");
+        dbg!(a_val);
+        //todo!("Currently a_update_right is sometimes negative! This is illegal");
 
         
         // delta left effect on bin_borders
