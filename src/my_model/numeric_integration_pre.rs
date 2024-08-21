@@ -98,6 +98,7 @@ struct LinearInterpolation{
 }
 
 impl LinearInterpolation{
+    #[allow(dead_code)]
     pub fn eval(&self, x: f64) -> f64
     {
         x.mul_add(self.a, self.b)
@@ -107,14 +108,10 @@ impl LinearInterpolation{
 #[allow(non_snake_case)]
 pub fn compute_line(input: ModelInput)
 {
-    /// TODO: p "s0.5_pr401__s.dat" u 1:3 w lp, "" u 1:5 w lp, "s0.5_pr501__s.dat" u 1:3 w lp, "" u 1:5 w lp
-    /// The probability to be left should be the same as the probability to be right!
-    // let f_stub = format!("s{}_pr{}", input.s, input.precision);
-    // 
-    // let s_name = format!("{f_stub}_s.dat");
+
     println!("Triangle");
     let (
-        parameter,
+        bins,
         k_density
     ) = k_of_leaf_parent(input.s, 1e-8, input.precision.get());
 
@@ -124,11 +121,13 @@ pub fn compute_line(input: ModelInput)
 pub struct Bins {
     bins_f64: Vec<f64>,
     bins_ratio: Vec<Ratio<isize>>,
-    positive_bin_count: usize
+    positive_bin_count: usize,
+    bin_size: f64,
+    s_approx: f64
 }
 
 impl Bins{
-    pub fn new(bin_count: usize) -> Self
+    pub fn new(bin_count: usize, s_approx: f64, bin_size: f64) -> Self
     {
         let bin_count_isize = bin_count as isize;
         let bins = (0..=bin_count*2)
@@ -145,10 +144,13 @@ impl Bins{
         Self{
             bins_f64,
             bins_ratio: bins,
-            positive_bin_count: bin_count
+            positive_bin_count: bin_count,
+            bin_size,
+            s_approx
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_all_bin_borders_f64(&self) -> &[f64]
     {
         &self.bins_f64
@@ -160,6 +162,7 @@ impl Bins{
     }
 
     // excluding 0
+    #[allow(dead_code)]
     pub fn get_negative_bin_borders_f64(&self) -> &[f64]
     {
         &self.bins_f64[self.negative_bin_idx_range()]
@@ -172,6 +175,7 @@ impl Bins{
     }
 
     #[inline]
+    #[allow(dead_code)]
     fn negative_bin_idx_range(&self) -> RangeTo<usize>
     {
         ..self.positive_bin_count
@@ -265,9 +269,10 @@ impl DensityK{
     pub fn integral(&self, bin_size: f64) -> f64
     {
         let mut sum = 0.0;
+        // optimizable, but who cares
         for slice in self.bin_borders.windows(2)
         {
-            let av = (slice[0]+slice[1]);
+            let av = slice[0] + slice[1];
             sum += av;
         }
         sum /= 2.0;
@@ -287,44 +292,48 @@ impl DensityK{
                 |v| *v *= factor
             );
     }
+
+    pub fn abs_diff(&self, other: &Self) -> f64
+    {
+        let mut diff = (self.delta_left - other.delta_left).abs()
+            + (self.delta_right - other.delta_right).abs();
+        self.bin_borders.iter()
+            .zip(other.bin_borders.iter())
+            .for_each(
+                |(a,b)| 
+                diff += (a-b).abs()
+            );
+        diff
+    }
 }
 
 fn k_of_leaf_parent(
     s: f64, 
     threshold: f64,
     bin_count: usize
-)-> (Parameter, ProbabilityDensity)
+)-> (Bins, DensityK)
 {
     let bin_size = Ratio::new(1, bin_count);
     let s_ratio = Ratio::approximate_float_unsigned(s).unwrap();
-    dbg!(s_ratio);
     let s_index = s_ratio / bin_size;
-    dbg!(s_index);
     let s_idx_ratio = s_index.ceil();
-    dbg!(s_idx_ratio);
     let s_idx = s_idx_ratio.to_integer();
-    dbg!(s_idx);
     let s_usable = s_idx_ratio * bin_size;
-    dbg!(s_usable);
     let s_approx: f64 = s_usable.to_f64().unwrap();
-    dbg!(s_approx);
-    let left_range = 0..s_idx;
-    let right_range = s_idx..;
     let bin_size_approx = bin_size.to_f64().unwrap();
 
-    let mut k_guess = DensityK::new(s_idx+1, s);
+    let mut k_guess = DensityK::new(s_idx + 1, s_approx);
     let mut k_result = k_guess.new_zeroed();
     
-    let bins = Bins::new(bin_count);
-    k_guess.write(&bins, 100, s);
-    let bins_f64 = bins.get_all_bin_borders_f64();
+    let bins = Bins::new(
+        bin_count,
+        s_approx,
+        bin_size_approx
+    );
+    k_guess.write(&bins, 100, s_approx);
+
     let bins_positive = bins.get_positive_bin_borders_f64();
-
-
     let mut counter = 0;
-
-    let original = k_guess.integral(bin_size_approx);
-    println!("Or: {original}");
 
     loop{
         
@@ -349,8 +358,8 @@ fn k_of_leaf_parent(
                 + delta_left_a_update(L, R, interpolation.a); // the a part of the deltas is not symmetric yet!
             
             // use bin_borders to update delta right of result
-            k_result.delta_right += delta_right_b_update(L, R, interpolation.b, s)
-                + delta_right_a_update(L, R, interpolation.a, s);
+            k_result.delta_right += delta_right_b_update(L, R, interpolation.b, s_approx)
+                + delta_right_a_update(L, R, interpolation.a, s_approx);
         }
 
         
@@ -361,7 +370,7 @@ fn k_of_leaf_parent(
         // delta left effect on delta left
         k_result.delta_left += k_guess.delta_left * 0.5;
         // delta left effect on delta right
-        let sm1 = 1.0 - s;
+        let sm1 = 1.0 - s_approx;
         k_result.delta_right += k_guess.delta_left * sm1 * sm1 * 0.5;
 
         // delta right effect on delta right
@@ -369,7 +378,7 @@ fn k_of_leaf_parent(
 
         // delta right effect on bin borders
         for (k_val_result, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
-            *k_val_result += k_guess.delta_right * (1.0 + z - s);
+            *k_val_result += k_guess.delta_right * (1.0 + z - s_approx);
         }
 
         // delta right effect on delta left
@@ -378,14 +387,44 @@ fn k_of_leaf_parent(
         counter += 1;
         k_result.normalize(bin_size_approx);
         k_result.write(&bins, counter, s);
-        let int = k_result.integral(bin_size_approx);
-        println!("{counter} {int}");
-        if counter == 25 {
-            break;
+        if counter >= 20 {
+            let diff = k_guess.abs_diff(&k_result);
+            if diff <= threshold{
+                return (
+                    bins,
+                    k_result
+                )
+            }
         }
 
         std::mem::swap(&mut k_guess, &mut k_result);
         k_result.make_zeroed();
     }
-    unimplemented!()
+    
+}
+
+#[allow(dead_code)]
+fn dreieck_integrations_helfer(slice: &[f64]) -> Vec<f64>
+{
+    let mut result = Vec::with_capacity(slice.len());
+    result.extend(
+        slice.windows(2)
+            .map(
+                |w|
+                {
+                    0.5 * (w[0] + w[1])
+                }
+            )
+        );
+    let last = &slice[slice.len()-2..];
+    debug_assert_eq!(last.len(), 2);
+    // extrapolate last value
+    //let extrapolated_value = 2.0*(last[1]-last[0])+last[0];
+    //let triangle_val = (extrapolated_value + last[1])*0.5;
+    // val is mathematically equal to triangle_val
+    let val = (3.0 * last[1]-last[0])*0.5;
+    result.push(
+        val
+    );
+    result
 }

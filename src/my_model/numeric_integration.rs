@@ -14,32 +14,6 @@ use crate::misc::*;
     https://nxt.yfeld.de/apps/files_sharing/publicpreview/rTjakkQiiDcsCpH?file=/&fileId=53661&x=2560&y=1440&a=true&etag=22fca54f9c79ad4e9453e05457e29686
 */
 
-fn dreieck_integrations_helfer(slice: &[f64]) -> Vec<f64>
-{
-    let mut result = Vec::with_capacity(slice.len());
-    result.extend(
-        slice.windows(2)
-            .map(
-                |w|
-                {
-                    0.5 * (w[0] + w[1])
-                }
-            )
-        );
-    let last = &slice[slice.len()-2..];
-    debug_assert_eq!(last.len(), 2);
-    // extrapolate last value
-    //let extrapolated_value = 2.0*(last[1]-last[0])+last[0];
-    //let triangle_val = (extrapolated_value + last[1])*0.5;
-    // val is mathematically equal to triangle_val
-    let val = (3.0 * last[1]-last[0])*0.5;
-    result.push(
-        val
-    );
-    result
-}
-
-
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize, PartialEq)]
 #[derivative(Default)]
     
@@ -124,8 +98,6 @@ pub fn calc_crit(I: &[f64], param: &Parameter) -> Crit
 #[allow(non_snake_case)]
 pub fn compute_line(input: ModelInput)
 {
-    /// TODO: p "s0.5_pr401__s.dat" u 1:3 w lp, "" u 1:5 w lp, "s0.5_pr501__s.dat" u 1:3 w lp, "" u 1:5 w lp
-    /// The probability to be left should be the same as the probability to be right!
     let f_stub = format!("s{}_pr{}", input.s, input.precision);
     
     let s_name = format!("{f_stub}_s.dat");
@@ -1390,7 +1362,7 @@ fn calc_I(
                 integral
             }
         ).collect_vec();
-    /// I probably want to normalize p_ka here
+    
     let p_ka_total: f64 = p_ka.iter()
         .map(
             |val|
