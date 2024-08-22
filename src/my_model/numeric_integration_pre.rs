@@ -115,6 +115,8 @@ pub fn compute_line(input: ModelInput)
         k_density
     ) = k_of_leaf_parent(input.s, 1e-8, input.precision.get());
 
+    let test = DensityI::new(&bins);
+
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,7 +126,7 @@ pub struct Bins {
     positive_bin_count: usize,
     bin_size: f64,
     s_approx: f64,
-    s_idx: usize
+    s_idx_inclusive: usize
 }
 
 impl Bins{
@@ -159,7 +161,7 @@ impl Bins{
             positive_bin_count: bin_count,
             bin_size: bin_size_approx,
             s_approx,
-            s_idx: s_idx + 1
+            s_idx_inclusive: s_idx
         }
     }
 
@@ -228,15 +230,18 @@ pub struct DensityK {
 }
 
 impl DensityK{
-    pub fn new(num_borders: usize, s: f64) -> Self
+    pub fn new(s_idx_inclusive: usize, s: f64) -> Self
     {
-        let delta_left = 0.2;
-        let delta_right = 0.2;
+        // since index counting starts at 0, the number of indices can be calculated by adding 1
+        let num_bins = s_idx_inclusive + 1;
+        const DELTA_LEFT: f64 = 0.2;
+        const DELTA_RIGHT: f64 = DELTA_LEFT;
+        const REST: f64 = 0.6;
 
-        let height_rest = 0.6 / s;
-        let bin_borders = vec![height_rest; num_borders];
+        let height_rest = REST / s;
+        let bin_borders = vec![height_rest; num_bins];
 
-        Self { bin_borders, delta_left, delta_right }
+        Self { bin_borders, delta_left: DELTA_LEFT, delta_right: DELTA_RIGHT }
     }
 
     pub fn new_zeroed(&self) -> Self
@@ -331,7 +336,7 @@ fn k_of_leaf_parent(
         s
     );
 
-    let mut k_guess = DensityK::new(bins.s_idx, bins.s_approx);
+    let mut k_guess = DensityK::new(bins.s_idx_inclusive, bins.s_approx);
     let mut k_result = k_guess.new_zeroed();
 
     let bins_positive = bins.get_positive_bin_borders_f64();
@@ -429,4 +434,21 @@ fn dreieck_integrations_helfer(slice: &[f64]) -> Vec<f64>
         val
     );
     result
+}
+
+pub struct DensityI{
+    left_borders: Vec<f64>,
+    right_borders: Vec<f64>
+}
+
+impl DensityI{
+    pub fn new(bins: &Bins) -> Self
+    {
+        let positive = bins.get_positive_bin_borders_f64();
+        let slice_left = &positive[..=bins.s_idx_inclusive];
+        let slice_right = &positive[bins.s_idx_inclusive..];
+        dbg!(slice_left);
+        dbg!(slice_right);
+        unimplemented!()
+    }
 }
