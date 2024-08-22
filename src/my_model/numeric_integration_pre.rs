@@ -115,7 +115,7 @@ pub fn compute_line(input: ModelInput)
         k_density
     ) = k_of_leaf_parent(input.s, 1e-8, input.precision.get());
 
-    let test = DensityI::new(&bins);
+    DensityI::calculate_above_leaf(&bins, &k_density);
 
 }
 
@@ -218,7 +218,21 @@ impl Bins{
                     )
                 }
             )
+    }
 
+    #[inline]
+    pub fn get_left_I_slice(&self) -> &[f64]
+    {
+        let positive = self.get_positive_bin_borders_f64();
+        &positive[..=self.s_idx_inclusive]
+        
+    }
+
+    #[inline]
+    pub fn get_right_I_slice(&self) -> &[f64]
+    {
+        let positive = self.get_positive_bin_borders_f64();
+        &positive[self.s_idx_inclusive..]
     }
 }
 
@@ -234,14 +248,13 @@ impl DensityK{
     {
         // since index counting starts at 0, the number of indices can be calculated by adding 1
         let num_bins = s_idx_inclusive + 1;
-        const DELTA_LEFT: f64 = 0.2;
-        const DELTA_RIGHT: f64 = DELTA_LEFT;
+        const DELTA_HEIGHT: f64 = 0.2;
         const REST: f64 = 0.6;
 
         let height_rest = REST / s;
         let bin_borders = vec![height_rest; num_bins];
 
-        Self { bin_borders, delta_left: DELTA_LEFT, delta_right: DELTA_RIGHT }
+        Self { bin_borders, delta_left: DELTA_HEIGHT, delta_right: DELTA_HEIGHT }
     }
 
     pub fn new_zeroed(&self) -> Self
@@ -444,11 +457,64 @@ pub struct DensityI{
 impl DensityI{
     pub fn new(bins: &Bins) -> Self
     {
-        let positive = bins.get_positive_bin_borders_f64();
-        let slice_left = &positive[..=bins.s_idx_inclusive];
-        let slice_right = &positive[bins.s_idx_inclusive..];
-        dbg!(slice_left);
-        dbg!(slice_right);
-        unimplemented!()
+        let slice_left = bins.get_left_I_slice();
+        let slice_right = bins.get_right_I_slice();
+        Self{
+            left_borders: vec![0.0; slice_left.len()],
+            right_borders: vec![0.0; slice_right.len()]
+        }
+    }
+
+    pub fn calculate_above_leaf(bins: &Bins, this_k: &DensityK)
+    {
+        // for later usage
+        let mut this = Self::new(bins);
+        let positive_bins = bins.get_positive_bin_borders_f64();
+        // to simplify calculations while ignoring delta_right
+        let mut I_bin_borders = vec![0.0; positive_bins.len()];
+
+        let k_interpolation_iter = bins.interpolate_k(&this_k.bin_borders);
+
+        for (interpolation, (L, R)) in k_interpolation_iter
+        {
+            let L_minus_R = L - R;
+            let R_minus_L = R - L;
+            let L_minus_R_divided_by_6 = L_minus_R / 6.0;
+            let L_minus_R_squared_divided_by_6 = L_minus_R * L_minus_R_divided_by_6; // (L-R)^2 / 6
+            let L_times_2 = L * 2.0;
+            let L_times_2_plus_R = R + L_times_2; // 2 L + R
+            let R_squared = R * R;
+            let L_squared = L * L;
+            let a = interpolation.a;
+            let b = interpolation.b;
+            let b_times_3 = 3.0 * b;
+            let b_times_2 = 2.0 * b;
+
+            let diff1A = L_minus_R_squared_divided_by_6 * (a * L_times_2_plus_R + b_times_3); // (L-R)^2*(a*(2L+R)+3b) / 6
+            let part_of_B = (a * (R + L) + b_times_2) * R_minus_L / 2.0;
+            let diff1B = (L_minus_R + 1.0) * part_of_B;
+            for (&x, I_of_x) in positive_bins.iter().zip(I_bin_borders.iter_mut())
+            {
+                if x <= L {
+                    *I_of_x += diff1A;
+                } else if x < R {
+                    let one_minus_x = 1.0 - x;
+                    let R_minus_x = R - x;
+                    let part_that_appears_twice = b_times_3 * (R + x - L_times_2) 
+                        + a * (-3.0 * L_squared + R_squared + R * x  + x * x);
+                    *I_of_x += (
+                        - one_minus_x * R_minus_x * (b_times_3 + a * (R + 2.0 * x))
+                        + one_minus_x * part_that_appears_twice
+                        + R_minus_x * part_that_appears_twice
+                    ) / 6.0;
+                }
+                // Yes, this is no else here! This needs to be executed regardless of the if statement above
+                if x <= R {
+                    *I_of_x += diff1B;
+                } else if x <= L + 1.0 {
+                    *I_of_x += (L - 2.0 * x + 2.0) * part_of_B;
+                }
+            }
+        }
     }
 }
