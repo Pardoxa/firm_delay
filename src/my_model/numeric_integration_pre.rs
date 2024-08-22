@@ -123,12 +123,24 @@ pub struct Bins {
     bins_ratio: Vec<Ratio<isize>>,
     positive_bin_count: usize,
     bin_size: f64,
-    s_approx: f64
+    s_approx: f64,
+    s_idx: usize
 }
 
 impl Bins{
-    pub fn new(bin_count: usize, s_approx: f64, bin_size: f64) -> Self
+    pub fn new(
+        bin_count: usize,
+        s: f64
+    ) -> Self
     {
+        let bin_size = Ratio::new(1, bin_count);
+        let s_ratio = Ratio::approximate_float_unsigned(s).unwrap();
+        let s_index = s_ratio / bin_size;
+        let s_idx_ratio = s_index.ceil();
+        let s_idx = s_idx_ratio.to_integer();
+        let s_usable = s_idx_ratio * bin_size;
+        let s_approx: f64 = s_usable.to_f64().unwrap();
+        let bin_size_approx = bin_size.to_f64().unwrap();
         let bin_count_isize = bin_count as isize;
         let bins = (0..=bin_count*2)
             .map(
@@ -145,8 +157,9 @@ impl Bins{
             bins_f64,
             bins_ratio: bins,
             positive_bin_count: bin_count,
-            bin_size,
-            s_approx
+            bin_size: bin_size_approx,
+            s_approx,
+            s_idx: s_idx + 1
         }
     }
 
@@ -242,7 +255,7 @@ impl DensityK{
             .for_each(|v| *v = 0.0);
     }
 
-    pub fn write(&self, bins: &Bins, counter: u16, s: f64)
+    pub fn write(&self, bins: &Bins, counter: u32, s: f64)
     {
         let name = format!("{counter}.dat");
         let mut buf = create_buf_with_command_and_version(name);
@@ -313,27 +326,16 @@ fn k_of_leaf_parent(
     bin_count: usize
 )-> (Bins, DensityK)
 {
-    let bin_size = Ratio::new(1, bin_count);
-    let s_ratio = Ratio::approximate_float_unsigned(s).unwrap();
-    let s_index = s_ratio / bin_size;
-    let s_idx_ratio = s_index.ceil();
-    let s_idx = s_idx_ratio.to_integer();
-    let s_usable = s_idx_ratio * bin_size;
-    let s_approx: f64 = s_usable.to_f64().unwrap();
-    let bin_size_approx = bin_size.to_f64().unwrap();
-
-    let mut k_guess = DensityK::new(s_idx + 1, s_approx);
-    let mut k_result = k_guess.new_zeroed();
-    
     let bins = Bins::new(
         bin_count,
-        s_approx,
-        bin_size_approx
+        s
     );
-    k_guess.write(&bins, 100, s_approx);
+
+    let mut k_guess = DensityK::new(bins.s_idx, bins.s_approx);
+    let mut k_result = k_guess.new_zeroed();
 
     let bins_positive = bins.get_positive_bin_borders_f64();
-    let mut counter = 0;
+    let mut counter: u32 = 0;
 
     loop{
         
@@ -358,8 +360,8 @@ fn k_of_leaf_parent(
                 + delta_left_a_update(L, R, interpolation.a); // the a part of the deltas is not symmetric yet!
             
             // use bin_borders to update delta right of result
-            k_result.delta_right += delta_right_b_update(L, R, interpolation.b, s_approx)
-                + delta_right_a_update(L, R, interpolation.a, s_approx);
+            k_result.delta_right += delta_right_b_update(L, R, interpolation.b, bins.s_approx)
+                + delta_right_a_update(L, R, interpolation.a, bins.s_approx);
         }
 
         
@@ -370,7 +372,7 @@ fn k_of_leaf_parent(
         // delta left effect on delta left
         k_result.delta_left += k_guess.delta_left * 0.5;
         // delta left effect on delta right
-        let sm1 = 1.0 - s_approx;
+        let sm1 = 1.0 - bins.s_approx;
         k_result.delta_right += k_guess.delta_left * sm1 * sm1 * 0.5;
 
         // delta right effect on delta right
@@ -378,14 +380,14 @@ fn k_of_leaf_parent(
 
         // delta right effect on bin borders
         for (k_val_result, &z) in k_result.bin_borders.iter_mut().zip(bins_positive){
-            *k_val_result += k_guess.delta_right * (1.0 + z - s_approx);
+            *k_val_result += k_guess.delta_right * (1.0 + z - bins.s_approx);
         }
 
         // delta right effect on delta left
         k_result.delta_left += k_guess.delta_right * 0.5 * sm1 * sm1;
         
         counter += 1;
-        k_result.normalize(bin_size_approx);
+        k_result.normalize(bins.bin_size);
         k_result.write(&bins, counter, s);
         if counter >= 20 {
             let diff = k_guess.abs_diff(&k_result);
