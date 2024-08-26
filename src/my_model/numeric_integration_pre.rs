@@ -586,9 +586,8 @@ impl DensityI{
         {
             // Note: x has to be >= s here, since we have thrown away the 
             // smaller bins
-            if x <= bins.s_approx + 1.0 { // I think this is also always true
-                *I_of_x += (offset - 2.0 * x) * this_k.delta_right;
-            }
+            *I_of_x += (offset - 2.0 * x) * this_k.delta_right;
+            
         }
         this
     }
