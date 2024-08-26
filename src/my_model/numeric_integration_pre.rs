@@ -115,32 +115,34 @@ pub fn compute_line(input: ModelInput)
         bins,
         k_density
     ) = k_of_leaf_parent(input.s, 1e-8, input.precision.get());
-
     let density_I = DensityI::calculate_above_leaf(&bins, &k_density);
 
     density_I.write(&bins, "I_density_test.dat");
     let integral = density_I.integral(&bins);
     println!("I_integral = {integral}");
     density_I.calc_crit(&bins);
+    
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bins {
     bins_f64: Vec<f64>,
     bins_ratio: Vec<Ratio<isize>>,
-    positive_bin_count: usize,
+    idx_of_0: usize,
     bin_size: f64,
     s_approx: f64,
-    s_idx_inclusive: usize
+    s_idx_inclusive_of_positive_slice: usize,
+    s_bin_idx_total: usize,
+    idx_of_one: usize
 }
 
 impl Bins{
     pub fn new(
-        bin_count: usize,
+        bin_count_until_one: usize,
         s: f64
     ) -> Self
     {
-        let bin_size = Ratio::new(1, bin_count);
+        let bin_size = Ratio::new(1, bin_count_until_one);
         let s_ratio = Ratio::approximate_float_unsigned(s).unwrap();
         let s_index = s_ratio / bin_size;
         let s_idx_ratio = s_index.ceil();
@@ -148,8 +150,8 @@ impl Bins{
         let s_usable = s_idx_ratio * bin_size;
         let s_approx: f64 = s_usable.to_f64().unwrap();
         let bin_size_approx = bin_size.to_f64().unwrap();
-        let bin_count_isize = bin_count as isize;
-        let bins = (0..=bin_count*2)
+        let bin_count_isize = bin_count_until_one as isize;
+        let bins = (0..=bin_count_until_one*2+s_idx)
             .map(
                 |i|
                 {
@@ -163,10 +165,12 @@ impl Bins{
         Self{
             bins_f64,
             bins_ratio: bins,
-            positive_bin_count: bin_count,
+            idx_of_0: bin_count_until_one,
             bin_size: bin_size_approx,
             s_approx,
-            s_idx_inclusive: s_idx
+            s_idx_inclusive_of_positive_slice: s_idx,
+            idx_of_one: bin_count_until_one*2,
+            s_bin_idx_total: bin_count_until_one+s_idx
         }
     }
 
@@ -185,20 +189,13 @@ impl Bins{
     #[allow(dead_code)]
     pub fn get_negative_bin_borders_f64(&self) -> &[f64]
     {
-        &self.bins_f64[self.negative_bin_idx_range()]
+        &self.bins_f64[..self.idx_of_0]
     }
 
     #[inline]
     fn positive_bin_idx_range(&self) -> RangeFrom<usize>
     {
-        self.positive_bin_count..
-    }
-
-    #[inline]
-    #[allow(dead_code)]
-    fn negative_bin_idx_range(&self) -> RangeTo<usize>
-    {
-        ..self.positive_bin_count
+        self.idx_of_0..
     }
 
     // k has to include bin border for s
@@ -228,16 +225,20 @@ impl Bins{
     #[inline]
     pub fn get_left_I_slice(&self) -> &[f64]
     {
-        let positive = self.get_positive_bin_borders_f64();
-        &positive[..=self.s_idx_inclusive]
+        &self.bins_f64[self.idx_of_0..=self.s_bin_idx_total]
         
     }
 
     #[inline]
     pub fn get_right_I_slice(&self) -> &[f64]
     {
-        let positive = self.get_positive_bin_borders_f64();
-        &positive[self.s_idx_inclusive..]
+        &self.bins_f64[self.s_bin_idx_total..=self.idx_of_one]
+    }
+
+    // both 0 and 1 are included
+    fn bins_in_range_0_to_1(&self) -> &[f64]
+    {
+        &self.bins_f64[self.idx_of_0..=self.idx_of_one]
     }
 }
 
@@ -354,7 +355,7 @@ fn k_of_leaf_parent(
         s
     );
 
-    let mut k_guess = DensityK::new(bins.s_idx_inclusive, bins.s_approx);
+    let mut k_guess = DensityK::new(bins.s_idx_inclusive_of_positive_slice, bins.s_approx);
     let mut k_result = k_guess.new_zeroed();
 
     let bins_positive = bins.get_positive_bin_borders_f64();
@@ -504,9 +505,9 @@ impl DensityI{
     {
         // for later usage
         let mut this = Self::new(bins);
-        let positive_bins = bins.get_positive_bin_borders_f64();
+        let bins_range_0_to_1 = bins.bins_in_range_0_to_1();
         // to simplify calculations while ignoring delta_right
-        let mut I_bin_borders = vec![0.0; positive_bins.len()];
+        let mut I_bin_borders = vec![0.0; bins_range_0_to_1.len()];
 
         let k_interpolation_iter = bins.interpolate_k(&this_k.bin_borders);
 
@@ -531,7 +532,7 @@ impl DensityI{
 
             let partC = L_minus_R * L_minus_R_divided_by_6 
                 * (a*(L +2.0*R) + b_times_3);
-            for (&x, I_of_x) in positive_bins.iter().zip(I_bin_borders.iter_mut())
+            for (&x, I_of_x) in bins_range_0_to_1.iter().zip(I_bin_borders.iter_mut())
             {
                 if x <= L {
                     *I_of_x += diff1A;
@@ -577,7 +578,7 @@ impl DensityI{
 
         // Now the part of the left Delta distribution
         let factor = 2.0 * this_k.delta_left;
-        for (&x, I_of_x) in positive_bins.iter().zip(I_bin_borders.iter_mut())
+        for (&x, I_of_x) in bins_range_0_to_1.iter().zip(I_bin_borders.iter_mut())
         {
             if x <= 1.0 { // optimizable
                 *I_of_x += factor * (1.0 - x);
