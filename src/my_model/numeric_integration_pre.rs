@@ -1,6 +1,7 @@
 use std::ops::*;
 
 use crate::create_buf_with_command_and_version;
+use crate::create_buf_with_command_and_version_and_header;
 use std::io::Write;
 use super::numeric_integration::*;
 use itertools::*;
@@ -115,8 +116,11 @@ pub fn compute_line(input: ModelInput)
         k_density
     ) = k_of_leaf_parent(input.s, 1e-8, input.precision.get());
 
-    DensityI::calculate_above_leaf(&bins, &k_density);
+    let density_I = DensityI::calculate_above_leaf(&bins, &k_density);
 
+    density_I.write(&bins, "I_density_test.dat");
+    let integral = density_I.integral(&bins);
+    println!("I_integral = {integral}");
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -465,7 +469,35 @@ impl DensityI{
         }
     }
 
-    pub fn calculate_above_leaf(bins: &Bins, this_k: &DensityK)
+    pub fn write(&self, bins: &Bins, name: &str)
+    {
+        let header = [
+            "I",
+            "P(I)"
+        ];
+        let mut buf = create_buf_with_command_and_version_and_header(
+            name,
+            header
+        );
+        // left borders
+        let iter_left = bins.get_positive_bin_borders_f64()
+            .iter()
+            .zip(self.left_borders.iter());
+        // right borders
+        let iter_right = bins.get_right_I_slice()
+            .iter()
+            .zip(self.right_borders.iter());
+        // write both to file
+        for (x, val) in iter_left.chain(iter_right) {
+            writeln!(
+                buf,
+                "{x} {val}"
+            ).unwrap()
+        }
+        
+    }
+
+    pub fn calculate_above_leaf(bins: &Bins, this_k: &DensityK) -> Self
     {
         // for later usage
         let mut this = Self::new(bins);
@@ -493,6 +525,9 @@ impl DensityI{
             let diff1A = L_minus_R_squared_divided_by_6 * (a * L_times_2_plus_R + b_times_3); // (L-R)^2*(a*(2L+R)+3b) / 6
             let part_of_B = (a * (R + L) + b_times_2) * R_minus_L / 2.0;
             let diff1B = (L_minus_R + 1.0) * part_of_B;
+
+            let partC = L_minus_R * L_minus_R_divided_by_6 
+                * (a*(L +2.0*R) + b_times_3);
             for (&x, I_of_x) in positive_bins.iter().zip(I_bin_borders.iter_mut())
             {
                 if x <= L {
@@ -514,7 +549,55 @@ impl DensityI{
                 } else if x <= L + 1.0 {
                     *I_of_x += (L - 2.0 * x + 2.0) * part_of_B;
                 }
+
+                if x <= L + 1.0 {
+                    *I_of_x += partC;
+                } else {
+                    unreachable!("I think this part is unreachable. Otherwise I do have the equation that goes here");
+                }
             }
         }
+
+        // Now the part of the left Delta distribution
+        let factor = 2.0 * this_k.delta_left;
+        for (&x, I_of_x) in positive_bins.iter().zip(I_bin_borders.iter_mut())
+        {
+            if x <= 1.0 { // optimizable
+                *I_of_x += factor * (1.0 - x);
+            }
+        }
+
+        // now copy everything into result type:
+        let left = &I_bin_borders[..this.left_borders.len()];
+        this.left_borders.copy_from_slice(left);
+        let right = &I_bin_borders[left.len()-1..];
+        this.right_borders.copy_from_slice(right);
+
+        // lastly I still need to add the part of the right delta
+        let bins_for_right_delta = bins.get_right_I_slice();
+        let offset = bins.s_approx + 2.0;
+        for (&x, I_of_x) in bins_for_right_delta.iter().zip(this.right_borders.iter_mut())
+        {
+            // Note: x has to be >= s here, since we have thrown away the 
+            // smaller bins
+            if x <= bins.s_approx + 1.0 { // I think this is also always true
+                *I_of_x += offset - 2.0 * x;
+            }
+        }
+        this
+    }
+
+    pub fn integral(&self, bins: &Bins) -> f64
+    {
+        let bin_size = bins.bin_size;
+        let sum: f64 = self.left_borders
+            .windows(2)
+            .chain(
+                self.right_borders
+                    .windows(2)
+            )
+            .map(|slice| slice[0] + slice[1])
+            .sum();
+        sum * 0.5 * bin_size
     }
 }
