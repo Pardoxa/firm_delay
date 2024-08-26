@@ -532,16 +532,26 @@ impl DensityI{
             {
                 if x <= L {
                     *I_of_x += diff1A;
-                } else if x < R {
+                } else if x <= R {
+                    // Note: In the current state this can be optimized quite a bit.
+                    // If nothing changes we will only reach this if x == R
+                    // and in that case ALMOST all of the below becomes 0,
+                    // so we don't really need it.
+                    // 
+                    // I chose to keep it anyways, as the code is quite fast now 
+                    // and this part will never become the bottleneck
+                    // so I keep it
                     let one_minus_x = 1.0 - x;
                     let R_minus_x = R - x;
                     let part_that_appears_twice = b_times_3 * (R + x - L_times_2) 
-                        + a * (-3.0 * L_squared + R_squared + R * x  + x * x);
-                    *I_of_x += (
+                    + a * (-3.0 * L_squared + R_squared + R * x  + x * x);
+                   
+                    let offset = (
                         - one_minus_x * R_minus_x * (b_times_3 + a * (R + 2.0 * x))
                         + one_minus_x * part_that_appears_twice
                         + R_minus_x * part_that_appears_twice
                     ) / 6.0;
+                    *I_of_x += offset;
                 }
                 // Yes, this is no else here! This needs to be executed regardless of the if statement above
                 if x <= R {
@@ -550,11 +560,15 @@ impl DensityI{
                     *I_of_x += (L - 2.0 * x + 2.0) * part_of_B;
                 }
 
-                if x <= L + 1.0 {
-                    *I_of_x += partC;
-                } else {
-                    unreachable!("I think this part is unreachable. Otherwise I do have the equation that goes here");
-                }
+                // We don't need the if below (commented out, since the else is not reachable!)
+                *I_of_x += partC;
+                /* 
+                    if x <= L + 1.0 {
+                        *I_of_x += partC;
+                    } else {
+                        unreachable!("I think this part is unreachable. Otherwise I do have the equation that goes here");
+                    }
+                */
             }
         }
 
@@ -589,6 +603,7 @@ impl DensityI{
             *I_of_x += (offset - 2.0 * x) * this_k.delta_right;
             
         }
+        this.special_normalize(bins);
         this
     }
 
@@ -604,5 +619,26 @@ impl DensityI{
             .map(|slice| slice[0] + slice[1])
             .sum();
         sum * 0.5 * bin_size
+    }
+
+    pub fn special_normalize(&mut self, bins: &Bins)
+    {
+        let sum_left: f64 = self.left_borders
+            .windows(2)
+            .map(|slice| slice[0] + slice[1])
+            .sum();
+        let integral_left = sum_left * 0.5 * bins.bin_size;
+        let sum_right: f64 = self.right_borders
+            .windows(2)
+            .map(|slice| slice[0] + slice[1])
+            .sum();
+        let integral_right = sum_right * 0.5 * bins.bin_size;
+
+        let target = 1.0 - integral_right;
+        let factor = target / integral_left;
+        self.left_borders.iter_mut()
+            .for_each(
+                |v| *v *= factor
+            )
     }
 }
