@@ -662,18 +662,23 @@ impl DensityI{
 
     pub fn calc_crit(&self, bins: &Bins)
     {
-        let left_times_x = self.left_borders
-            .iter()
-            .zip(bins.get_positive_bin_borders_f64())
-            .map(|(a,b)| a*b)
-            .collect_vec();
-        let left = integrate_triangle_const_binsize(&left_times_x, bins.bin_size);
-        let right_times_x = self.right_borders
-            .iter()
-            .zip(bins.get_right_I_slice())
-            .map(|(a,b)| a*b)
-            .collect_vec();
-        let right = integrate_triangle_const_binsize(&right_times_x, bins.bin_size);
+        let integration = |val_slice: &[f64], bin_slice: &[f64]|
+        {
+            let multiplied_slice = val_slice
+                .iter()
+                .zip(bin_slice)
+                .map(|(a,b)| a*b)
+                .collect_vec();
+            integrate_triangle_const_binsize(&multiplied_slice, bins.bin_size)
+        };
+        let left = integration(
+            &self.left_borders,
+            bins.get_positive_bin_borders_f64()
+        );
+        let right = integration(
+            &self.right_borders,
+            bins.get_right_I_slice()
+        );
         let sum = left + right;
         println!(
             "{left} {right} {sum}"
