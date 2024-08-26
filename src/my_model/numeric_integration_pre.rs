@@ -1,5 +1,3 @@
-use std::ops::*;
-
 use crate::create_buf_with_command_and_version;
 use crate::create_buf_with_command_and_version_and_header;
 use std::io::Write;
@@ -180,9 +178,10 @@ impl Bins{
         &self.bins_f64
     }
 
+    // including 0
     pub fn get_positive_bin_borders_f64(&self) -> &[f64]
     {
-        &self.bins_f64[self.positive_bin_idx_range()]
+        &self.bins_f64[self.idx_of_0..]
     }
 
     // excluding 0
@@ -190,12 +189,6 @@ impl Bins{
     pub fn get_negative_bin_borders_f64(&self) -> &[f64]
     {
         &self.bins_f64[..self.idx_of_0]
-    }
-
-    #[inline]
-    fn positive_bin_idx_range(&self) -> RangeFrom<usize>
-    {
-        self.idx_of_0..
     }
 
     // k has to include bin border for s
@@ -239,6 +232,15 @@ impl Bins{
     fn bins_in_range_0_to_1(&self) -> &[f64]
     {
         &self.bins_f64[self.idx_of_0..=self.idx_of_one]
+    }
+
+    fn get_lambda_bin_borders(&self) -> &[f64]
+    {
+        // For now it is the same as get positive bin_borders.
+        // This might change, as I don't yet know if I need to add more positive
+        // bin borders later on. For this reason I added this method.
+        // So I only need to adjust it here once
+        self.get_positive_bin_borders_f64()
     }
 }
 
@@ -694,4 +696,18 @@ fn integrate_triangle_const_binsize(slice: &[f64], bin_size: f64) -> f64
             .map(|slice| slice[0] + slice[1])
             .sum();
     sum * 0.5 * bin_size
+}
+
+pub struct DensityLambda{
+    bin_borders: Vec<f64>
+}
+
+impl DensityLambda{
+    pub fn calculate_above_leaf(bins: &Bins, k_density: &DensityK)
+    {
+        let bin_borders = bins.get_lambda_bin_borders();
+        let mut lambda_border_vals = vec![0.0; bin_borders.len()];
+
+        
+    }
 }
