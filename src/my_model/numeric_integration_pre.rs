@@ -121,6 +121,7 @@ pub fn compute_line(input: ModelInput)
     density_I.write(&bins, "I_density_test.dat");
     let integral = density_I.integral(&bins);
     println!("I_integral = {integral}");
+    density_I.calc_crit(&bins);
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -453,6 +454,7 @@ fn dreieck_integrations_helfer(slice: &[f64]) -> Vec<f64>
     result
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DensityI{
     left_borders: Vec<f64>,
     right_borders: Vec<f64>
@@ -611,29 +613,28 @@ impl DensityI{
     pub fn integral(&self, bins: &Bins) -> f64
     {
         let bin_size = bins.bin_size;
-        let sum: f64 = self.left_borders
-            .windows(2)
-            .chain(
-                self.right_borders
-                    .windows(2)
-            )
-            .map(|slice| slice[0] + slice[1])
-            .sum();
-        sum * 0.5 * bin_size
+        self.integral_left(bin_size)
+            + self.integral_right(bin_size)
     }
 
+    pub fn integral_left(&self, bin_size: f64) -> f64
+    {
+        integrate_triangle_const_binsize(&self.left_borders, bin_size)
+    }
+
+    pub fn integral_right(&self, bin_size: f64) -> f64
+    {
+        integrate_triangle_const_binsize(&self.right_borders, bin_size)
+    }
+
+    /// Normalize by only adjusting the left bin_borders.
+    /// This is used for the node above the leaf, since we know that the error
+    /// for the right is way smaller than the error for the left
+    /// And we need the integral to be 1 in total
     pub fn special_normalize(&mut self, bins: &Bins)
     {
-        let sum_left: f64 = self.left_borders
-            .windows(2)
-            .map(|slice| slice[0] + slice[1])
-            .sum();
-        let integral_left = sum_left * 0.5 * bins.bin_size;
-        let sum_right: f64 = self.right_borders
-            .windows(2)
-            .map(|slice| slice[0] + slice[1])
-            .sum();
-        let integral_right = sum_right * 0.5 * bins.bin_size;
+        let integral_left = self.integral_left(bins.bin_size);
+        let integral_right = self.integral_right(bins.bin_size);
 
         let target = 1.0 - integral_right;
         let factor = target / integral_left;
@@ -642,4 +643,49 @@ impl DensityI{
                 |v| *v *= factor
             )
     }
+
+    #[allow(dead_code)]
+    pub fn normalize(&mut self, bins: &Bins)
+    {
+        let integral = self.integral(bins);
+        let factor = integral.recip();
+        let multiply = |slice: &mut [f64]| 
+        {
+            slice.iter_mut()
+                .for_each(
+                    |v| *v *= factor
+                );
+        };
+        multiply(&mut self.left_borders);
+        multiply(&mut self.right_borders);
+    }
+
+    pub fn calc_crit(&self, bins: &Bins)
+    {
+        let left_times_x = self.left_borders
+            .iter()
+            .zip(bins.get_positive_bin_borders_f64())
+            .map(|(a,b)| a*b)
+            .collect_vec();
+        let left = integrate_triangle_const_binsize(&left_times_x, bins.bin_size);
+        let right_times_x = self.right_borders
+            .iter()
+            .zip(bins.get_right_I_slice())
+            .map(|(a,b)| a*b)
+            .collect_vec();
+        let right = integrate_triangle_const_binsize(&right_times_x, bins.bin_size);
+        let sum = left + right;
+        println!(
+            "{left} {right} {sum}"
+        );
+    }
+}
+
+fn integrate_triangle_const_binsize(slice: &[f64], bin_size: f64) -> f64
+{
+    let sum: f64 = slice
+            .windows(2)
+            .map(|slice| slice[0] + slice[1])
+            .sum();
+    sum * 0.5 * bin_size
 }
