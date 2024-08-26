@@ -497,6 +497,7 @@ impl DensityI{
         
     }
 
+    /// Calculations can be found in https://nxt.yfeld.de/s/StAyW6HkBcHqKJJ
     pub fn calculate_above_leaf(bins: &Bins, this_k: &DensityK) -> Self
     {
         // for later usage
