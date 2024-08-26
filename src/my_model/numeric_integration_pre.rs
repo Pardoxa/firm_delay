@@ -574,6 +574,12 @@ impl DensityI{
         this.right_borders.copy_from_slice(right);
 
         // lastly I still need to add the part of the right delta
+
+        this.left_borders.iter_mut()
+            .for_each(
+                |v| 
+                *v += this_k.delta_right
+            );
         let bins_for_right_delta = bins.get_right_I_slice();
         let offset = bins.s_approx + 2.0;
         for (&x, I_of_x) in bins_for_right_delta.iter().zip(this.right_borders.iter_mut())
@@ -581,7 +587,7 @@ impl DensityI{
             // Note: x has to be >= s here, since we have thrown away the 
             // smaller bins
             if x <= bins.s_approx + 1.0 { // I think this is also always true
-                *I_of_x += offset - 2.0 * x;
+                *I_of_x += (offset - 2.0 * x) * this_k.delta_right;
             }
         }
         this
