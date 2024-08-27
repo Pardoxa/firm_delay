@@ -27,8 +27,6 @@ pub fn compute_line(input: ModelInput)
     density_lambda.write(&bins, "lambda.dat");
     let lambda_integral = density_lambda.integral(&bins);
     println!("Lambda_integral: {lambda_integral}");
-    let cmp = integrate_triangle_const_binsize(&k_density.bin_borders, bins.bin_size);
-    println!("CMP: {cmp}");
 }
 
 
@@ -516,7 +514,7 @@ impl DensityI{
 
         let k_interpolation_iter = bins.interpolate_k(&this_k.bin_borders);
 
-        for (interpolation, (L, R)) in k_interpolation_iter
+        for (LinearInterpolation { a, b }, (L, R)) in k_interpolation_iter
         {
             let L_minus_R = L - R;
             let R_minus_L = R - L;
@@ -526,8 +524,6 @@ impl DensityI{
             let L_times_2_plus_R = R + L_times_2; // 2 L + R
             let R_squared = R * R;
             let L_squared = L * L;
-            let a = interpolation.a;
-            let b = interpolation.b;
             let b_times_3 = 3.0 * b;
             let b_times_2 = 2.0 * b;
 
@@ -749,7 +745,6 @@ impl DensityLambda{
 
         let s_idx = bins.s_idx_inclusive_of_positive_slice;
         let old_val_at_offset_by_s = lambda_border_vals[s_idx];
-        dbg!(old_val_at_offset_by_s);
 
         // Now the right lambda
         let lambda_range_from_s_to_s_plus_1 = &mut lambda_border_vals[bins.s_idx_inclusive_of_positive_slice..];
@@ -759,7 +754,6 @@ impl DensityLambda{
             .for_each(
                 |v| *v += k_density.delta_right
             );
-        dbg!(lambda_border_vals[s_idx]);
 
         let right = lambda_border_vals[offset_by_one..].to_vec();
 
@@ -774,7 +768,14 @@ impl DensityLambda{
         let mid = lambda_border_vals[s_idx..=offset_by_one].to_vec();
 
         lambda_border_vals.truncate(s_idx+1);
-        *lambda_border_vals.last_mut()
+        // Strictly speaking, the value exactly at s has the delta jump, but 
+        // the values before have not
+        //
+        // For this reason I need to recalculate the last value, such that the integral from the 
+        // left later gives the correct results.
+        // This is also the reason why the bin border appears more than once
+        *lambda_border_vals
+            .last_mut()
             .unwrap() = old_val_at_offset_by_s + k_density.delta_left;
         let left = lambda_border_vals;
 
