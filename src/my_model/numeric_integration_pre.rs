@@ -703,7 +703,9 @@ fn integrate_triangle_const_binsize(slice: &[f64], bin_size: f64) -> f64
 }
 
 pub struct DensityLambda{
-    bin_borders: Vec<f64>
+    left_border_vals: Vec<f64>,
+    mid_border_vals: Vec<f64>,
+    right_border_vals: Vec<f64>
 }
 
 impl DensityLambda{
@@ -745,6 +747,22 @@ impl DensityLambda{
             // in between I have no bins
         }
 
+        let s_idx = bins.s_idx_inclusive_of_positive_slice;
+        let old_val_at_offset_by_s = lambda_border_vals[s_idx];
+        dbg!(old_val_at_offset_by_s);
+
+        // Now the right lambda
+        let lambda_range_from_s_to_s_plus_1 = &mut lambda_border_vals[bins.s_idx_inclusive_of_positive_slice..];
+
+        lambda_range_from_s_to_s_plus_1
+            .iter_mut()
+            .for_each(
+                |v| *v += k_density.delta_right
+            );
+        dbg!(lambda_border_vals[s_idx]);
+
+        let right = lambda_border_vals[offset_by_one..].to_vec();
+
         // the left delta distribution
         let lambda_range_from_0_to_1 = &mut lambda_border_vals[..=offset_by_one];
         lambda_range_from_0_to_1
@@ -753,17 +771,22 @@ impl DensityLambda{
                 |v| *v += k_density.delta_left
             );
         
-        // Now the right lambda
+        let mid = lambda_border_vals[s_idx..=offset_by_one].to_vec();
 
-        let lambda_range_from_s_to_s_plus_1 = &mut lambda_border_vals[bins.s_idx_inclusive_of_positive_slice..];
+        lambda_border_vals.truncate(s_idx+1);
+        *lambda_border_vals.last_mut()
+            .unwrap() = old_val_at_offset_by_s + k_density.delta_left;
+        let left = lambda_border_vals;
+
+
         
-        lambda_range_from_s_to_s_plus_1
-            .iter_mut()
-            .for_each(
-                |v| *v += k_density.delta_right
-            );
-
-        Self{ bin_borders: lambda_border_vals }
+        let mut result = Self{ 
+            left_border_vals: left,
+            mid_border_vals: mid,
+            right_border_vals: right,
+        };
+        result.normalize(bins);
+        result
     }
 
     pub fn write(&self, bins: &Bins, name: &str)
@@ -778,30 +801,48 @@ impl DensityLambda{
             header
         );
 
-        let bin_borders = bins.get_lambda_bin_borders();
-
-        for (lambda, p_of_lambda) in bin_borders.iter().zip(self.bin_borders.iter())
+        let mut write_helper = |bin_border_slice: &[f64], val_slice: &[f64]|
         {
-            writeln!(
-                buf,
-                "{lambda} {p_of_lambda}"
-            ).unwrap()
-        }
+            for (lambda, p_of_lambda) in bin_border_slice.iter().zip(val_slice)
+            {
+                writeln!(
+                    buf,
+                    "{lambda} {p_of_lambda}"
+                ).unwrap()
+            }
+        };
+        let bin_borders = bins.get_lambda_bin_borders();
+        write_helper(bin_borders, &self.left_border_vals);
+        let mid = &bin_borders[bins.s_idx_inclusive_of_positive_slice..];
+        write_helper(mid, &self.mid_border_vals);
+        let right = &bin_borders[bins.offset_by_one()..];
+        write_helper(right, &self.right_border_vals);
+
     }
 
     pub fn integral(&self, bins: &Bins) -> f64
     {
         let bin_size = bins.bin_size;
-        integrate_triangle_const_binsize(&self.bin_borders, bin_size)
+        let left = integrate_triangle_const_binsize(&self.left_border_vals, bin_size);
+        let mid = integrate_triangle_const_binsize(&self.mid_border_vals, bin_size);
+        let right = integrate_triangle_const_binsize(&self.right_border_vals, bin_size);
+        left+mid+right
     }
 
     pub fn normalize(&mut self, bins: &Bins)
     {
         let factor = self.integral(bins).recip();
-        self.bin_borders
-            .iter_mut()
-            .for_each(
-                |v| *v *= factor
-            )
+        let multiply = |slice: &mut [f64]|
+        {
+            slice
+                .iter_mut()
+                .for_each(
+                    |v| *v *= factor
+                )
+        };
+        multiply(&mut self.left_border_vals);
+        multiply(&mut self.mid_border_vals);
+        multiply(&mut self.right_border_vals);
+        
     }
 }
