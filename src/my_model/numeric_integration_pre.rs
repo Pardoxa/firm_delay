@@ -731,7 +731,7 @@ impl DensityLambda{
             let res = 0.5 * R_minus_L 
                 * (a * R_plus_L + b * 2.0);
             let idx_of_R = iteration + 1;
-            let idx_of_L_plus_one = iteration+offset_by_one;
+            let idx_of_L_plus_one = iteration + offset_by_one;
             let lambda_range_R_to_L_plus_one = &mut lambda_border_vals[idx_of_R..=idx_of_L_plus_one];
             
             lambda_range_R_to_L_plus_one
@@ -744,6 +744,25 @@ impl DensityLambda{
             // R+1 results in 0
             // in between I have no bins
         }
+
+        // the left delta distribution
+        let lambda_range_from_0_to_1 = &mut lambda_border_vals[..=offset_by_one];
+        lambda_range_from_0_to_1
+            .iter_mut()
+            .for_each(
+                |v| *v += k_density.delta_left
+            );
+        
+        // Now the right lambda
+
+        let lambda_range_from_s_to_s_plus_1 = &mut lambda_border_vals[bins.s_idx_inclusive_of_positive_slice..];
+        
+        lambda_range_from_s_to_s_plus_1
+            .iter_mut()
+            .for_each(
+                |v| *v += k_density.delta_right
+            );
+
         Self{ bin_borders: lambda_border_vals }
     }
 
@@ -774,5 +793,15 @@ impl DensityLambda{
     {
         let bin_size = bins.bin_size;
         integrate_triangle_const_binsize(&self.bin_borders, bin_size)
+    }
+
+    pub fn normalize(&mut self, bins: &Bins)
+    {
+        let factor = self.integral(bins).recip();
+        self.bin_borders
+            .iter_mut()
+            .for_each(
+                |v| *v *= factor
+            )
     }
 }
