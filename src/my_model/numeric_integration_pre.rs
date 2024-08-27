@@ -8,6 +8,30 @@ use fraction::ToPrimitive;
 use serde::Deserialize;
 use serde::Serialize;
 
+#[allow(non_snake_case)]
+pub fn compute_line(input: ModelInput)
+{
+
+    println!("Triangle");
+    let (
+        bins,
+        k_density
+    ) = k_of_leaf_parent(input.s, 1e-8, input.precision.get());
+    let density_I = DensityI::calculate_above_leaf(&bins, &k_density);
+
+    density_I.write(&bins, "I_density_test.dat");
+    let integral = density_I.integral(&bins);
+    println!("I_integral = {integral}");
+    density_I.calc_crit(&bins);
+    let density_lambda = DensityLambda::calculate_above_leaf(&bins, &k_density);
+    density_lambda.write(&bins, "lambda.dat");
+    let lambda_integral = density_lambda.integral(&bins);
+    println!("Lambda_integral: {lambda_integral}");
+    let cmp = integrate_triangle_const_binsize(&k_density.bin_borders, bins.bin_size);
+    println!("CMP: {cmp}");
+}
+
+
 
 fn h1(z: f64, L: f64, R: f64) -> f64
 {
@@ -102,24 +126,6 @@ impl LinearInterpolation{
     {
         x.mul_add(self.a, self.b)
     }
-}
-
-#[allow(non_snake_case)]
-pub fn compute_line(input: ModelInput)
-{
-
-    println!("Triangle");
-    let (
-        bins,
-        k_density
-    ) = k_of_leaf_parent(input.s, 1e-8, input.precision.get());
-    let density_I = DensityI::calculate_above_leaf(&bins, &k_density);
-
-    density_I.write(&bins, "I_density_test.dat");
-    let integral = density_I.integral(&bins);
-    println!("I_integral = {integral}");
-    density_I.calc_crit(&bins);
-    
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -242,6 +248,11 @@ impl Bins{
         // So I only need to adjust it here once
         self.get_positive_bin_borders_f64()
     }
+
+    fn offset_by_one(&self) -> usize
+    {
+        self.idx_of_0
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -307,16 +318,8 @@ impl DensityK{
 
     pub fn integral(&self, bin_size: f64) -> f64
     {
-        let mut sum = 0.0;
-        // optimizable, but who cares
-        for slice in self.bin_borders.windows(2)
-        {
-            let av = slice[0] + slice[1];
-            sum += av;
-        }
-        sum /= 2.0;
-        sum *= bin_size;
-        sum + self.delta_left + self.delta_right
+        let integral = integrate_triangle_const_binsize(&self.bin_borders, bin_size);
+        integral + self.delta_left + self.delta_right
     }
 
     pub fn normalize(&mut self, bin_size: f64)
@@ -691,6 +694,7 @@ impl DensityI{
 
 fn integrate_triangle_const_binsize(slice: &[f64], bin_size: f64) -> f64
 {
+    // optimizable, but who cares
     let sum: f64 = slice
             .windows(2)
             .map(|slice| slice[0] + slice[1])
@@ -703,11 +707,72 @@ pub struct DensityLambda{
 }
 
 impl DensityLambda{
-    pub fn calculate_above_leaf(bins: &Bins, k_density: &DensityK)
+    pub fn calculate_above_leaf(bins: &Bins, k_density: &DensityK) -> Self
     {
+        let offset_by_one = bins.offset_by_one();
         let bin_borders = bins.get_lambda_bin_borders();
         let mut lambda_border_vals = vec![0.0; bin_borders.len()];
 
-        
+        let iter = bins.interpolate_k(&k_density.bin_borders);
+
+        // result of k_function
+        for (iteration, (LinearInterpolation { a, b }, (L, R))) in iter.enumerate() {
+            
+
+            let R_minus_L = R-L;
+            let R_plus_L = R+L;
+
+            // x in [L,R] 
+            // ignore L, as the result is always 0.
+            // In between L and R: I have no bins, so I can ignore it.
+            // For x=R it is the same as in the range [R, L+1]
+            // In that range the result does not depend on x. 
+            // So I only calculate that
+            let res = 0.5 * R_minus_L 
+                * (a * R_plus_L + b * 2.0);
+            let idx_of_R = iteration + 1;
+            let idx_of_L_plus_one = iteration+offset_by_one;
+            let lambda_range_R_to_L_plus_one = &mut lambda_border_vals[idx_of_R..=idx_of_L_plus_one];
+            
+            lambda_range_R_to_L_plus_one
+                .iter_mut()
+                .for_each(
+                    |v| *v += res
+                );
+            // [L+1,R+1]
+            // L+1 is already inside the above
+            // R+1 results in 0
+            // in between I have no bins
+        }
+        Self{ bin_borders: lambda_border_vals }
+    }
+
+    pub fn write(&self, bins: &Bins, name: &str)
+    {
+        let header = [
+            "lambda",
+            "P(lambda)"
+        ];
+
+        let mut buf = create_buf_with_command_and_version_and_header(
+            name, 
+            header
+        );
+
+        let bin_borders = bins.get_lambda_bin_borders();
+
+        for (lambda, p_of_lambda) in bin_borders.iter().zip(self.bin_borders.iter())
+        {
+            writeln!(
+                buf,
+                "{lambda} {p_of_lambda}"
+            ).unwrap()
+        }
+    }
+
+    pub fn integral(&self, bins: &Bins) -> f64
+    {
+        let bin_size = bins.bin_size;
+        integrate_triangle_const_binsize(&self.bin_borders, bin_size)
     }
 }
