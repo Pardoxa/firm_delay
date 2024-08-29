@@ -1025,12 +1025,12 @@ impl Delta_kij_of_Ii_intervals{
                         let Ly_plus_Ry = Ly + Ry;
                         (Ly - Ry)
                         * (
-                            a*(
+                            a.mul_add(
                                 3.0 * (s * (Ry + s + Ly) - Rx * Rx)
-                                + Ly * Ly_plus_Ry
-                                + Ry * Ry
-                            )
-                            + 3.0 * b * (Ly_plus_Ry + 2.0 * (s - Rx))
+                                    + Ly * Ly_plus_Ry
+                                    + Ry * Ry,
+                                3.0 * b * (Ly_plus_Ry + 2.0 * (s - Rx))
+                            ) 
                         )
                         / 6.0
                         + sum
