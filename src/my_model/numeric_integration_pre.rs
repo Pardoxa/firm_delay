@@ -7,6 +7,7 @@ use fraction::Ratio;
 use fraction::ToPrimitive;
 use serde::Deserialize;
 use serde::Serialize;
+use super::array_windows::*;
 
 #[allow(non_snake_case)]
 pub fn compute_line(input: ModelInput)
@@ -27,7 +28,24 @@ pub fn compute_line(input: ModelInput)
     density_lambda.write(&bins, "lambda.dat");
     let lambda_integral = density_lambda.integral(&bins);
     println!("Lambda_integral: {lambda_integral}");
-    Delta_kij_of_Ii_intervals::new(&density_lambda, &bins);
+    let deltas = Delta_kij_of_Ii_intervals::new(&density_lambda, &bins);
+    deltas.write_deltas(&bins, "test_d.dat");
+
+    let test_left_iter = density_I.left_borders
+        .windows(2)
+        .chain(density_I.right_borders.windows(2))
+        .zip(deltas.delta_left.iter())
+        .zip(deltas.delta_right.iter());
+    let mut sum_left = 0.0;
+    let mut sum_right = 0.0;
+    for ((I_slice, delta_left), delta_right) in test_left_iter{
+        let prob = (I_slice[0]+I_slice[1])*0.5;
+        sum_left += prob * delta_left;
+        sum_right += prob * delta_right;
+    }
+    dbg!(sum_left);
+    dbg!(sum_right);
+
 }
 
 
@@ -844,7 +862,7 @@ impl DensityLambda{
     pub fn left_interpolation_iter<'a>(
         &'a self,
         bins: &'a Bins
-    ) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+    ) -> impl ExactSizeIterator<Item = (LinearInterpolation, (f64, f64))> + 'a
     {
         let bin_slice = bins.get_positive_bin_borders_f64();
         linear_interpolation_iter(
@@ -856,7 +874,7 @@ impl DensityLambda{
     pub fn mid_interpolation_iter<'a>(
         &'a self,
         bins: &'a Bins
-    ) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+    ) -> impl ExactSizeIterator<Item = (LinearInterpolation, (f64, f64))> + 'a
     {
         let bin_slice = bins.slice_starting_at_s();
         linear_interpolation_iter(
@@ -868,7 +886,7 @@ impl DensityLambda{
     pub fn right_interpolation_iter<'a>(
         &'a self,
         bins: &'a Bins
-    ) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+    ) -> impl ExactSizeIterator<Item = (LinearInterpolation, (f64, f64))> + 'a
     {
         let bin_slice = bins.slice_starting_at_1();
         linear_interpolation_iter(
@@ -879,6 +897,7 @@ impl DensityLambda{
 }
 
 // this is temporary, until I know how to store this better
+#[allow(non_camel_case_types)]
 pub struct Delta_kij_of_Ii_intervals
 {
     delta_left: Vec<f64>,
@@ -930,13 +949,123 @@ impl Delta_kij_of_Ii_intervals{
             max_len_of_deltas
         );
 
-
         
+        // s+y<=Lx 
+        // y is at least 0
+        // but the interval [s=Lx, Rx] should be treaded with the other method.
+        // so, I should calculate from s+(one interval) to the end
+        //
+        // the lamnda left interval goes from 0 to s
+        // so we need to start at the mid interval while skipping the first
+        let mid_iter = lambda_dist
+            .mid_interpolation_iter(bins)
+            .skip(1);
+        // Ry-Ly is bin_size and the same as Rx-Lx
+        let bin_size_squared_div_2 = bins.bin_size * bins.bin_size * 0.5;
+        let mut help_vec = Vec::with_capacity(
+            lambda_dist.mid_border_vals.len()
+            + lambda_dist.right_border_vals.len()
+        );
 
-        // s+y<=Lx
-        // s_idx_positive? maybe +- 1?
+        let help_calc = |(LinearInterpolation { a, b }, (Lx, Rx))|
+        {
+            (a * (Lx + Rx)
+                + 2.0 * b
+            ) * bin_size_squared_div_2
+        };
+        help_vec.push(0.0);
+        help_vec.extend(
+            mid_iter
+            .map(
+                help_calc
+            )  
+        );
+        help_vec.extend(
+            lambda_dist.right_interpolation_iter(bins)
+                .map(help_calc)
+        );
+        // Insert picture
+        let mut running_sum = 0.0;
+        let sums = help_vec.iter()
+            .rev()
+            .map(
+                |&v|
+                {
+                    running_sum += v;
+                    running_sum
+                }
+            ).collect_vec();
+        let lambda_bin_slice = bins.slice_starting_at_s();
+        let s = bins.s_approx;
 
-        todo!()
+        let lambda_val_iter = ArrayWindows::<_, 2>::new(&lambda_dist.mid_border_vals)
+            .chain(
+                ArrayWindows::<_, 2>::new(&lambda_dist.right_border_vals)
+            );
+
+        let mut delta_right = Vec::with_capacity(delta_left.len());
+        delta_right.extend(
+            ArrayWindows::<_, 2>::new(lambda_bin_slice)
+                .zip(sums.into_iter().rev())
+                .zip(ArrayWindows::<_,2>::new(I_range))
+                .zip(lambda_val_iter)
+                .map(
+                    |((([Lx, Rx], sum), [Ly, Ry]), [lambda_left, lambda_right])|
+                    {
+                        let LinearInterpolation{a, b} = calculate_interpolation(
+                            *Lx,
+                            *Rx,
+                            *lambda_left,
+                            *lambda_right
+                        );
+                        let Ly_plus_Ry = Ly + Ry;
+                        (Ly - Ry)
+                        * (
+                            a*(
+                                3.0 * (s * (Ry + s + Ly) - Rx * Rx)
+                                + Ly * Ly_plus_Ry
+                                + Ry * Ry
+                            )
+                            + 3.0 * b * (Ly_plus_Ry + 2.0 * (s - Rx))
+                        )
+                        / 6.0
+                        + sum
+                    }
+                )   
+        );
+        dbg!(
+            delta_left.len()
+        );
+        dbg!(
+            delta_right.len()
+        );
+
+        Self { delta_left, delta_right }
+    }
+
+    fn write_deltas(&self, bins: &Bins, name: &str)
+    {
+        let header = [
+            "middle_of_I_bin",
+            "delta_left",
+            "delta_right"
+        ];
+        let mut writer = create_buf_with_command_and_version_and_header(
+            name, 
+            header
+        );
+
+        let iter = bins.get_positive_bin_borders_f64()
+            .windows(2)
+            .zip(self.delta_left.iter())
+            .zip(self.delta_right.iter());
+        for ((bin, left), right) in iter {
+            let mid = (bin[0] + bin[1]) * 0.5;
+            writeln!(
+                writer,
+                "{mid} {left} {right}"
+            ).unwrap();
+        }
     }
 }
 
@@ -944,7 +1073,7 @@ impl Delta_kij_of_Ii_intervals{
 fn linear_interpolation_iter<'a>(
     bin_slice: &'a [f64], 
     bin_border_vals: &'a [f64]
-) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+) -> impl ExactSizeIterator<Item = (LinearInterpolation, (f64, f64))> + 'a
 {
     bin_slice.windows(2)
         .zip(bin_border_vals.windows(2))

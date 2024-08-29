@@ -7,3 +7,4 @@ mod distr;
 pub use distr::*;
 pub mod numeric_integration;
 pub mod numeric_integration_pre;
+pub mod array_windows;
