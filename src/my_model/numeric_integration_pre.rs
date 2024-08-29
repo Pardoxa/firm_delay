@@ -31,20 +31,23 @@ pub fn compute_line(input: ModelInput)
     let deltas = Delta_kij_of_Ii_intervals::new(&density_lambda, &bins);
     deltas.write_deltas(&bins, "test_d.dat");
 
-    let test_left_iter = density_I.left_borders
-        .windows(2)
-        .chain(density_I.right_borders.windows(2))
-        .zip(deltas.delta_left.iter())
+    let test_left_iter =
+        deltas.delta_left.iter()
         .zip(deltas.delta_right.iter());
     let mut sum_left = 0.0;
     let mut sum_right = 0.0;
-    for ((I_slice, delta_left), delta_right) in test_left_iter{
-        let prob = (I_slice[0]+I_slice[1])*0.5;
-        sum_left += prob * delta_left;
-        sum_right += prob * delta_right;
+    for (delta_left, delta_right) in test_left_iter{
+        sum_left += delta_left;
+        sum_right += delta_right;
     }
-    dbg!(sum_left);
-    dbg!(sum_right);
+    dbg!(sum_left - k_density.delta_left);
+    dbg!(sum_right - k_density.delta_right);
+    dbg!(
+        sum_left - sum_right
+    );
+    println!("{}", k_density.delta_left);
+    println!("{sum_left}");
+    println!("{sum_right}");
 
 }
 
@@ -919,7 +922,7 @@ impl Delta_kij_of_Ii_intervals{
                     (
                         L * (2.0 * L + R_times_2_minus_3) + R * R_times_2_minus_3
                     )
-                    + 3.0 * b * (L + R - 2.0)
+                + 3.0 * b * (L + R - 2.0)
                 ) / 6.0
         };
         let mut delta_left = lambda_dist
@@ -991,8 +994,9 @@ impl Delta_kij_of_Ii_intervals{
             .map(
                 |&v|
                 {
+                    let tmp = running_sum;
                     running_sum += v;
-                    running_sum
+                    tmp
                 }
             ).collect_vec();
         let lambda_bin_slice = bins.slice_starting_at_s();
