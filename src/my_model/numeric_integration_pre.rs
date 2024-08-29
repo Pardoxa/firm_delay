@@ -989,16 +989,16 @@ impl Delta_kij_of_Ii_intervals{
         );
         // Insert picture
         let mut running_sum = 0.0;
-        let sums = help_vec.iter()
+        help_vec.iter_mut()
             .rev()
-            .map(
-                |&v|
+            .for_each(
+                |v|
                 {
                     let tmp = running_sum;
-                    running_sum += v;
-                    tmp
+                    running_sum += *v;
+                    *v = tmp;
                 }
-            ).collect_vec();
+            );
         let lambda_bin_slice = bins.slice_starting_at_s();
         let s = bins.s_approx;
 
@@ -1010,7 +1010,7 @@ impl Delta_kij_of_Ii_intervals{
         let mut delta_right = Vec::with_capacity(delta_left.len());
         delta_right.extend(
             ArrayWindows::<_, 2>::new(lambda_bin_slice)
-                .zip(sums.into_iter().rev())
+                .zip(help_vec)
                 .zip(ArrayWindows::<_,2>::new(I_range))
                 .zip(lambda_val_iter)
                 .map(
