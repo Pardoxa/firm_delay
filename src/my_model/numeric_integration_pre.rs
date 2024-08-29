@@ -865,7 +865,7 @@ impl DensityLambda{
     pub fn left_interpolation_iter<'a>(
         &'a self,
         bins: &'a Bins
-    ) -> impl ExactSizeIterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+    ) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
     {
         let bin_slice = bins.get_positive_bin_borders_f64();
         linear_interpolation_iter(
@@ -877,7 +877,7 @@ impl DensityLambda{
     pub fn mid_interpolation_iter<'a>(
         &'a self,
         bins: &'a Bins
-    ) -> impl ExactSizeIterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+    ) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
     {
         let bin_slice = bins.slice_starting_at_s();
         linear_interpolation_iter(
@@ -889,7 +889,7 @@ impl DensityLambda{
     pub fn right_interpolation_iter<'a>(
         &'a self,
         bins: &'a Bins
-    ) -> impl ExactSizeIterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+    ) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
     {
         let bin_slice = bins.slice_starting_at_1();
         linear_interpolation_iter(
@@ -1077,10 +1077,10 @@ impl Delta_kij_of_Ii_intervals{
 fn linear_interpolation_iter<'a>(
     bin_slice: &'a [f64], 
     bin_border_vals: &'a [f64]
-) -> impl ExactSizeIterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
 {
-    bin_slice.windows(2)
-        .zip(bin_border_vals.windows(2))
+    ArrayWindows::<_,2>::new(bin_slice)
+        .zip(ArrayWindows::<_,2>::new(bin_border_vals))
         .map(
             |(x, y)|
             {
