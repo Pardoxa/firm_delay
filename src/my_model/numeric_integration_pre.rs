@@ -27,6 +27,7 @@ pub fn compute_line(input: ModelInput)
     density_lambda.write(&bins, "lambda.dat");
     let lambda_integral = density_lambda.integral(&bins);
     println!("Lambda_integral: {lambda_integral}");
+    Delta_kij_of_Ii_intervals::new(&density_lambda, &bins);
 }
 
 
@@ -113,7 +114,7 @@ fn delta_right_a_update(L: f64, R: f64, a: f64, s: f64) -> f64
     ) 
 }
 
-struct LinearInterpolation{
+pub struct LinearInterpolation{
     a: f64,
     b: f64
 }
@@ -188,6 +189,16 @@ impl Bins{
         &self.bins_f64[self.idx_of_0..]
     }
 
+    pub fn slice_starting_at_s(&self) -> &[f64]
+    {
+        &self.bins_f64[self.s_bin_idx_total..]
+    }
+
+    pub fn slice_starting_at_1(&self) -> &[f64]
+    {
+        &self.bins_f64[self.idx_of_one..]
+    }
+
     // excluding 0
     #[allow(dead_code)]
     pub fn get_negative_bin_borders_f64(&self) -> &[f64]
@@ -199,24 +210,7 @@ impl Bins{
     fn interpolate_k<'a>(&'a self, k: &'a [f64]) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
     {
         let bin_slice = self.get_positive_bin_borders_f64();
-        bin_slice.windows(2)
-            .zip(k.windows(2))
-            .map(
-                |(x, y)|
-                {
-                    let x_diff = x[1]-x[0];
-                    let a = (y[1]-y[0])/x_diff;
-                    let b = (y[0]*x[1]-y[1]*x[0])/x_diff;
-                    let inter = LinearInterpolation{
-                        a,
-                        b
-                    };
-                    (
-                        inter,
-                        (x[0], x[1])
-                    )
-                }
-            )
+        linear_interpolation_iter(bin_slice, k)
     }
 
     #[inline]
@@ -827,7 +821,7 @@ impl DensityLambda{
         let left = integrate_triangle_const_binsize(&self.left_border_vals, bin_size);
         let mid = integrate_triangle_const_binsize(&self.mid_border_vals, bin_size);
         let right = integrate_triangle_const_binsize(&self.right_border_vals, bin_size);
-        left+mid+right
+        left + mid + right
     }
 
     pub fn normalize(&mut self, bins: &Bins)
@@ -845,5 +839,145 @@ impl DensityLambda{
         multiply(&mut self.mid_border_vals);
         multiply(&mut self.right_border_vals);
         
+    }
+
+    pub fn left_interpolation_iter<'a>(
+        &'a self,
+        bins: &'a Bins
+    ) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+    {
+        let bin_slice = bins.get_positive_bin_borders_f64();
+        linear_interpolation_iter(
+            bin_slice,
+            &self.left_border_vals
+        )
+    }
+
+    pub fn mid_interpolation_iter<'a>(
+        &'a self,
+        bins: &'a Bins
+    ) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+    {
+        let bin_slice = bins.slice_starting_at_s();
+        linear_interpolation_iter(
+            bin_slice, 
+            &self.mid_border_vals
+        )
+    }
+
+    pub fn right_interpolation_iter<'a>(
+        &'a self,
+        bins: &'a Bins
+    ) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+    {
+        let bin_slice = bins.slice_starting_at_1();
+        linear_interpolation_iter(
+            bin_slice, 
+            &self.right_border_vals
+        )
+    }
+}
+
+// this is temporary, until I know how to store this better
+pub struct Delta_kij_of_Ii_intervals
+{
+    delta_left: Vec<f64>,
+    delta_right: Vec<f64>
+}
+
+impl Delta_kij_of_Ii_intervals{
+    pub fn new(lambda_dist: &DensityLambda, bins: &Bins) -> Self
+    {
+        let I_range = bins.bins_in_range_0_to_1();
+        // number of bins is number of bin_borders minus 1:
+        let max_len_of_deltas = I_range.len() - 1;
+
+        let delta_left_calc = |(LinearInterpolation { a, b }, (L, R))|
+        {
+            let R_times_2_minus_3 = 2.0 * R - 3.0;
+            (L - R)
+            *   (a * 
+                    (
+                        L * (2.0 * L + R_times_2_minus_3) + R * R_times_2_minus_3
+                    )
+                    + 3.0 * b * (L + R - 2.0)
+                ) / 6.0
+        };
+        let mut delta_left = lambda_dist
+            .left_interpolation_iter(bins)
+            .map(
+                delta_left_calc
+            ).take(max_len_of_deltas)
+            .collect_vec();
+        if delta_left.len() < max_len_of_deltas{
+            let mut remaining = max_len_of_deltas - delta_left.len();
+            delta_left.extend(
+                lambda_dist.mid_interpolation_iter(bins)
+                    .map(delta_left_calc)
+                    .take(remaining)
+            );
+            if delta_left.len() < max_len_of_deltas{
+                remaining = max_len_of_deltas - delta_left.len();
+                delta_left.extend(
+                    lambda_dist.right_interpolation_iter(bins)
+                        .map(delta_left_calc)
+                        .take(remaining)   
+                );
+            }
+        }
+        assert_eq!(
+            delta_left.len(),
+            max_len_of_deltas
+        );
+
+
+        
+
+        // s+y<=Lx
+        // s_idx_positive? maybe +- 1?
+
+        todo!()
+    }
+}
+
+
+fn linear_interpolation_iter<'a>(
+    bin_slice: &'a [f64], 
+    bin_border_vals: &'a [f64]
+) -> impl Iterator<Item = (LinearInterpolation, (f64, f64))> + 'a
+{
+    bin_slice.windows(2)
+        .zip(bin_border_vals.windows(2))
+        .map(
+            |(x, y)|
+            {
+                let inter = calculate_interpolation(
+                    x[0], 
+                    x[1], 
+                    y[0],
+                    y[1]
+                );
+                (
+                    inter,
+                    (x[0], x[1])
+                )
+            }
+        )
+}
+
+#[inline]
+pub fn calculate_interpolation(
+    bin_left: f64,
+    bin_right: f64,
+    val_left: f64,
+    val_right: f64
+) -> LinearInterpolation
+{
+    let bin_diff = bin_right - bin_left;
+    let a = (val_right - val_left) / bin_diff;
+    let b = (val_left * bin_right - val_right * bin_left) / bin_diff;
+    LinearInterpolation{
+        a,
+        b
     }
 }
