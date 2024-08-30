@@ -51,6 +51,7 @@ pub fn compute_line(input: ModelInput)
 
     let Ii_given_pre_Ii_interval = Ii_given_pre_Ii_interval::calc_above_leaf(
         &deltas, 
+        &density_lambda,
         &bins
     );
 
@@ -1130,7 +1131,11 @@ pub struct Ii_given_pre_Ii_interval
 
 impl Ii_given_pre_Ii_interval{
 
-    pub fn calc_above_leaf(deltas_of_kij: &Delta_kij_of_Ii_intervals, bins: &Bins) -> Self
+    pub fn calc_above_leaf(
+        deltas_of_kij: &Delta_kij_of_Ii_intervals, 
+        density_lambda: &DensityLambda,
+        bins: &Bins
+    ) -> Self
     {
         let s = bins.s_approx;
         let bins_range_0_to_1 = bins.bins_in_range_0_to_1();
@@ -1143,7 +1148,7 @@ impl Ii_given_pre_Ii_interval{
             .iter()
             .zip(deltas_of_kij.delta_right.iter());
         
-        let matrix = iter
+        let mut matrix = iter
             .map(
                 |(&delta_left, &delta_right)|
                 {
@@ -1180,6 +1185,148 @@ impl Ii_given_pre_Ii_interval{
                 }
             ).collect_vec();
 
+        // now the function part.
+        fn generic_helper<I>(
+            interpolation_iter: I,
+            matrix: &mut [DensityI],
+            bins: &Bins,
+            until_s: &[f64],
+            from_s: &[f64],
+            start_offset: Offset
+        ) where I: Iterator<Item = (LinearInterpolation, (f64, f64))>
+        {
+            let bins_range_0_1 = bins.bins_in_range_0_to_1();
+            // so, starting from Rx, then Rx+1 etc
+            let offset_start = match start_offset{
+                Offset::Start => 0,
+                Offset::Middle => bins.s_idx_inclusive_of_positive_slice,
+                Offset::End => bins.offset_by_one()
+            } + 1;
+
+            let iter = interpolation_iter.zip(offset_start..);
+
+            for ((LinearInterpolation { a, b }, (Lx, Rx)), offset) in iter
+            {
+                // range is Rx to Lx+1
+                // matrix nur werte >= Rx
+
+                if offset == bins_range_0_1.len(){
+                    break;
+                }
+                debug_assert_eq!(
+                    Rx,
+                    bins_range_0_1[offset]
+                );
+
+                
+
+                let Lx_minus_Rx_div2 = (Lx - Rx) * 0.5;
+                let Lx_plus_2 = Lx + 2.0;
+                let Lx_plus_Rx = Lx + Rx;
+                let b_times_2 = b * 2.0;
+
+                let array_iter = ArrayWindows::<_,2>::new(bins_range_0_1);
+
+                for ([Ly, Ry], density) in array_iter.zip(matrix.iter_mut()){
+                    // first check if condition is fullfilled
+                    if *Ry > Lx {
+                        // if this is false, then it will be false for all following, so
+                        // no need to continue the loop
+                        break;
+                    }
+                    let unchanging_factor = Lx_minus_Rx_div2 
+                        *(Ly - Ry)
+                        *(
+                            a.mul_add(
+                                Lx_plus_Rx - Ly - Ry,
+                                b_times_2 
+                            )
+                        );
+
+                    let perform_operation = |bin_slice: &[f64], val_slice: &mut [f64]|
+                    {
+
+                        debug_assert_eq!(
+                            bin_slice.len(),
+                            val_slice.len()
+                        );
+                        let iter = bin_slice
+                            .iter()
+                            .zip(val_slice.iter_mut());
+
+                        for (z, acc) in iter {
+                            *acc += z.mul_add(-2.0, Lx_plus_2) * unchanging_factor;
+                        }
+                    };
+
+                    if offset < until_s.len(){
+                        // left is important.
+                        // also: offset is to small to affect right part
+                        let density_left_range = &until_s[offset..];
+                        let density_left_slice = &mut density.left_borders[offset..];
+
+                        perform_operation(
+                            density_left_range,
+                            density_left_slice
+                        );
+
+                        // since the offset does not yet affect right: density_right_range = from_s
+                        perform_operation(
+                            from_s,
+                            &mut density.right_borders
+                        );
+
+                    } else {
+                        // offset affects right part
+                        let this_offset = offset - bins.s_idx_inclusive_of_positive_slice;
+                        let density_range_right = &from_s[this_offset..];
+                        let density_right_slice = &mut density.right_borders[this_offset..];
+                        perform_operation(
+                            density_range_right,
+                            density_right_slice
+                        );
+                    }
+                    
+                }
+            }
+    
+        }
+        // left
+        let interpolation_iter = density_lambda
+            .left_interpolation_iter(bins);
+        generic_helper(
+            interpolation_iter, 
+            &mut matrix,
+            bins,
+            until_s,
+            from_s,
+            Offset::Start
+        );
+        // middle 
+        let interpolation_iter = density_lambda
+            .mid_interpolation_iter(bins);
+        generic_helper(
+            interpolation_iter, 
+            &mut matrix,
+            bins,
+            until_s,
+            from_s,
+            Offset::Middle
+        );
+        // right
+        let interpolation_iter = density_lambda
+            .right_interpolation_iter(bins);
+        generic_helper(
+            interpolation_iter, 
+            &mut matrix,
+            bins,
+            until_s,
+            from_s,
+            Offset::End
+        );
+
+
+
         Self { matrix }
     }
 
@@ -1214,4 +1361,10 @@ impl Ii_given_pre_Ii_interval{
 
         sum_density.write(bins, name)
     }
+}
+
+pub enum Offset{
+    Start,
+    Middle,
+    End
 }
