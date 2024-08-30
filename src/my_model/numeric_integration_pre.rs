@@ -49,6 +49,13 @@ pub fn compute_line(input: ModelInput)
     println!("{sum_left}");
     println!("{sum_right}");
 
+    let Ii_given_pre_Ii_interval = Ii_given_pre_Ii_interval::calc_above_leaf(
+        &deltas, 
+        &bins
+    );
+
+    Ii_given_pre_Ii_interval.write_sum_all(&bins, "current_test.dat");
+
 }
 
 
@@ -1112,5 +1119,99 @@ pub fn calculate_interpolation(
     LinearInterpolation{
         a,
         b
+    }
+}
+
+#[allow(non_camel_case_types)]
+pub struct Ii_given_pre_Ii_interval
+{
+    matrix: Vec<DensityI>
+}
+
+impl Ii_given_pre_Ii_interval{
+
+    pub fn calc_above_leaf(deltas_of_kij: &Delta_kij_of_Ii_intervals, bins: &Bins) -> Self
+    {
+        let s = bins.s_approx;
+        let all_bins = bins.bins_in_range_0_to_1();
+        // both intervals include s here!
+        let until_s = &all_bins[..=bins.s_idx_inclusive_of_positive_slice];
+        let from_s = &all_bins[bins.s_idx_inclusive_of_positive_slice..];
+
+        let iter = deltas_of_kij
+            .delta_left
+            .iter()
+            .zip(deltas_of_kij.delta_right.iter());
+        
+        let matrix = iter
+            .map(
+                |(&delta_left, &delta_right)|
+                {
+                    let mut left_result = Vec::with_capacity(until_s.len());
+                    left_result.extend(
+                        until_s.iter()
+                            .map(
+                                |x| 
+                                x.mul_add(-2.0, 2.0)
+                                    .mul_add(delta_left, delta_right)
+                                // the above should be equivalent to:
+                                // delta_right + delta_left * (2.0 - 2.0 * x)
+                            )
+                    );
+                    let delta_right_times_s = s * delta_right;
+                    let delta_sum = delta_left + delta_right;
+                    let mut right_result = Vec::with_capacity(from_s.len()); 
+                    right_result.extend(
+                        from_s.iter()
+                            .map(
+                                |x|
+                                {
+                                    x.mul_add(-2.0, 2.0)
+                                        .mul_add(delta_sum, delta_right_times_s)
+                                    // the above should be equivalent to:
+                                    // delta_right_times_s + delta_sum * (2.0 - 2.0 * x)
+                                }
+                            )
+                    );
+                    DensityI{
+                        left_borders: left_result,
+                        right_borders: right_result
+                    }
+                }
+            ).collect_vec();
+
+        Self { matrix }
+    }
+
+    pub fn write_sum_all(&self, bins: &Bins, name: &str)
+    {
+        let (first, rest) = self.matrix.split_first().unwrap();
+        let mut sum_left = first.left_borders.clone();
+        let mut sum_right = first.right_borders.clone();
+        rest.iter()
+            .for_each(
+                |slice|
+                {
+                    let sum = |into: &mut [f64], from: &[f64]|
+                    {
+                        into
+                            .iter_mut()
+                            .zip(from)
+                            .for_each(
+                                |(a,b)|
+                                *a += b
+                            );
+                    };
+                    sum(&mut sum_left, &slice.left_borders);
+                    sum(&mut sum_right, &slice.right_borders);
+                }
+            );
+
+        let sum_density = DensityI{
+            left_borders: sum_left,
+            right_borders: sum_right
+        };
+
+        sum_density.write(bins, name)
     }
 }
