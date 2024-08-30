@@ -1133,10 +1133,10 @@ impl Ii_given_pre_Ii_interval{
     pub fn calc_above_leaf(deltas_of_kij: &Delta_kij_of_Ii_intervals, bins: &Bins) -> Self
     {
         let s = bins.s_approx;
-        let all_bins = bins.bins_in_range_0_to_1();
+        let bins_range_0_to_1 = bins.bins_in_range_0_to_1();
         // both intervals include s here!
-        let until_s = &all_bins[..=bins.s_idx_inclusive_of_positive_slice];
-        let from_s = &all_bins[bins.s_idx_inclusive_of_positive_slice..];
+        let until_s = &bins_range_0_to_1[..=bins.s_idx_inclusive_of_positive_slice];
+        let from_s = &bins_range_0_to_1[bins.s_idx_inclusive_of_positive_slice..];
 
         let iter = deltas_of_kij
             .delta_left

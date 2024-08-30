@@ -378,7 +378,7 @@ pub enum MyModelCommand{
     #[clap(visible_alias="chprof")]
     ChainProfile(PathAndOut),
     /// create profile Hist for a chain
-    #[clap(visible_alias="chprof")]
+    #[clap(visible_alias="chhist")]
     ChainProfileHist(ProfileHistCmd),
     /// Sample crit for Trees
     #[clap(visible_alias="trcrit")]
