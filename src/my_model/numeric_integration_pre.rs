@@ -49,6 +49,9 @@ pub fn compute_line(input: ModelInput)
     println!("{sum_left}");
     println!("{sum_right}");
 
+    let test = TestKij::new(&density_lambda, &bins);
+    test.write_sum(&bins, "k_test_sum.dat");
+
     let Ii_given_pre_Ii_interval = Ii_given_pre_Ii_interval::calc_above_leaf(
         &deltas, 
         &density_lambda,
@@ -904,6 +907,89 @@ impl DensityLambda{
             bin_slice, 
             &self.right_border_vals
         )
+    }
+}
+
+pub struct TestKij{
+    pub func: Vec<Vec<f64>>
+}
+
+impl TestKij{
+    pub fn new(lambda_dist: &DensityLambda, bins: &Bins) -> Self {
+        // y <= x
+
+        let windows = ArrayWindows::<_,2>::new(bins.bins_in_range_0_to_1());
+
+        let mut interpolation = lambda_dist
+            .left_interpolation_iter(bins)
+            .map(|(interpolation, _)| interpolation)
+            .collect_vec();
+        interpolation.extend(
+            lambda_dist
+                .mid_interpolation_iter(bins)  
+                .map(|(interpolation, _)| interpolation)
+        );
+        interpolation.extend(
+            lambda_dist
+              .right_interpolation_iter(bins)
+              .map(|(interpolation, _)| interpolation)
+        );
+        let relevant_bins = bins.get_left_I_slice();
+        let func = windows
+            .enumerate()
+            .map(
+                |(counter, [Ly, Ry])|
+                {
+                    let Ry_minus_Ly_div_2 = (Ry - Ly) * 0.5;
+                    let Ly_plus_Ry = Ly + Ry;
+
+                    let z = relevant_bins;
+                    let x_interpolation = &interpolation[counter..];
+
+                    let iter = z.iter()
+                        .zip(x_interpolation);
+
+                    iter.map(
+                        |(z, LinearInterpolation { a, b })|
+                        {
+                            Ry_minus_Ly_div_2 * (a * z.mul_add(2.0, Ly_plus_Ry) + 2.0 * b)
+                        }
+                    ).collect_vec()
+
+                }
+            ).collect_vec();
+        
+        Self { func }
+    }
+
+    pub fn write_sum(&self, bins: &Bins, name: &str)
+    {
+        let mut sum = self.func[0].clone();
+        for slice in self.func[1..].iter()
+        {
+            sum.iter_mut()
+                .zip(slice)
+                .for_each(
+                    |(a, b)|
+                    {
+                        *a += b
+                    }
+                );
+        }
+
+        let mut writer = create_buf_with_command_and_version(name);
+        
+        let positive = bins.get_positive_bin_borders_f64();
+        
+        positive.iter()
+            .zip(sum)
+            .for_each(
+                |(z, val)|
+                writeln!(
+                    writer,
+                    "{z} {val}"
+                ).unwrap()
+            );
     }
 }
 
