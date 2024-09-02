@@ -5,6 +5,7 @@ use super::numeric_integration::*;
 use itertools::*;
 use fraction::Ratio;
 use fraction::ToPrimitive;
+use num_traits::MulAdd;
 use serde::Deserialize;
 use serde::Serialize;
 use super::array_windows::*;
@@ -1070,7 +1071,7 @@ impl Delta_kij_of_Ii_intervals{
         // but the interval [s=Lx, Rx] should be treaded with the other method.
         // so, I should calculate from s+(one interval) to the end
         //
-        // the lamnda left interval goes from 0 to s
+        // the lambda left interval goes from 0 to s
         // so we need to start at the mid interval while skipping the first
         let mid_iter = lambda_dist
             .mid_interpolation_iter(bins)
@@ -1289,6 +1290,75 @@ impl Ii_given_pre_Ii_interval{
                     }
                 }
             ).collect_vec();
+
+        let y_windows = ArrayWindows::<_,2>::new(bins_range_0_to_1);
+
+        let lambda_interpolations = density_lambda.get_all_interpolations(bins);
+
+        matrix.iter_mut()
+            .zip(y_windows)
+            .enumerate()
+            .for_each(
+                |(offset, (matrix_slice, [Ly, Ry]))|
+                {
+                    let Ry_minus_Ly = Ry - Ly;
+                    let Ly_plus_Ry = Ly + Ry;
+                    let this_lambda_interpolations = &lambda_interpolations[offset..];
+
+                    let mut help_results = Vec::with_capacity(until_s.len());
+                    
+                    help_results.extend(
+                        ArrayWindows::new(until_s)
+                            .zip(this_lambda_interpolations)
+                            .map(
+                                |([F1, F2], LinearInterpolation { a, b })|
+                                {
+                                    let F1minusF2 = F1 - F2;
+                                    Ry_minus_Ly*F1minusF2*F1minusF2*(
+                                        a*(
+                                            F1.mul_add(
+                                                4.0, 
+                                                2.0*F2
+                                            )
+                                            +3.0*Ly_plus_Ry
+                                        ) + 6.0 * b
+                                    )
+                                    /12.0
+                                }
+                            )
+                    );
+                    help_results.push(0.0);
+
+                    let mut running_sum = 0.0;
+                    help_results
+                        .iter_mut()
+                        .rev()
+                        .for_each(
+                            |val|
+                            {
+                                running_sum += *val;
+                                *val = running_sum;
+                            }
+                        );
+                    let left_slice = &help_results[..matrix_slice.left_borders.len()];
+                    let right_slice = &help_results[matrix_slice.left_borders.len()-1..];
+
+                    let add = |matr_slice: &mut [f64], value_slice: &[f64]|
+                    {
+                        matr_slice
+                            .iter_mut()
+                            .zip(value_slice)
+                            .for_each(
+                                |(matr_value, helper_value)|
+                                {
+                                    *matr_value += helper_value;
+                                }
+                            );
+                    };
+                    add(&mut matrix_slice.left_borders, left_slice);
+                    add(&mut matrix_slice.right_borders, right_slice);
+                }
+            );
 
         Self { matrix }
     }
