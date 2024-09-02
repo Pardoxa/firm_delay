@@ -5,6 +5,7 @@ use super::numeric_integration::*;
 use itertools::*;
 use fraction::Ratio;
 use fraction::ToPrimitive;
+use num_traits::MulAdd;
 use serde::Deserialize;
 use serde::Serialize;
 use super::array_windows::*;
@@ -952,7 +953,16 @@ impl TestKij{
                     iter.map(
                         |(z, LinearInterpolation { a, b })|
                         {
-                            Ry_minus_Ly_div_2 * (a * z.mul_add(2.0, Ly_plus_Ry) + 2.0 * b)
+                            Ry_minus_Ly_div_2 * 
+                            (
+                                b.mul_add(
+                                    2.0, 
+                                    a * z.mul_add(
+                                        2.0, 
+                                        Ly_plus_Ry
+                                    )
+                                )
+                            )
                         }
                     ).collect_vec()
 
