@@ -5,6 +5,7 @@ use super::numeric_integration::*;
 use itertools::*;
 use fraction::Ratio;
 use fraction::ToPrimitive;
+use serde::de::value;
 use serde::Deserialize;
 use serde::Serialize;
 use super::array_windows::*;
@@ -1382,9 +1383,72 @@ impl Ii_given_pre_Ii_interval{
                     add(&mut matrix_slice.left_borders, left_slice);
                     // DO NOT ADD RIGHT BORDERS HERE
 
-                    dbg!(help_results.len());
-                    dbg!(left_slice.len());
-                    dbg!(until_s.len());
+                    let mut help_result_iter = help_results.iter_mut();
+                    *help_result_iter.next().unwrap() = 0.0;
+                    let Ly_minus_Ry = Ly - Ry;
+                    ArrayWindows::<_,2>::new(until_s)
+                        .zip(help_result_iter)
+                        .zip(this_lambda_interpolations)
+                        .for_each(
+                            |(([F1, F2], res), LinearInterpolation { a, b })|
+                            {
+                                let F1_minus_F2 = F1 - F2;
+                                *res = (
+                                    (F1_minus_F2 + 1.0) * F1_minus_F2*(Ly_minus_Ry)
+                                    *(
+                                        a*(
+                                            F1+F2+Ly_plus_Ry
+                                        ) + b * 2.0
+                                    )
+                                ) * 0.5;
+                            }
+                        );
+
+                    // Everything that is smaller is also automatically part of the integral
+                    let mut running_sum = 0.0;
+                    help_results
+                        .iter_mut()
+                        .rev()
+                        .for_each(
+                            |val|
+                            {
+                                running_sum += *val;
+                                *val = running_sum;
+                            }
+                        );
+                    add(&mut matrix_slice.left_borders, &help_results);
+                    // now for the larger parts
+                    let mut whole_helper = vec![0.0; bins_range_0_to_1.len()];
+
+                    ArrayWindows::<_,2>::new(until_s)
+                        .zip(this_lambda_interpolations)
+                        .zip(1..)
+                        .for_each(
+                            |(([F1, F2], LinearInterpolation { a, b }), start)|
+                            {
+                                let const_part = (F1-F2) * 0.5 
+                                 * Ly_minus_Ry 
+                                 *(
+                                    a * (F1 + F2 + Ly_plus_Ry)
+                                    + b * 2.0
+                                 );
+                                let F1_plus_2 = F1 + 2.0;
+                                let z_range = &bins_range_0_to_1[start..];
+                                whole_helper[start..]
+                                    .iter_mut()
+                                    .zip(z_range)
+                                    .for_each(
+                                        |(val, z)|
+                                        {
+                                            *val += const_part * (F1_plus_2 - 2.0* z)
+                                        }
+                                    );
+                            }
+                        );
+                    add(&mut matrix_slice.left_borders, &whole_helper);
+                    add(
+                        &mut matrix_slice.right_borders, &whole_helper[bins.s_idx_inclusive_of_positive_slice..]
+                    );
                 }
             );
 
