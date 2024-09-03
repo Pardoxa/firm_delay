@@ -5,7 +5,6 @@ use super::numeric_integration::*;
 use itertools::*;
 use fraction::Ratio;
 use fraction::ToPrimitive;
-use num_traits::MulAdd;
 use serde::Deserialize;
 use serde::Serialize;
 use super::array_windows::*;
@@ -1253,6 +1252,8 @@ impl Ii_given_pre_Ii_interval{
             .delta_left
             .iter()
             .zip(deltas_of_kij.delta_right.iter());
+
+
         
         let mut matrix = iter
             .map(
@@ -1294,7 +1295,7 @@ impl Ii_given_pre_Ii_interval{
         let y_windows = ArrayWindows::<_,2>::new(bins_range_0_to_1);
 
         let lambda_interpolations = density_lambda.get_all_interpolations(bins);
-
+        let mut help_results = vec![0.0; until_s.len()];
         matrix.iter_mut()
             .zip(y_windows)
             .enumerate()
@@ -1305,29 +1306,29 @@ impl Ii_given_pre_Ii_interval{
                     let Ly_plus_Ry = Ly + Ry;
                     let this_lambda_interpolations = &lambda_interpolations[offset..];
 
-                    let mut help_results = Vec::with_capacity(until_s.len());
-                    
-                    help_results.extend(
-                        ArrayWindows::new(until_s)
-                            .zip(this_lambda_interpolations)
-                            .map(
-                                |([F1, F2], LinearInterpolation { a, b })|
-                                {
-                                    let F1minusF2 = F1 - F2;
-                                    Ry_minus_Ly*F1minusF2*F1minusF2*(
-                                        a*(
-                                            F1.mul_add(
-                                                4.0, 
-                                                2.0*F2
-                                            )
-                                            +3.0*Ly_plus_Ry
-                                        ) + 6.0 * b
-                                    )
-                                    /12.0
-                                }
-                            )
-                    );
-                    help_results.push(0.0);
+                    help_results.iter_mut()
+                        .zip(
+                            ArrayWindows::new(until_s)
+                        ).zip(this_lambda_interpolations)
+                        .for_each(
+                            |((res, [F1, F2]), LinearInterpolation { a, b })|
+                            {
+                                let F1minusF2 = F1 - F2;
+                                *res = Ry_minus_Ly*F1minusF2*F1minusF2*(
+                                    a*(
+                                        F1.mul_add(
+                                            4.0, 
+                                            2.0*F2
+                                        )
+                                        +3.0*Ly_plus_Ry
+                                    ) + 6.0 * b
+                                )
+                                /12.0
+                            }
+                        );
+                    *help_results
+                        .last_mut()
+                        .unwrap() = 0.0;
 
                     let mut running_sum = 0.0;
                     help_results
@@ -1340,8 +1341,29 @@ impl Ii_given_pre_Ii_interval{
                                 *val = running_sum;
                             }
                         );
+
+                    // next the second part of this calculation 
+                    ArrayWindows::new(until_s)
+                        .zip(this_lambda_interpolations)
+                        .zip(help_results.iter_mut().skip(1))
+                        .for_each(
+                            |(([F1, F2], LinearInterpolation { a, b }), res)|
+                            {
+                                let z = *F2;
+                                let F1_times6 = F1 * 6.0;
+                                *res += (
+                                    (1.0-z)*Ry_minus_Ly*(
+                                        a*(
+                                            -F1_times6*(F1+Ly_plus_Ry)
+                                            +2.0*F2*F2 + (F2+z)*(3.0*Ly_plus_Ry + 2.0 * z)
+                                        )
+                                        + 6.0 * b*(-2.0*F1+F2+z)
+                                    )
+                                ) / 12.0;
+                            }
+                        );
+
                     let left_slice = &help_results[..matrix_slice.left_borders.len()];
-                    let right_slice = &help_results[matrix_slice.left_borders.len()-1..];
 
                     let add = |matr_slice: &mut [f64], value_slice: &[f64]|
                     {
@@ -1355,8 +1377,14 @@ impl Ii_given_pre_Ii_interval{
                                 }
                             );
                     };
+                    // I noticed that for the first to chunks of the calculation, this only 
+                    // affects the left borders
                     add(&mut matrix_slice.left_borders, left_slice);
-                    add(&mut matrix_slice.right_borders, right_slice);
+                    // DO NOT ADD RIGHT BORDERS HERE
+
+                    dbg!(help_results.len());
+                    dbg!(left_slice.len());
+                    dbg!(until_s.len());
                 }
             );
 
