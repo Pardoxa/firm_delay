@@ -1303,152 +1303,11 @@ impl Ii_given_pre_Ii_interval{
             .for_each(
                 |(offset, (matrix_slice, [Ly, Ry]))|
                 {
-                    let Ry_minus_Ly = Ry - Ly;
-                    let Ly_plus_Ry = Ly + Ry;
+                    /// DEBUGGING IN PROGRESS! REMOVE THE FILLS WHEN DONE!
+                    matrix_slice.left_borders.fill(0.0);
+                    matrix_slice.right_borders.fill(0.0);
                     let this_lambda_interpolations = &lambda_interpolations[offset..];
 
-                    help_results.iter_mut()
-                        .zip(
-                            ArrayWindows::new(until_s)
-                        ).zip(this_lambda_interpolations)
-                        .for_each(
-                            |((res, [F1, F2]), LinearInterpolation { a, b })|
-                            {
-                                let F1minusF2 = F1 - F2;
-                                *res = Ry_minus_Ly*F1minusF2*F1minusF2*(
-                                    a*(
-                                        F1.mul_add(
-                                            4.0, 
-                                            2.0*F2
-                                        )
-                                        +3.0*Ly_plus_Ry
-                                    ) + 6.0 * b
-                                )
-                                /12.0
-                            }
-                        );
-                    *help_results
-                        .last_mut()
-                        .unwrap() = 0.0;
-
-                    let mut running_sum = 0.0;
-                    help_results
-                        .iter_mut()
-                        .rev()
-                        .for_each(
-                            |val|
-                            {
-                                running_sum += *val;
-                                *val = running_sum;
-                            }
-                        );
-
-                    // next the second part of this calculation 
-                    ArrayWindows::new(until_s)
-                        .zip(this_lambda_interpolations)
-                        .zip(help_results.iter_mut().skip(1))
-                        .for_each(
-                            |(([F1, F2], LinearInterpolation { a, b }), res)|
-                            {
-                                let z = *F2;
-                                let F1_times6 = F1 * 6.0;
-                                *res += (
-                                    (1.0-z)*Ry_minus_Ly*(
-                                        a*(
-                                            -F1_times6*(F1+Ly_plus_Ry)
-                                            +2.0*F2*F2 + (F2+z)*(3.0*Ly_plus_Ry + 2.0 * z)
-                                        )
-                                        + 6.0 * b*(-2.0*F1+F2+z)
-                                    )
-                                ) / 12.0;
-                            }
-                        );
-
-                    let left_slice = &help_results[..matrix_slice.left_borders.len()];
-
-                    let add = |matr_slice: &mut [f64], value_slice: &[f64]|
-                    {
-                        matr_slice
-                            .iter_mut()
-                            .zip(value_slice)
-                            .for_each(
-                                |(matr_value, helper_value)|
-                                {
-                                    *matr_value += helper_value;
-                                }
-                            );
-                    };
-                    // I noticed that for the first to chunks of the calculation, this only 
-                    // affects the left borders
-                    add(&mut matrix_slice.left_borders, left_slice);
-                    // DO NOT ADD RIGHT BORDERS HERE
-
-                    let mut help_result_iter = help_results.iter_mut();
-                    *help_result_iter.next().unwrap() = 0.0;
-                    let Ly_minus_Ry = Ly - Ry;
-                    ArrayWindows::<_,2>::new(until_s)
-                        .zip(help_result_iter)
-                        .zip(this_lambda_interpolations)
-                        .for_each(
-                            |(([F1, F2], res), LinearInterpolation { a, b })|
-                            {
-                                let F1_minus_F2 = F1 - F2;
-                                *res = (
-                                    (F1_minus_F2 + 1.0) * F1_minus_F2*(Ly_minus_Ry)
-                                    *(
-                                        a*(
-                                            F1+F2+Ly_plus_Ry
-                                        ) + b * 2.0
-                                    )
-                                ) * 0.5;
-                            }
-                        );
-
-                    // Everything that is smaller is also automatically part of the integral
-                    let mut running_sum = 0.0;
-                    help_results
-                        .iter_mut()
-                        .rev()
-                        .for_each(
-                            |val|
-                            {
-                                running_sum += *val;
-                                *val = running_sum;
-                            }
-                        );
-                    add(&mut matrix_slice.left_borders, &help_results);
-                    // now for the larger parts
-                    let mut whole_helper = vec![0.0; bins_range_0_to_1.len()];
-
-                    ArrayWindows::<_,2>::new(until_s)
-                        .zip(this_lambda_interpolations)
-                        .zip(1..)
-                        .for_each(
-                            |(([F1, F2], LinearInterpolation { a, b }), start)|
-                            {
-                                let const_part = (F1-F2) * 0.5 
-                                 * Ly_minus_Ry 
-                                 *(
-                                    a * (F1 + F2 + Ly_plus_Ry)
-                                    + b * 2.0
-                                 );
-                                let F1_plus_2 = F1 + 2.0;
-                                let z_range = &bins_range_0_to_1[start..];
-                                whole_helper[start..]
-                                    .iter_mut()
-                                    .zip(z_range)
-                                    .for_each(
-                                        |(val, z)|
-                                        {
-                                            *val += const_part * (F1_plus_2 - 2.0* z)
-                                        }
-                                    );
-                            }
-                        );
-                    add(&mut matrix_slice.left_borders, &whole_helper);
-                    add(
-                        &mut matrix_slice.right_borders, &whole_helper[bins.s_idx_inclusive_of_positive_slice..]
-                    );
                 }
             );
 
@@ -1483,6 +1342,7 @@ impl Ii_given_pre_Ii_interval{
             left_borders: sum_left,
             right_borders: sum_right
         };
+        //sum_density.normalize(bins);
 
         sum_density.write(bins, name);
         let integral = sum_density.integral(bins);
@@ -1490,4 +1350,18 @@ impl Ii_given_pre_Ii_interval{
             "res_integral: {integral}"
         );
     }
+}
+
+
+fn add(matr_slice: &mut [f64], value_slice: &[f64])
+{
+    matr_slice
+        .iter_mut()
+        .zip(value_slice)
+        .for_each(
+            |(matr_value, helper_value)|
+            {
+                *matr_value += helper_value;
+            }
+        );
 }
