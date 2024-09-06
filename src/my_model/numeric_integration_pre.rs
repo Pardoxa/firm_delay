@@ -5,7 +5,6 @@ use super::numeric_integration::*;
 use itertools::*;
 use fraction::Ratio;
 use fraction::ToPrimitive;
-use serde::de::value;
 use serde::Deserialize;
 use serde::Serialize;
 use super::array_windows::*;
@@ -29,7 +28,8 @@ pub fn compute_line(input: ModelInput)
     density_lambda.write(&bins, "lambda.dat");
     let lambda_integral = density_lambda.integral(&bins);
     println!("Lambda_integral: {lambda_integral}");
-    let deltas = Delta_kij_of_Ii_intervals::new(&density_lambda, &bins);
+    let mut deltas = Delta_kij_of_Ii_intervals::new(&density_lambda, &bins);
+    deltas.delta_error_correction(k_density.delta_left, k_density.delta_right);
     deltas.write_deltas(&bins, "test_d.dat");
 
     let test_left_iter =
@@ -1184,6 +1184,24 @@ impl Delta_kij_of_Ii_intervals{
             ).unwrap();
         }
     }
+
+    pub fn delta_error_correction(&mut self, delta_left: f64, delta_right: f64)
+    {
+        let left_sum: f64 = self.delta_left.iter().sum();
+        let factor = delta_left / left_sum;
+        self.delta_left
+            .iter_mut()
+            .for_each(
+                |v| *v *= factor
+            );
+        let right_sum: f64 = self.delta_right.iter().sum();
+        let factor = delta_right / right_sum;
+        self.delta_right
+            .iter_mut()
+            .for_each(
+                |v| *v *= factor
+            );
+    }
 }
 
 
@@ -1341,7 +1359,6 @@ impl Ii_given_pre_Ii_interval{
                             .for_each(
                                 |v| *v += J1
                             );
-                        
                         // I think I can get away with skipping J2:
                         // It is only used to calculate two values, on the left this value is equal to J1
                         // On the right it is equal to J3.
@@ -1387,6 +1404,7 @@ impl Ii_given_pre_Ii_interval{
                                 );
                         };
                         let z_left_slice = &until_s[left_until_A.len()..];
+                       
                         calc(z_left_slice, left_rest);
                         calc(from_s, &mut matrix_slice.right_borders);
 
@@ -1426,7 +1444,7 @@ impl Ii_given_pre_Ii_interval{
             left_borders: sum_left,
             right_borders: sum_right
         };
-        sum_density.normalize(bins);
+        //sum_density.normalize(bins);
 
         sum_density.write(bins, name);
         let integral = sum_density.integral(bins);
