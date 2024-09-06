@@ -1296,17 +1296,101 @@ impl Ii_given_pre_Ii_interval{
         let y_windows = ArrayWindows::<_,2>::new(bins_range_0_to_1);
 
         let lambda_interpolations = density_lambda.get_all_interpolations(bins);
-        let mut help_results = vec![0.0; until_s.len()];
+        let k_len = until_s.len();
         matrix.iter_mut()
             .zip(y_windows)
             .enumerate()
             .for_each(
                 |(offset, (matrix_slice, [Ly, Ry]))|
                 {
+                    let Ly_minus_Ry = Ly - Ry;
+                    let Ly_plus_Ry = Ry + Ly;
                     /// DEBUGGING IN PROGRESS! REMOVE THE FILLS WHEN DONE!
-                    matrix_slice.left_borders.fill(0.0);
-                    matrix_slice.right_borders.fill(0.0);
-                    let this_lambda_interpolations = &lambda_interpolations[offset..];
+                    //matrix_slice.left_borders.fill(0.0);
+                    //matrix_slice.right_borders.fill(0.0);
+                    // check if this is the correct range!
+                    let this_lambda_interpolations = &lambda_interpolations[offset..offset + k_len];
+
+                    let windows = ArrayWindows::<_,2>::new(until_s);
+                    let iter = this_lambda_interpolations
+                        .iter()
+                        .zip(windows)
+                        .enumerate();
+
+                    for (counter, (LinearInterpolation { a, b }, [F1, F2])) in iter {
+                        // Range in which J1 is valid: [..=counter]
+                        let b_times_2 = b * 2.0;
+                        let F1_minus_F2 = F1 - F2;
+                        let F1_plus_F2 = F1 + F2;
+                        // first calculate J1
+                        let J1 = 0.5*F1_minus_F2*Ly_minus_Ry*(
+                            b_times_2 + a*(F1_plus_F2+Ly_plus_Ry)
+                        );
+
+                        let counter_plus_1 = counter + 1;
+                        
+                        let len_left = matrix_slice.left_borders.len();
+                        let (left_until_A, left_rest) = 
+                        if counter_plus_1 <=len_left {
+                            matrix_slice.left_borders.split_at_mut(counter_plus_1)
+                        } else {
+                            matrix_slice.left_borders.split_at_mut(len_left)
+                        };
+
+                        left_until_A.iter_mut()
+                            .for_each(
+                                |v| *v += J1
+                            );
+                        
+                        // I think I can get away with skipping J2:
+                        // It is only used to calculate two values, on the left this value is equal to J1
+                        // On the right it is equal to J3.
+
+
+                        let twelve_recip = 12.0_f64.recip();
+                        let b_times_6 = 6.0*b;
+                        let outer = twelve_recip*F1_minus_F2*Ly_minus_Ry;
+                        let inner_summand = -( 
+                            F1_minus_F2*(
+                                b_times_6+a*(2.0*F1+4.0*F2+3.0*F1_plus_F2)
+                            )
+                        );
+                        let inner_factor = 6.0 * 
+                        (b_times_2 + a *
+                            (
+                                F1_plus_F2+Ly_plus_Ry
+                            )
+                        );
+                        let other_factor = 0.5*F1_minus_F2*Ly_minus_Ry*(
+                            b_times_2+a*(
+                                F1_plus_F2+Ly_plus_Ry
+                            )
+                        );
+                        let calc = |z_slice: &[f64], val_slice: &mut [f64]|
+                        {
+                            z_slice.iter()
+                                .zip(val_slice.iter_mut())
+                                .for_each(
+                                    |(z, val)|
+                                    {
+                                        let one_minus_z = 1.0 - z;
+                                        *val += outer*(
+                                            inner_summand
+                                            + 
+                                                inner_factor
+                                            *   (
+                                                    one_minus_z+F1
+                                                )
+                                        )
+                                        + other_factor * one_minus_z;
+                                    }
+                                );
+                        };
+                        let z_left_slice = &until_s[left_until_A.len()..];
+                        calc(z_left_slice, left_rest);
+                        calc(from_s, &mut matrix_slice.right_borders);
+
+                    }
 
                 }
             );
@@ -1338,11 +1422,11 @@ impl Ii_given_pre_Ii_interval{
                 }
             );
 
-        let sum_density = DensityI{
+        let mut sum_density = DensityI{
             left_borders: sum_left,
             right_borders: sum_right
         };
-        //sum_density.normalize(bins);
+        sum_density.normalize(bins);
 
         sum_density.write(bins, name);
         let integral = sum_density.integral(bins);
