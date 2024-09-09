@@ -1324,8 +1324,8 @@ impl Ii_given_pre_Ii_interval{
                     let Ly_minus_Ry = Ly - Ry;
                     let Ly_plus_Ry = Ry + Ly;
                     /// DEBUGGING IN PROGRESS! REMOVE THE FILLS WHEN DONE!
-                    //matrix_slice.left_borders.fill(0.0);
-                    //matrix_slice.right_borders.fill(0.0);
+                    matrix_slice.left_borders.fill(0.0);
+                    matrix_slice.right_borders.fill(0.0);
                     // check if this is the correct range!
                     let this_lambda_interpolations = &lambda_interpolations[offset..offset + k_len];
 
@@ -1391,15 +1391,16 @@ impl Ii_given_pre_Ii_interval{
                                     |(z, val)|
                                     {
                                         let one_minus_z = 1.0 - z;
-                                        *val += outer*(
-                                            inner_summand
-                                            + 
-                                                inner_factor
-                                            *   (
-                                                    one_minus_z+F1
+                                        *val += 
+                                        other_factor.mul_add(
+                                            one_minus_z, 
+                                            outer*(
+                                                inner_factor.mul_add(
+                                                    one_minus_z+F1, 
+                                                    inner_summand
                                                 )
-                                        )
-                                        + other_factor * one_minus_z;
+                                            )
+                                        );
                                     }
                                 );
                         };
