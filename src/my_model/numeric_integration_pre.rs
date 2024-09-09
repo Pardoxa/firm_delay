@@ -53,12 +53,13 @@ pub fn compute_line(input: ModelInput)
     let test = TestKij::new(&density_lambda, &bins);
     test.write_sum(&bins, "k_test_sum.dat");
 
-    let Ii_given_pre_Ii_interval = Ii_given_pre_Ii_interval::calc_above_leaf(
+    let mut Ii_given_pre_Ii_interval = Ii_given_pre_Ii_interval::calc_above_leaf(
         &deltas, 
         &density_lambda,
         &bins
     );
 
+    Ii_given_pre_Ii_interval.check(&density_I, &bins);
     Ii_given_pre_Ii_interval.write_sum_all(&bins, "current_test.dat");
 
 }
@@ -1253,6 +1254,37 @@ pub struct Ii_given_pre_Ii_interval
 
 impl Ii_given_pre_Ii_interval{
 
+    pub fn check(&mut self, other: &DensityI, bins: &Bins)
+    {
+        let mut probs = ArrayWindows::<_,2>::new(&other.left_borders)
+            .map(
+                |[L, R]|
+                {
+                    0.5*(L+R) * bins.bin_size
+                }
+            ).collect_vec();
+
+        probs.extend(
+            ArrayWindows::<_,2>::new(&other.right_borders)
+                .map(
+                    |[L, R]|
+                    {
+                        0.5*(L+R) * bins.bin_size
+                    }
+                )
+        );
+
+        let mut buf = create_buf_with_command_and_version("check.dat");
+
+        for (line, target) in self.matrix.iter().zip(probs)
+        {
+            let val = line.integral(bins);
+            
+            writeln!(buf, "{} {val} {target}", val - target).unwrap();
+            
+        }
+    }
+
     /// The relevant calculations can be found at: https://nxt.yfeld.de/s/7PAgnx6Lo9g5i4d
     /// The side calculation can be found at: https://nxt.yfeld.de/s/FtpWGRxnJoc8bdM
     pub fn calc_above_leaf(
@@ -1325,7 +1357,6 @@ impl Ii_given_pre_Ii_interval{
                     let Ly_plus_Ry = Ry + Ly;
                     // check if this is the correct range!
                     let this_lambda_interpolations = &lambda_interpolations[offset..offset + k_len - 1];
-                    dbg!(this_lambda_interpolations.len());
 
                     let windows = ArrayWindows::<_,2>::new(until_s);
                     let iter = this_lambda_interpolations
