@@ -17,7 +17,7 @@ pub fn compute_line(input: ModelInput)
     let (
         bins,
         k_density
-    ) = k_of_leaf_parent(input.s, 1e-8, input.precision.get());
+    ) = k_of_leaf_parent(input.s, 1e-9, input.precision.get());
     let density_I = DensityI::calculate_above_leaf(&bins, &k_density);
 
     density_I.write(&bins, "I_density_test.dat");
@@ -51,6 +51,7 @@ pub fn compute_line(input: ModelInput)
     println!("{sum_right}");
 
     let test = TestKij::new(&density_lambda, &bins);
+    test.check(&bins, &deltas);
     test.write_sum(&bins, "k_test_sum.dat");
 
     let mut Ii_given_pre_Ii_interval = Ii_given_pre_Ii_interval::calc_above_leaf(
@@ -938,6 +939,24 @@ pub struct TestKij{
 }
 
 impl TestKij{
+
+    pub fn check(&self, bins: &Bins, deltas: &Delta_kij_of_Ii_intervals)
+    {
+        let mut buf = create_buf_with_command_and_version("k_check.dat");
+        for (slice, deltas) in self.func.iter().zip(deltas.delta_left.iter().zip(deltas.delta_right.iter()))
+        {
+            let integral: f64 = ArrayWindows::<_,2>::new(slice)
+                .map(
+                    |[a,b]| 0.5*(a+b) * bins.bin_size
+                ).sum();
+            let val = integral + deltas.0 + deltas.1;
+            writeln!(
+                buf,
+                "{val}"
+            ).unwrap();
+        }
+    }
+
     pub fn new(lambda_dist: &DensityLambda, bins: &Bins) -> Self {
         // y <= x
 
