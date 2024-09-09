@@ -29,7 +29,7 @@ pub fn compute_line(input: ModelInput)
     let lambda_integral = density_lambda.integral(&bins);
     println!("Lambda_integral: {lambda_integral}");
     let mut deltas = Delta_kij_of_Ii_intervals::new(&density_lambda, &bins);
-    deltas.delta_error_correction(k_density.delta_left, k_density.delta_right);
+    //deltas.delta_error_correction(k_density.delta_left, k_density.delta_right);
     deltas.write_deltas(&bins, "test_d.dat");
 
     let test_left_iter =
@@ -56,7 +56,6 @@ pub fn compute_line(input: ModelInput)
     let Ii_given_pre_Ii_interval = Ii_given_pre_Ii_interval::calc_above_leaf(
         &deltas, 
         &density_lambda,
-        &density_I,
         &bins
     );
 
@@ -1254,10 +1253,11 @@ pub struct Ii_given_pre_Ii_interval
 
 impl Ii_given_pre_Ii_interval{
 
+    /// The relevant calculations can be found at: https://nxt.yfeld.de/s/7PAgnx6Lo9g5i4d
+    /// The side calculation can be found at: https://nxt.yfeld.de/s/FtpWGRxnJoc8bdM
     pub fn calc_above_leaf(
         deltas_of_kij: &Delta_kij_of_Ii_intervals, 
         density_lambda: &DensityLambda,
-        density_I: &DensityI,
         bins: &Bins
     ) -> Self
     {
@@ -1323,11 +1323,9 @@ impl Ii_given_pre_Ii_interval{
                 {
                     let Ly_minus_Ry = Ly - Ry;
                     let Ly_plus_Ry = Ry + Ly;
-                    /// DEBUGGING IN PROGRESS! REMOVE THE FILLS WHEN DONE!
-                    matrix_slice.left_borders.fill(0.0);
-                    matrix_slice.right_borders.fill(0.0);
                     // check if this is the correct range!
-                    let this_lambda_interpolations = &lambda_interpolations[offset..offset + k_len];
+                    let this_lambda_interpolations = &lambda_interpolations[offset..offset + k_len - 1];
+                    dbg!(this_lambda_interpolations.len());
 
                     let windows = ArrayWindows::<_,2>::new(until_s);
                     let iter = this_lambda_interpolations
@@ -1405,6 +1403,7 @@ impl Ii_given_pre_Ii_interval{
                                 );
                         };
                         let z_left_slice = &until_s[left_until_A.len()..];
+                        debug_assert_eq!(z_left_slice.len(), left_rest.len());
                        
                         calc(z_left_slice, left_rest);
                         calc(from_s, &mut matrix_slice.right_borders);
