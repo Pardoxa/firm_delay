@@ -57,7 +57,8 @@ pub fn compute_line(input: ModelInput)
     let mut Ii_given_pre_Ii_interval = Ii_given_pre_Ii_interval::calc_above_leaf(
         &deltas, 
         &density_lambda,
-        &bins
+        &bins,
+        &test
     );
 
     Ii_given_pre_Ii_interval.check(&density_I, &bins);
@@ -149,6 +150,7 @@ fn delta_right_a_update(L: f64, R: f64, a: f64, s: f64) -> f64
     ) 
 }
 
+#[derive(Debug)]
 pub struct LinearInterpolation{
     a: f64,
     b: f64
@@ -942,7 +944,15 @@ impl TestKij{
 
     pub fn check(&self, bins: &Bins, deltas: &Delta_kij_of_Ii_intervals)
     {
-        let mut buf = create_buf_with_command_and_version("k_check.dat");
+        let header = [
+            "all",
+            "only_integral"
+        ];
+
+        let mut buf = create_buf_with_command_and_version_and_header(
+            "k_check.dat",
+            header
+        );
         for (slice, deltas) in self.func.iter().zip(deltas.delta_left.iter().zip(deltas.delta_right.iter()))
         {
             let integral: f64 = ArrayWindows::<_,2>::new(slice)
@@ -952,7 +962,7 @@ impl TestKij{
             let val = integral + deltas.0 + deltas.1;
             writeln!(
                 buf,
-                "{val}"
+                "{val} {integral}"
             ).unwrap();
         }
     }
@@ -973,6 +983,7 @@ impl TestKij{
                     let Ly_plus_Ry = Ly + Ry;
 
                     let z = relevant_bins;
+                    /// I think the error is here! I think the edge case is not correctly calculated!
                     let x_interpolation = &interpolation[counter..];
 
                     let iter = z.iter()
@@ -1293,14 +1304,27 @@ impl Ii_given_pre_Ii_interval{
                 )
         );
 
-        let mut buf = create_buf_with_command_and_version("check.dat");
+        let header = [
+            "val-target",
+            "val",
+            "target"
+        ];
 
-        for (line, target) in self.matrix.iter().zip(probs)
+        let mut buf = create_buf_with_command_and_version_and_header(
+            "check.dat",
+            header
+        );
+
+
+
+        for (i, (line, target)) in self.matrix.iter_mut().zip(probs).enumerate()
         {
             let val = line.integral(bins);
+           
             
             writeln!(buf, "{} {val} {target}", val - target).unwrap();
-            
+            let name = format!("db_{i}.dat");
+            line.write(bins, &name);
         }
     }
 
@@ -1309,7 +1333,8 @@ impl Ii_given_pre_Ii_interval{
     pub fn calc_above_leaf(
         deltas_of_kij: &Delta_kij_of_Ii_intervals, 
         density_lambda: &DensityLambda,
-        bins: &Bins
+        bins: &Bins,
+        k: &TestKij
     ) -> Self
     {
         let s = bins.s_approx;
@@ -1361,7 +1386,7 @@ impl Ii_given_pre_Ii_interval{
                     }
                 }
             ).collect_vec();
-
+         
         let y_windows = ArrayWindows::<_,2>::new(bins_range_0_to_1);
 
         let lambda_interpolations = density_lambda.get_all_interpolations(bins);
@@ -1372,10 +1397,15 @@ impl Ii_given_pre_Ii_interval{
             .for_each(
                 |(offset, (matrix_slice, [Ly, Ry]))|
                 {
+                    //matrix_slice.left_borders.fill(0.0);
+                    //matrix_slice.right_borders.fill(0.0);
                     let Ly_minus_Ry = Ly - Ry;
                     let Ly_plus_Ry = Ry + Ly;
                     // check if this is the correct range!
                     let this_lambda_interpolations = &lambda_interpolations[offset..offset + k_len - 1];
+                    let lambda_range = &bins.get_positive_bin_borders_f64()[offset..];
+                    dbg!(lambda_range);
+                    dbg!(this_lambda_interpolations);
 
                     let windows = ArrayWindows::<_,2>::new(until_s);
                     let iter = this_lambda_interpolations
@@ -1383,8 +1413,13 @@ impl Ii_given_pre_Ii_interval{
                         .zip(windows)
                         .enumerate();
 
+                    println!("y: {Ly} {Ry}");
+
                     for (counter, (LinearInterpolation { a, b }, [F1, F2])) in iter {
                         // Range in which J1 is valid: [..=counter]
+                        dbg!(counter);
+                        dbg!(a);
+                        dbg!(b);
                         let b_times_2 = b * 2.0;
                         let F1_minus_F2 = F1 - F2;
                         let F1_plus_F2 = F1 + F2;
@@ -1396,20 +1431,41 @@ impl Ii_given_pre_Ii_interval{
                         let counter_plus_1 = counter + 1;
                         
                         let len_left = matrix_slice.left_borders.len();
-                        let (left_until_A, left_rest) = 
-                        if counter_plus_1 <=len_left {
-                            matrix_slice.left_borders.split_at_mut(counter_plus_1)
-                        } else {
-                            matrix_slice.left_borders.split_at_mut(len_left)
+                        let split_idx = len_left.min(counter_plus_1);
+                        let (left_until_A, left_rest) = matrix_slice.left_borders
+                            .split_at_mut(split_idx);
+                        let z_right_slice_dbg = &until_s[..left_until_A.len()];
+                        let z_left_slice = &until_s[left_until_A.len()..];
+                        dbg!(z_right_slice_dbg);
+                        dbg!(z_left_slice);
+                        dbg!(J1);
+
+                        // I use it for testing now
+                        let calc_test = |x: f64|
+                        {
+                            -1.0/12.0 * (Ly-Ry)*(a*(-4.0*F1*F1*F1+6.0*F2*(F2+Ly+Ry)-3.0*F1*F1*(
+                                4.0+Ly+Ry-4.0*x)
+                            +12.0*F1*(Ly+Ry)*(x-1.0)
+                            +6.0 * (Ly+Ry)*x-3.0*(3.0*(Ly+Ry)-2.0)*x*x-8.0*x*x*x)
+                            -6.0*b*(F1*(4.0+F1)-4.0*F1*x+3.0*x*x-2.0*(F2+x)))
                         };
+                        let z_first = until_s[left_until_A.len().saturating_sub(1)];
+                        let t = calc_test(z_first);
+                        dbg!(t);
+                        let t2 = calc_test(*z_left_slice.get(0).unwrap_or(&0.0));
+                        dbg!(t2);
 
                         left_until_A.iter_mut()
                             .for_each(
                                 |v| *v += J1
                             );
+
+                       
                         // I think I can get away with skipping J2:
                         // It is only used to calculate two values, on the left this value is equal to J1
                         // On the right it is equal to J3.
+
+                        
 
 
                         let twelve_recip = 12.0_f64.recip();
@@ -1433,36 +1489,48 @@ impl Ii_given_pre_Ii_interval{
                         );
                         let calc = |z_slice: &[f64], val_slice: &mut [f64]|
                         {
+                            let mut first = None;
                             z_slice.iter()
                                 .zip(val_slice.iter_mut())
                                 .for_each(
                                     |(z, val)|
                                     {
                                         let one_minus_z = 1.0 - z;
-                                        *val += 
-                                        other_factor.mul_add(
-                                            one_minus_z, 
-                                            outer*(
-                                                inner_factor.mul_add(
-                                                    one_minus_z+F1, 
-                                                    inner_summand
-                                                )
-                                            )
-                                        );
+                                        let res = 
+                                        //other_factor.mul_add(
+                                        //    one_minus_z, 
+                                        //    outer*(
+                                        //        inner_factor.mul_add(
+                                        //            one_minus_z+F1, 
+                                        //            inner_summand
+                                        //        )
+                                        //    )
+                                        //);
+                                        twelve_recip*(F1-F2)*(Ly-Ry)*(-((F1-F2)*(6.0*b+a*(2.0*F1+4.0*F2+3.0*(Ly+Ry))))
+                                        + 6.0*(2.0*b+a*(F1+F2+Ly+Ry))
+                                        *(1.0+F1-z))
+                                        +0.5*(F1-F2)*(Ly-Ry)*(2.0*b+a*(F1+F2+Ly+Ry))*(1.0-z);
+                                        if first.is_none(){
+                                            first = Some((res, z));
+                                        }
+                                        *val += res;
                                     }
                                 );
+                            dbg!(first);
                         };
-                        let z_left_slice = &until_s[left_until_A.len()..];
+                        
                         debug_assert_eq!(z_left_slice.len(), left_rest.len());
-                       
+                        println!("here");
+                        dbg!(z_left_slice);
+                        dbg!(from_s);
                         calc(z_left_slice, left_rest);
                         calc(from_s, &mut matrix_slice.right_borders);
 
                     }
-
+                    //panic!();
                 }
             );
-
+        
         Self { matrix }
     }
 
@@ -1494,7 +1562,7 @@ impl Ii_given_pre_Ii_interval{
             left_borders: sum_left,
             right_borders: sum_right
         };
-        //sum_density.normalize(bins);
+        sum_density.normalize(bins);
 
         sum_density.write(bins, name);
         let integral = sum_density.integral(bins);
