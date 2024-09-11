@@ -304,6 +304,16 @@ impl DensityK{
         Self { bin_borders, delta_left: DELTA_HEIGHT, delta_right: DELTA_HEIGHT }
     }
 
+    pub fn mulitply(&mut self, val: f64)
+    {
+        self.delta_left *= val;
+        self.delta_right *= val;
+        self.bin_borders.iter_mut()
+            .for_each(
+                |v| *v *= val
+            );
+    }
+
     pub fn new_zeroed(&self) -> Self
     { 
         Self{
@@ -714,6 +724,28 @@ impl DensityI{
         println!(
             "{left} {right} {sum}"
         );
+    }
+
+    pub fn calc_probs_in_intervals(&self, bins: &Bins) -> Vec<f64>
+    {
+        let mut probs = ArrayWindows::<_,2>::new(&self.left_borders)
+            .map(
+                |[L, R]|
+                {
+                    0.5*(L+R) * bins.bin_size
+                }
+            ).collect_vec();
+
+        probs.extend(
+            ArrayWindows::<_,2>::new(&self.right_borders)
+                .map(
+                    |[L, R]|
+                    {
+                        0.5*(L+R) * bins.bin_size
+                    }
+                )
+        );
+        probs
     }
 }
 
@@ -1291,23 +1323,7 @@ impl Ii_given_pre_Ii_interval{
 
     pub fn check(&mut self, other: &DensityI, bins: &Bins)
     {
-        let mut probs = ArrayWindows::<_,2>::new(&other.left_borders)
-            .map(
-                |[L, R]|
-                {
-                    0.5*(L+R) * bins.bin_size
-                }
-            ).collect_vec();
-
-        probs.extend(
-            ArrayWindows::<_,2>::new(&other.right_borders)
-                .map(
-                    |[L, R]|
-                    {
-                        0.5*(L+R) * bins.bin_size
-                    }
-                )
-        );
+        let probs = other.calc_probs_in_intervals(bins);
 
         let header = [
             "val-target",
@@ -1319,8 +1335,6 @@ impl Ii_given_pre_Ii_interval{
             "check.dat",
             header
         );
-
-
 
         for (i, (line, target)) in self.matrix.iter_mut().zip(probs).enumerate()
         {
@@ -1593,4 +1607,106 @@ fn add(matr_slice: &mut [f64], value_slice: &[f64])
                 *matr_value += helper_value;
             }
         );
+}
+
+pub struct Kij_calc
+{
+    pub matrix: Vec<DensityK>
+}
+
+impl Kij_calc
+{
+    pub fn new(
+        Ij_given_prev_Ij: &Ii_given_pre_Ii_interval,
+        Ij: &DensityI,
+        bins: &Bins
+    ) -> Self
+    {
+        let probs = Ij.calc_probs_in_intervals(bins);
+
+        let k_bins = bins.get_left_I_slice();
+        let left_I_slice = k_bins;
+        let right_I_slice = bins.get_right_I_slice();
+        let len = bins.bins_in_range_0_to_1().len();
+        let mut current_estimate = probs.iter()
+            .map(
+                |&prob|
+                {
+                    let mut density = DensityK::new(bins.s_idx_inclusive_of_positive_slice, bins.s_approx);
+                    density.mulitply(prob);
+                    density
+                }
+            ).collect_vec();
+        let mut next_estimate = current_estimate.clone();
+        
+        let make_zero = |matrix: &mut [DensityK]|
+        {
+            matrix.iter_mut()
+                .for_each(|slice| slice.make_zeroed());
+        };
+
+        
+        loop{
+            make_zero(&mut next_estimate);
+
+            // delta left 
+            let iter = current_estimate.iter()
+                .zip(Ij_given_prev_Ij.matrix.iter());
+
+            for (current, Ij) in iter {
+
+                let delta_left = current.delta_left;
+
+                let mut next_extimate_iter = next_estimate.iter_mut();
+
+                let Ij_interpolation = linear_interpolation_iter(
+                    left_I_slice,
+                    &Ij.left_borders
+                );
+
+                Ij_interpolation
+                    .zip(&mut next_extimate_iter)
+                    .for_each(
+                        |((LinearInterpolation { a, b }, (A, B)), next)|
+                        {
+                            // Effect of delta left on function
+                            next.bin_borders.iter_mut()
+                                .zip(k_bins.iter())
+                                .for_each(
+                                    |(v, &z)|
+                                    {
+                                        let max = A.max(z);
+                                        let min = B.min(z + 1.0);
+                                        let part = max - min;
+                                        if part > 0.0 {
+                                            *v -= 0.5 * part *(2.0 * b + a*(max + min)) * delta_left;
+                                        }
+                                    }
+                                );
+
+                            // next the effect of delta left on delta left
+                            let A_plus_B = A + B;
+                            next.delta_left += delta_left*(-0.5 * (1.0 - B) * (A-B)*(2.0*b+a*A_plus_B)
+                                - (
+                                    (B-1.0)*(
+                                        3.0*b*(1.0-2.0*A+B)
+                                        + a*(1.0 - 3.0 * A*A+B +B*B)
+                                    )
+                                ) / 6.0);
+                            if A >= bins.s_approx{
+                                next.delta_right += delta_left*(-0.5*(A-B)*(2.0*b+(a*A_plus_B)));
+                            }
+
+                            // now effect of delta right
+                            if -bins.s_approx+1.0 > A {
+                                
+                            }  
+
+                        }
+                    )
+            }
+
+        }
+
+    }
 }
