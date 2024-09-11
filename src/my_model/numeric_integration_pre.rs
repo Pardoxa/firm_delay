@@ -1645,6 +1645,8 @@ impl Kij_calc
                 .for_each(|slice| slice.make_zeroed());
         };
 
+        let minus_s_plus_1 = -bins.s_approx + 1.0;
+
         
         loop{
             make_zero(&mut next_estimate);
@@ -1656,6 +1658,7 @@ impl Kij_calc
             for (current, Ij) in iter {
 
                 let delta_left = current.delta_left;
+                let delta_right = current.delta_right;
 
                 let mut next_extimate_iter = next_estimate.iter_mut();
 
@@ -1686,7 +1689,8 @@ impl Kij_calc
 
                             // next the effect of delta left on delta left
                             let A_plus_B = A + B;
-                            next.delta_left += delta_left*(-0.5 * (1.0 - B) * (A-B)*(2.0*b+a*A_plus_B)
+                            let A_minus_B = A - B;
+                            next.delta_left += delta_left*(-0.5 * (1.0 - B) * A_minus_B*(2.0*b+a*A_plus_B)
                                 - (
                                     (B-1.0)*(
                                         3.0*b*(1.0-2.0*A+B)
@@ -1694,13 +1698,44 @@ impl Kij_calc
                                     )
                                 ) / 6.0);
                             if A >= bins.s_approx{
-                                next.delta_right += delta_left*(-0.5*(A-B)*(2.0*b+(a*A_plus_B)));
+                                next.delta_right += delta_left*(-0.5*A_minus_B*(2.0*b+(a*A_plus_B)));
                             }
 
                             // now effect of delta right
-                            if -bins.s_approx+1.0 > A {
-                                
+                            // on delta left:
+                            
+                            if minus_s_plus_1>= B {
+                                next.delta_left += delta_right * (
+                                    A_minus_B * A_minus_B*(
+                                        a*(A_plus_B+A) + 3.0 * b
+                                    ) / 6.0
+                                    - (minus_s_plus_1-B) * 0.5 * A_minus_B *(2.0*b+a*A_plus_B ) 
+                                );
                             }  
+                            // effect of delta right on delta right:
+                            next.delta_right -= delta_right*0.5*A*A_minus_B*(2.0*b+a*A_plus_B);
+                            next.delta_right += A_minus_B*A_minus_B*(
+                                a*(A_plus_B+B)+3.0*b
+                            ) / 6.0;
+
+                            // Effect of delta right on function
+                            next.bin_borders.iter_mut()
+                                .zip(k_bins.iter())
+                                .for_each(
+                                    |(v, &z)|
+                                    {
+                                        let z_plus_1 = z + 1.0;
+                                        // clearly optimizable by splitting the range beforehand
+                                        *v += delta_right * if z_plus_1 <= A {
+                                            0.0// skip
+                                        } else if z_plus_1 <= B {
+                                            -0.5 * (A-z_plus_1)*(2.0*b+a*(A+z_plus_1))
+                                        } else {
+                                            -0.5*A_minus_B*(2.0*b+a*A_plus_B)
+                                        };
+                                    }
+                                );
+                            
 
                         }
                     )
