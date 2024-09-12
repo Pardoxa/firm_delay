@@ -52,6 +52,52 @@ impl KHist{
     }
 }
 
+pub struct HistRes{
+    left_integral: f64,
+    right_integral: f64,
+    left_sum: f64,
+    right_sum: f64
+}
+
+pub fn integrate_hist(hist: &HistF64) -> HistRes
+{
+    let half = hist.bin_count() / 2;
+
+    let iter = hist.hist()[..half].iter();
+    let left: usize = iter
+        .sum();
+    let right: usize = hist.hist()[half..].iter().sum();
+    let total = left + right;
+
+
+
+    let mut iter = hist.bin_hits_iter();
+    let left_sum: f64 = (&mut iter).take(half)
+        .map(
+            |([L, R], hits)|
+            {
+                let mid = (R + L) * 0.5;
+                hits as f64 / total as f64 * mid
+            }
+        ).sum();
+
+    let right_sum: f64 = iter.take(half)
+    .map(
+        |([L, R], hits)|
+        {
+            let mid = (R + L) * 0.5;
+            hits as f64 / total as f64 * mid
+        }
+    ).sum();
+
+    HistRes{
+        left_integral: left as f64 / total as f64,
+        right_integral: right as f64 / total as f64,
+        left_sum,
+        right_sum
+    }
+}
+
 pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Option<Vec<isize>>)
 {
     let chain_len = opt.total_len.get() - 1;
@@ -122,6 +168,30 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
 
     let name = format!("median_s{}.dat", opt.s);
     let mut median_buf = create_buf_with_command_and_version_and_header(name, header);
+
+    let header = [
+        "index",
+        "left",
+        "right"
+    ];
+
+    let mut writer_i = create_buf_with_command_and_version_and_header(
+        "testing.dat", 
+        header
+    );
+
+    for (i, hist) in hists.iter().rev().enumerate()
+    {
+        let res = integrate_hist(hist);
+        writeln!(
+            writer_i,
+            "{i} {} {} {} {}",
+            res.left_integral,
+            res.right_integral,
+            res.left_sum,
+            res.right_sum
+        ).unwrap();
+    }
 
     let mut i: isize = -1;
     let header = [
