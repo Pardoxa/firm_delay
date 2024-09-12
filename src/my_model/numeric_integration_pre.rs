@@ -63,6 +63,8 @@ pub fn compute_line(input: ModelInput)
     Ii_given_pre_Ii_interval.check(&density_I, &bins);
     Ii_given_pre_Ii_interval.write_sum_all(&bins, "current_test.dat");
 
+    let _unfinished = Kij_calc::new(&Ii_given_pre_Ii_interval, &density_I, &bins);
+
 }
 
 
@@ -1336,7 +1338,7 @@ impl Ii_given_pre_Ii_interval{
             header
         );
 
-        for (i, (line, target)) in self.matrix.iter_mut().zip(probs).enumerate()
+        for (line, target) in self.matrix.iter_mut().zip(probs)
         {
             let val = line.integral(bins);
            
@@ -1596,21 +1598,10 @@ impl Ii_given_pre_Ii_interval{
 }
 
 
-fn add(matr_slice: &mut [f64], value_slice: &[f64])
-{
-    matr_slice
-        .iter_mut()
-        .zip(value_slice)
-        .for_each(
-            |(matr_value, helper_value)|
-            {
-                *matr_value += helper_value;
-            }
-        );
-}
-
+#[allow(non_camel_case_types)]
 pub struct Kij_calc
 {
+    #[allow(dead_code)]
     pub matrix: Vec<DensityK>
 }
 
@@ -1626,9 +1617,9 @@ impl Kij_calc
 
         let k_bins = bins.get_left_I_slice();
         let left_I_slice = k_bins;
-        let right_I_slice = bins.get_right_I_slice();
-        let len = bins.bins_in_range_0_to_1().len();
-        let mut current_estimate = probs.iter()
+        // let right_I_slice = bins.get_right_I_slice();
+        // let len = bins.bins_in_range_0_to_1().len();
+        let current_estimate = probs.iter()
             .map(
                 |&prob|
                 {
