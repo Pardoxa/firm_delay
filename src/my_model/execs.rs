@@ -56,21 +56,67 @@ pub struct HistRes{
     left_integral: f64,
     right_integral: f64,
     left_sum: f64,
-    right_sum: f64
+    right_sum: f64,
+    ll: f64,
+    lr: f64,
+    rl: f64,
+    rr: f64,
+    left_left_integral: f64,
+    left_right_integral: f64,
+    right_left_integral: f64,
+    right_right_integral: f64
 }
 
 pub fn integrate_hist(hist: &HistF64) -> HistRes
 {
+    let viertel = hist.bin_count() / 4;
     let half = hist.bin_count() / 2;
 
-    let iter = hist.hist()[..half].iter();
-    let left: usize = iter
-        .sum();
-    let right: usize = hist.hist()[half..].iter().sum();
+    let left_left: usize = hist.hist()[..viertel].iter().sum();
+    let left_right: usize = hist.hist()[viertel..half].iter().sum();
+    let right_left: usize = hist.hist()[half..viertel+half].iter().sum();
+    let right_right: usize = hist.hist()[viertel+half..].iter().sum();
+    let right = right_left + right_right;
+    let left = left_left + left_right;
     let total = left + right;
 
 
 
+    let mut iter = hist.bin_hits_iter();
+
+    let ll : f64 = (&mut iter).take(viertel)
+        .map(
+            |([L, R], hits)|
+            {
+                let mid = (R + L) * 0.5;
+                hits as f64 / total as f64 * mid
+            }
+        ).sum();
+    let lr : f64 = (&mut iter).take(viertel)
+        .map(
+            |([L, R], hits)|
+            {
+                let mid = (R + L) * 0.5;
+                hits as f64 / total as f64 * mid
+            }
+        ).sum();
+
+    let rl : f64 = (&mut iter).take(viertel)
+        .map(
+            |([L, R], hits)|
+            {
+                let mid = (R + L) * 0.5;
+                hits as f64 / total as f64 * mid
+            }
+        ).sum();
+    let rr : f64 = (&mut iter).take(viertel)
+        .map(
+            |([L, R], hits)|
+            {
+                let mid = (R + L) * 0.5;
+                hits as f64 / total as f64 * mid
+            }
+        ).sum();
     let mut iter = hist.bin_hits_iter();
     let left_sum: f64 = (&mut iter).take(half)
         .map(
@@ -90,11 +136,21 @@ pub fn integrate_hist(hist: &HistF64) -> HistRes
         }
     ).sum();
 
+
+
     HistRes{
         left_integral: left as f64 / total as f64,
         right_integral: right as f64 / total as f64,
         left_sum,
-        right_sum
+        right_sum,
+        ll,
+        lr,
+        rl,
+        rr,
+        left_left_integral: left_left as f64 / total as f64,
+        left_right_integral: left_right as f64 / total as f64,
+        right_left_integral: right_left as f64 / total as f64,
+        right_right_integral: right_right as f64 / total as f64
     }
 }
 
@@ -109,6 +165,18 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
         opt.root_demand, 
         opt.s
     );
+
+    match opt.initial_stock{
+        InitialStock::Empty => {
+            // nothing to do
+        },
+        InitialStock::Full => {
+            model.set_avail_stock(opt.s);
+        },
+        InitialStock::Iter => {
+            unimplemented!()
+        }
+    }
 
     let len = model.nodes.len();
 
@@ -171,8 +239,18 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
 
     let header = [
         "index",
-        "left",
-        "right"
+        "left_prob",
+        "right_prob",
+        "left_production",
+        "right_production",
+        "LeftLeftProduction",
+        "LeftRightProduction",
+        "RightLeftProduction",
+        "RightRightProduction",
+        "LeftLeftProbability",
+        "LeftRightProbability",
+        "RightLeftProbability",
+        "RightRightProbability"
     ];
 
     let mut writer_i = create_buf_with_command_and_version_and_header(
@@ -185,11 +263,19 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
         let res = integrate_hist(hist);
         writeln!(
             writer_i,
-            "{i} {} {} {} {}",
+            "{i} {} {} {} {} {} {} {} {} {} {} {} {}",
             res.left_integral,
             res.right_integral,
             res.left_sum,
-            res.right_sum
+            res.right_sum,
+            res.ll,
+            res.lr,
+            res.rl,
+            res.rr,
+            res.left_left_integral,
+            res.left_right_integral,
+            res.right_left_integral,
+            res.right_right_integral
         ).unwrap();
     }
 
@@ -1296,19 +1382,8 @@ where P: AsRef<Path>
             tmp.stock_avail
         },
         InitialStock::Full => {
-            tmp.stock_avail.iter_mut()
-            .for_each(
-                |stocks|
-                {
-                    stocks.iter_mut()
-                        .for_each(
-                            |entry|
-                            {
-                                entry.stock = tmp.max_stock;
-                            }
-                        )
-                }
-            );
+            let stock = tmp.max_stock;
+            tmp.set_avail_stock(stock);
             tmp.stock_avail
         },
         InitialStock::Iter => {

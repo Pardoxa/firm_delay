@@ -493,6 +493,23 @@ impl Model{
         }
         self.current_demand[0] = 0.0_f64.max(self.current_demand[0] - self.currently_produced[0]);
     }
+
+    pub fn set_avail_stock(&mut self, stock: f64)
+    {
+        self.stock_avail.iter_mut()
+            .for_each(
+                |stocks|
+                {
+                    stocks.iter_mut()
+                        .for_each(
+                            |entry|
+                            {
+                                entry.stock = stock;
+                            }
+                        )
+                }
+            );
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

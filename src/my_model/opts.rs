@@ -285,5 +285,6 @@ pub struct ChainProfileHistOpts{
     pub time_steps: NonZeroU32,
     pub warmup_samples: usize,
     #[derivative(Default(value="NonZeroUsize::new(1000).unwrap()"))]
-    pub bins: NonZeroUsize
+    pub bins: NonZeroUsize,
+    pub initial_stock: InitialStock
 }
