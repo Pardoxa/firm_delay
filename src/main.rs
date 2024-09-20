@@ -281,8 +281,11 @@ fn main() {
                     } else {
                         my_model::numeric_integration::compute_line(input);
                     }
+                },
+                MyModelCommand::TreeVsRandTree(path) => {
+                    my_model::model::test();
+                    todo!()
                 }
-
             }
         }
 

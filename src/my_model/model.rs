@@ -1,5 +1,6 @@
-use std::num::*;
+use std::{collections::VecDeque, num::*, usize};
 use camino::Utf8Path;
+use std::process::Command;
 use itertools::Itertools;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Uniform};
@@ -7,8 +8,40 @@ use rand_pcg::Pcg64;
 
 use crate::{
     complexer_firms::network_helper::write_my_digraph, 
-    create_buf, MyDistr
+    create_buf, global_opts::{UniformParser, WhichDistr}, MyDistr
 };
+
+pub fn test()
+{
+    let dist_creator = WhichDistr::Uniform(UniformParser{start: 1, end: 2});
+    let mut rng = Pcg64::seed_from_u64(2398654);
+    for i in 0..10 {
+        let dist = dist_creator.get_distr();
+        let (model, _) =     Model::create_rand_tree_with_N(
+            usize::MAX,
+            Pcg64::from_rng(&mut rng).unwrap(),
+            10.0,
+            0.1,
+            dist,
+            25
+        );
+        let name = format!("test_{i}.dot");
+        let file = create_buf(&name);
+        write_my_digraph(file, &model.nodes, true);
+        let out = format!("test_{i}.pdf");
+        let mut command = Command::new("dot");
+
+        let args = [
+            name.as_str(),
+            "-Tpdf",
+            "-o",
+            out.as_str()
+        ];
+        command.args(args);
+        let output = command.output().unwrap();
+    }
+
+}
 
 #[allow(non_snake_case)]
 #[derive(Clone)]
@@ -153,6 +186,84 @@ impl Model{
                         }
                     );
                 }
+            }
+        }
+
+        let total_node_count = nodes.len();
+        let root_order = calc_root_order(&nodes);
+        let leaf_order = calc_leaf_order(&nodes);
+
+        (
+            Self{
+                rng,
+                nodes,
+                current_demand: vec![0.0; total_node_count],
+                currently_produced: vec![0.0; total_node_count],
+                root_order,
+                leaf_order,
+                stock_avail,
+                demand_at_root,
+                max_stock
+            },
+            max_depth_reached
+        )
+        
+    }
+
+
+    /// Returns random tree and its depth
+    pub fn create_rand_tree_with_N(
+        max_depth: usize,
+        mut rng: Pcg64,
+        demand_at_root: f64,
+        max_stock: f64,
+        distr: Box<dyn MyDistr>,
+        N: usize
+    ) -> (Self, usize)
+    {
+        let mut nodes = vec![Node::default()];
+        let mut queue = VecDeque::new();
+        if max_depth > 0 {
+            queue.push_back(
+                HelpInfos{
+                    level: 0,
+                    id: 0
+                }
+            );
+        }
+        let mut stock_avail = vec![Vec::new()];
+        let mut max_depth_reached = 0;
+        while let Some(infos) = queue.pop_front(){
+            let next_level = infos.level + 1;
+            let mut num_children = distr.rand_amount(&mut rng);
+            if num_children > 0 {
+                max_depth_reached = max_depth_reached.max(next_level);
+            }
+            let stop_loop = nodes.len() + num_children >= N;
+            if stop_loop {
+                num_children = N - nodes.len();
+            }
+            for i in 0..num_children{
+                let node = Node{
+                    parents: vec![IndexHelper{node_idx: infos.id, internal_idx: i}], 
+                    children: Vec::new()
+                };
+                let this_id = nodes.len();
+                nodes.push(node);
+                nodes[infos.id].children.push(this_id);
+                stock_avail[infos.id].push(StockAvailItem::default());
+                stock_avail.push(Vec::new());
+                if next_level < max_depth{
+                    queue.push_back(
+                        HelpInfos{
+                            level: next_level,
+                            id: this_id
+                        }
+                    );
+                }
+            }
+            if stop_loop{
+                break;
             }
         }
 

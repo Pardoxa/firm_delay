@@ -386,6 +386,9 @@ pub enum MyModelCommand{
     /// Sample crit for random Trees
     #[clap(visible_alias="rtrcrit")]
     RandTreeCrit(PathAndOut),
+    /// Tree vs Random tree probability density function
+    #[clap(visible_alias="tvrt")]
+    TreeVsRandTree(PathAndOut),
     /// Print tree dot files
     #[clap(visible_alias="dotT")]
     DotTree(TreePrintOpts),
