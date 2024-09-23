@@ -220,11 +220,22 @@ pub struct DemandVelocityCritOpt{
 pub enum InitialStock{
     /// Initial stock is full
     Full,
-    /// Iniztial Stock is empty
+    /// Initial Stock is empty
     #[default]
     Empty,
     /// Initial stock will be set through iteration
     Iter
+}
+
+impl InitialStock{
+    pub fn to_str(self) -> &'static str
+    {
+        match self{
+            Self::Empty => "Empty",
+            Self::Full => "Full",
+            Self::Iter => "Iter"
+        }
+    }
 }
 
 
