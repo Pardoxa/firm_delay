@@ -108,6 +108,7 @@ pub fn regular_vs_random_tree(opts: RandTreeCompareOpts, out: Utf8PathBuf)
                 };
     
                 let fit_result = fit.create_fit(&cleaner).expect("Error in fit!");
+                cleaner.clean_if_more_than(200);
                 fit_result.crit
             }
         ).collect();
@@ -187,6 +188,7 @@ pub fn regular_vs_random_tree(opts: RandTreeCompareOpts, out: Utf8PathBuf)
                     };
         
                     let fit_result = fit.create_fit(&cleaner).expect("Error in fit!");
+                    cleaner.clean_if_more_than(200);
                     let diff = regular_tree_crit - fit_result.crit;
                     let mut guard = hist.lock().unwrap();
                     guard.increment(diff)
