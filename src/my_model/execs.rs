@@ -1,4 +1,4 @@
-use std::{f64, io::Write, num::*, path::Path, sync::atomic::AtomicUsize};
+use std::{f64, io::Write, num::*, ops::RangeInclusive, path::Path, sync::atomic::AtomicUsize};
 use camino::Utf8PathBuf;
 use indicatif::ProgressIterator;
 use itertools::Itertools;
@@ -11,6 +11,7 @@ use super::{opts::*, model::*};
 use crate::misc::*;
 
 const ZEROS: &str = "000000000";
+pub const FIT_ZERO_THRESHOLD: f64 = 0.01;
 
 pub struct KHist{
     hist: HistF64,
@@ -196,11 +197,7 @@ pub fn profile_hist(opt: ChainProfileHistOpts, out: Utf8PathBuf, print_list: Opt
         ).collect_vec();
 
     model.reset_delays();
-    let bar = crate::misc::indication_bar(opt.warmup_samples as u64);
-    for _ in (0..opt.warmup_samples).progress_with(bar){
-        model.update_demand();
-        model.update_production();
-    }
+    model.warmup(opt.warmup_samples as u64);
     let bar = crate::misc::indication_bar(opt.time_steps.get() as u64);
     for _ in (0..opt.time_steps.get()).progress_with(bar){
         model.update_demand();
@@ -528,47 +525,24 @@ pub fn quenched_chain_crit_scan(opt: DemandVelocityCritOpt, out: &str)
 
         quenched_chain_calc_demand_velocity(m_opt, &name);
         let gp_name = format!("{name}.gp");
-
-        let mut gp_writer = create_gnuplot_buf(&gp_name);
         let png = format!("{name}.png");
-        writeln!(gp_writer, "set t pngcairo").unwrap();
-        writeln!(gp_writer, "set output '{png}'").unwrap();
-        writeln!(gp_writer, "set title 'N={current_chain_len}'").unwrap();
-        writeln!(gp_writer, "set ylabel 'v'").unwrap();
-        writeln!(gp_writer, "set xlabel 'r'").unwrap();
-        writeln!(gp_writer, "set fit quiet").unwrap();
-        writeln!(gp_writer, "t(x)=x>0.01?0.00000000001:10000000").unwrap();
-        writeln!(gp_writer, "f(x)=a*x+b").unwrap();
-        writeln!(gp_writer, "fit f(x) '{name}' u 1:2:(t($2)) yerr via a,b").unwrap();
-        
-        if let Some(range) = &opt.y_range{
-            writeln!(gp_writer, "set yrange [{}:{}]", range.start(), range.end()).unwrap();
-        }
-        writeln!(gp_writer, "p '{name}' t '', f(x)").unwrap();
-        writeln!(gp_writer, "print(b)").unwrap();
-        writeln!(gp_writer, "print(a)").unwrap();
-        writeln!(gp_writer, "set output").unwrap();
-        drop(gp_writer);
-        let out = call_gnuplot(&gp_name);
-        if out.status.success(){
-            let s = String::from_utf8(out.stderr)
-                .unwrap();
-        
-            let mut iter = s.lines();
-                
-            let b: f64 = iter.next().unwrap().parse().unwrap();
-            let a: f64 = iter.next().unwrap().parse().unwrap();
-            let crit = -b/a;
-            
-            cleaner.add_multi([name, gp_name, png]);
+        let gnuplot_fit = GnuplotFit{
+            gp_name,
+            png_name: png,
+            title: Some(format!("N={current_chain_len}")),
+            data_file: name,
+            y_range: opt.y_range.clone()
+        };
+        let fit_param = gnuplot_fit.create_fit(&cleaner);
 
+        if let Some(fit_param) = fit_param {
             writeln!(
                 crit_buf,
                 "{} {} {} {}",
                 current_chain_len,
-                a,
-                b,
-                crit
+                fit_param.a,
+                fit_param.b,
+                fit_param.crit
             ).unwrap();
         }
 
@@ -925,6 +899,7 @@ where P: AsRef<Path>
             |(idx, (tree, max_depth_reached))|
             {
                 let out_name = format!("Tree{idx}_{out_str}");
+                
                 let path: &Path = out_name.as_ref();
                 let mut buf = create_buf_with_command_and_version_and_header(
                     path, 
@@ -1825,3 +1800,74 @@ where P: AsRef<Path>
 }
 
 
+pub struct GnuplotFit{
+    pub gp_name: String,
+    pub data_file: String,
+    pub title: Option<String>,
+    pub y_range: Option<RangeInclusive<f64>>,
+    pub png_name: String
+}
+
+impl GnuplotFit{
+    /// Creates the fit, reads out the fit parameter, adds files to cleaner
+    pub fn create_fit(self, cleaner: &Cleaner) -> Option<GnuplotFitParam>
+    {
+        let mut gp_writer = create_gnuplot_buf(&self.gp_name);
+        writeln!(gp_writer, "set t pngcairo").unwrap();
+        writeln!(gp_writer, "set output '{}'", self.png_name).unwrap();
+        if let Some(title) = self.title.as_deref()
+        {
+            writeln!(gp_writer, "set title '{title}'").unwrap();
+        }
+        writeln!(gp_writer, "set ylabel 'v'").unwrap();
+        writeln!(gp_writer, "set xlabel 'r'").unwrap();
+        writeln!(gp_writer, "set fit quiet").unwrap();
+        writeln!(gp_writer, "t(x)=x>{FIT_ZERO_THRESHOLD}?0.00000000001:10000000").unwrap();
+        writeln!(gp_writer, "f(x)=a*x+b").unwrap();
+        writeln!(gp_writer, "fit f(x) '{}' u 1:2:(t($2)) yerr via a,b", self.data_file).unwrap();
+        
+        if let Some(range) = &self.y_range{
+            writeln!(gp_writer, "set yrange [{}:{}]", range.start(), range.end()).unwrap();
+        }
+        writeln!(gp_writer, "p '{}' t '', f(x)", self.data_file).unwrap();
+        writeln!(gp_writer, "print(b)").unwrap();
+        writeln!(gp_writer, "print(a)").unwrap();
+        writeln!(gp_writer, "set output").unwrap();
+        drop(gp_writer);
+
+        let out = call_gnuplot(&self.gp_name);
+        if out.status.success(){
+            let s = String::from_utf8(out.stderr)
+                .unwrap();
+        
+            let mut iter = s.lines();
+                
+            let b: f64 = iter.next().unwrap().parse().unwrap();
+            let a: f64 = iter.next().unwrap().parse().unwrap();
+            let crit = -b/a;
+            cleaner.add_multi(
+                [
+                    self.gp_name,
+                    self.png_name,
+                    self.data_file
+                ]
+            );
+
+           Some(
+                GnuplotFitParam{
+                    a,
+                    b,
+                    crit
+                }
+           )
+        } else {
+            None
+        }
+    }
+}
+
+pub struct GnuplotFitParam{
+    pub a: f64,
+    pub b: f64,
+    pub crit: f64
+}

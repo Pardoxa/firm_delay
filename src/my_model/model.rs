@@ -1,23 +1,51 @@
-use std::{collections::VecDeque, num::*, usize};
-use camino::Utf8Path;
-use std::process::Command;
+use std::{collections::VecDeque, num::*};
+use camino::{Utf8Path, Utf8PathBuf};
+use sampling::HistF64;
+//use std::process::Command;
+use crate::misc::*;
 use itertools::Itertools;
 use rand::SeedableRng;
 use rand_distr::{Distribution, Uniform};
 use rand_pcg::Pcg64;
+use indicatif::ProgressIterator;
+use std::io::Write;
 
 use crate::{
-    complexer_firms::network_helper::write_my_digraph, 
-    create_buf, global_opts::{UniformParser, WhichDistr}, MyDistr
+    complexer_firms::network_helper::write_my_digraph, create_buf, Cleaner, MyDistr
 };
 
-pub fn test()
+use super::{GnuplotFit, InitialStock, RandTreeCompareOpts};
+
+pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
 {
-    let dist_creator = WhichDistr::Uniform(UniformParser{start: 1, end: 2});
-    let mut rng = Pcg64::seed_from_u64(2398654);
-    for i in 0..10 {
-        let dist = dist_creator.get_distr();
-        let (model, _) =     Model::create_rand_tree_with_N(
+    let cleaner = Cleaner::new();
+    let mut rng = Pcg64::seed_from_u64(opts.seed);
+    let base_hist = HistF64::new(-1.0, 1.0, opts.hist_bins.get())
+        .unwrap();
+
+    let mut hists = opts.s
+        .iter()
+        .map(|_| base_hist.clone())
+        .collect_vec();
+
+    let header = [
+        "Demand",
+        "Velocity"
+    ];
+
+    let ratios = RatioIter::from_float(
+        0.0, 
+        1.0, 
+        opts.demand_samples
+    );
+    let mut ratio_list = ratios.float_iter().collect_vec();
+    ratio_list.reverse();
+
+    let time_steps_as_float = opts.time_steps.get() as f64;
+
+    for sample_idx in 0..opts.tree_samples.get() {
+        let dist = opts.rand_tree_distr.get_distr();
+        let (mut model, _) =     Model::create_rand_tree_with_N(
             usize::MAX,
             Pcg64::from_rng(&mut rng).unwrap(),
             10.0,
@@ -25,20 +53,76 @@ pub fn test()
             dist,
             25
         );
-        let name = format!("test_{i}.dot");
-        let file = create_buf(&name);
-        write_my_digraph(file, &model.nodes, true);
-        let out = format!("test_{i}.pdf");
-        let mut command = Command::new("dot");
 
-        let args = [
-            name.as_str(),
-            "-Tpdf",
-            "-o",
-            out.as_str()
-        ];
-        command.args(args);
-        let output = command.output().unwrap();
+        for (s, hist) in opts.s.iter().zip(hists.iter_mut()){
+            model.reset_delays();
+            model.max_stock = *s;
+            model.set_avail_stock_to_initial(opts.initial_stock);
+
+            let out_name = format!("Tree{sample_idx}_{s}.dat");
+            let gp_name = format!("Tree{sample_idx}_{s}.gp");
+            let png_name = format!("Tree{sample_idx}_{s}.png");
+            
+            let mut buf = create_buf_with_command_and_version_and_header(
+                &out_name, 
+                header
+            );
+            for &demand in ratio_list.iter(){
+                model.demand_at_root = demand;
+                // Currently warmup does nothing!
+                //model.warmup(opts.warmup_samples);
+                model.reset_delays();
+                for _ in 0..opts.time_steps.get() {
+                    model.update_demand();
+                    model.update_production();
+                }
+                let velocity = model.current_demand[0] / time_steps_as_float;
+                writeln!(
+                    buf,
+                    "{demand} {velocity}"
+                ).unwrap();
+                if velocity <= super::execs::FIT_ZERO_THRESHOLD {
+                    break;
+                }
+            }
+            drop(buf);
+
+            let fit = GnuplotFit{
+                data_file: out_name,
+                gp_name,
+                png_name,
+                title: None,
+                y_range: None
+            };
+
+            let fit_result = fit.create_fit(&cleaner).expect("Error in fit!");
+            let diff = opts.crit_of_regular_tree - fit_result.crit;
+            hist.increment(diff)
+                .expect("Hist error");
+        }
+    }
+    cleaner.clean();
+
+    let header = [
+        "bin_mid",
+        "hits"
+    ];
+
+    for (hist, s) in hists.iter().zip(opts.s.iter())
+    {
+        let name = format!("{out}_N{}_{s}.hist", opts.N);
+        let mut buf = create_buf_with_command_and_version_and_header(
+            name, 
+            header
+        );
+
+        for (bin, hits) in hist.bin_hits_iter(){
+            let mid = (bin[0] + bin[1]) * 0.5;
+            writeln!(
+                buf,
+                "{mid} {hits}"
+            ).unwrap();
+        }
     }
 
 }
@@ -620,6 +704,30 @@ impl Model{
                         )
                 }
             );
+    }
+
+    pub fn set_avail_stock_to_initial(&mut self, initial: InitialStock)
+    {
+        match initial{
+            InitialStock::Empty => {
+                self.set_avail_stock(0.0);
+            },
+            InitialStock::Full => {
+                self.set_avail_stock(self.max_stock);
+            },
+            InitialStock::Iter => {
+                unimplemented!()
+            }
+        }
+    }
+
+    pub fn warmup(&mut self, warmup_samples: u64)
+    {
+        let bar = crate::misc::indication_bar(warmup_samples);
+        for _ in (0..warmup_samples).progress_with(bar){
+            self.update_demand();
+            self.update_production();
+        }
     }
 }
 

@@ -283,8 +283,11 @@ fn main() {
                     }
                 },
                 MyModelCommand::TreeVsRandTree(path) => {
-                    my_model::model::test();
-                    todo!()
+                    let options: RandTreeCompareOpts = parse_and_add_to_global(path.json);
+                    my_model::model::test(
+                        options,
+                        path.out.unwrap()
+                    );
                 }
             }
         }
