@@ -17,7 +17,7 @@ use crate::{
 
 use super::{GnuplotFit, InitialStock, RandTreeCompareOpts};
 
-pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
+pub fn regular_vs_random_tree(opts: RandTreeCompareOpts, out: Utf8PathBuf)
 {
     let header = [
         "Demand",
@@ -81,6 +81,7 @@ pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
                     // Currently warmup does nothing!
                     //tree.warmup(opts.warmup_samples);
                     tree.reset_delays();
+                    tree.set_avail_stock_to_initial(opts.initial_stock);
                     for _ in 0..opts.time_steps.get() {
                         tree.update_demand();
                         tree.update_production();
@@ -201,13 +202,21 @@ pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
         "hits"
     ];
 
-    for (hist, s) in hists.into_iter().zip(opts.s.iter())
+    let iter = hists.into_iter()
+        .zip(opts.s.iter())
+        .zip(regular_tree_results.iter());
+
+    for ((hist, s), regular_tree_crit) in iter
     {
         let name = format!("{out}_N{}_{s}.hist", N);
         let mut buf = create_buf_with_command_and_version_and_header(
             name, 
             header
         );
+        writeln!(
+            buf,
+            "# regular tree crit: {regular_tree_crit}"
+        ).unwrap();
         let hist = hist.into_inner().unwrap();
         let borders = hist.borders();
         let bin_size = borders[1] - borders[0];
@@ -225,6 +234,24 @@ pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
             ).unwrap();
         }
         println!("SUM {sum} bin_size {bin_size}");
+    }
+
+    let reg_name = format!("{out}_regular_tree.dat");
+    let header = [
+        "s",
+        "regular_tree_crit"
+    ];
+    let mut buf = create_buf_with_command_and_version_and_header(
+        reg_name, 
+        header
+    );
+
+    for (s, crit) in opts.s.iter().zip(regular_tree_results.iter())
+    {
+        writeln!(
+            buf,
+            "{s} {crit}"
+        ).unwrap();
     }
 
 }

@@ -284,7 +284,7 @@ fn main() {
                 },
                 MyModelCommand::TreeVsRandTree(path) => {
                     let options: RandTreeCompareOpts = parse_and_add_to_global(path.json);
-                    my_model::model::test(
+                    my_model::model::regular_vs_random_tree(
                         options,
                         path.out.unwrap()
                     );
