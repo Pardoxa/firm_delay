@@ -39,7 +39,6 @@ impl Cleaner{
     /// Cleans files if more than threshold files are tracked
     pub fn clean_if_more_than(&self, limit: usize)
     {
-        println!("len: {}", self.list_size.load(std::sync::atomic::Ordering::SeqCst));
         if self.list_size.load(std::sync::atomic::Ordering::SeqCst) > limit {
             if let Ok(mut guard) = self.list.try_lock()
             {
@@ -47,7 +46,6 @@ impl Cleaner{
                 std::mem::swap( guard.deref_mut(), &mut swap);
                 self.list_size.store(0, std::sync::atomic::Ordering::SeqCst);
                 drop(guard);
-                println!("removing {} files", swap.len());
                 remove_files(swap);
             }
         }
