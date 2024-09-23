@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, num::*, ops::DerefMut, sync::Mutex};
 use camino::{Utf8Path, Utf8PathBuf};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use sampling::HistF64;
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use sampling::{HistF64, Histogram};
 //use std::process::Command;
 use crate::misc::*;
 use itertools::Itertools;
@@ -19,16 +19,6 @@ use super::{GnuplotFit, InitialStock, RandTreeCompareOpts};
 
 pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
 {
-    let cleaner = Cleaner::new();
-    let rng = Mutex::new(Pcg64::seed_from_u64(opts.seed));
-    let base_hist = HistF64::new(-1.0, 1.0, opts.hist_bins.get())
-        .unwrap();
-
-    let hists = opts.s
-        .iter()
-        .map(|_| Mutex::new(base_hist.clone()))
-        .collect_vec();
-
     let header = [
         "Demand",
         "Velocity"
@@ -42,7 +32,97 @@ pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
     let mut ratio_list = ratios.float_iter().collect_vec();
     ratio_list.reverse();
 
+    let cleaner = Cleaner::new();
+    let mut rng = Pcg64::seed_from_u64(opts.seed);
+    let rngs = opts.s.iter()
+        .map(
+            |_|
+            Pcg64::from_rng(&mut rng).unwrap()
+        ).collect_vec();
+
+
     let time_steps_as_float = opts.time_steps.get() as f64;
+
+    let N = Mutex::new(None);
+
+    let regular_tree_results: Vec<_> = opts.s
+        .par_iter()
+        .zip(rngs)
+        .map(
+            |(&s, model_rng)|
+            {
+                let mut tree = Model::create_tree(
+                    opts.regular_tree_z, 
+                    opts.regular_tree_depth.get() - 1, 
+                    model_rng, 
+                    10.0, 
+                    s
+                );
+
+                if let Ok(mut N_guard) = N.try_lock(){
+                    if N_guard.is_none(){
+                        let N = tree.nodes.len();
+                        *N_guard = Some(N);
+                        println!("N={N}");
+                    }
+                    drop(N_guard);
+                }
+
+                let out_name = format!("RegularTree{s}.dat");
+                let gp_name = format!("RegularTree{s}.gp");
+                let png_name = format!("RegularTree{s}.png");
+                
+                let mut buf = create_buf_with_command_and_version_and_header(
+                    &out_name, 
+                    header
+                );
+                for &demand in ratio_list.iter(){
+                    tree.demand_at_root = demand;
+                    // Currently warmup does nothing!
+                    //tree.warmup(opts.warmup_samples);
+                    tree.reset_delays();
+                    for _ in 0..opts.time_steps.get() {
+                        tree.update_demand();
+                        tree.update_production();
+                    }
+                    let velocity = tree.current_demand[0] / time_steps_as_float;
+                    writeln!(
+                        buf,
+                        "{demand} {velocity}"
+                    ).unwrap();
+                    if velocity <= super::execs::FIT_ZERO_THRESHOLD {
+                        break;
+                    }
+                }
+                drop(buf);
+    
+                let fit = GnuplotFit{
+                    data_file: out_name,
+                    gp_name,
+                    png_name,
+                    title: None,
+                    y_range: None
+                };
+    
+                let fit_result = fit.create_fit(&cleaner).expect("Error in fit!");
+                fit_result.crit
+            }
+        ).collect();
+
+    
+    let base_hist = HistF64::new(-1.0, 1.0, opts.hist_bins.get())
+        .unwrap();
+
+    let hists = opts.s
+        .iter()
+        .map(|_| Mutex::new(base_hist.clone()))
+        .collect_vec();
+
+
+
+    let N = N.into_inner().unwrap().unwrap();
+    
+    let rng = Mutex::new(rng);
 
     (0..opts.tree_samples.get())
         .into_par_iter()
@@ -53,16 +133,16 @@ pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
                 let mut rng_guard = rng.lock().unwrap();
                 let model_rng = Pcg64::from_rng(rng_guard.deref_mut()).unwrap();
                 drop(rng_guard);
-                let (mut model, _) =     Model::create_rand_tree_with_N(
+                let (mut model, _) = Model::create_rand_tree_with_N(
                     usize::MAX,
                     model_rng,
                     10.0,
-                    0.1,
+                    0.0,
                     dist,
-                    25
+                    N
                 );
         
-                for (s, hist) in opts.s.iter().zip(hists.iter()){
+                for ((s, hist), regular_tree_crit) in opts.s.iter().zip(hists.iter()).zip(regular_tree_results.iter()){
                     model.reset_delays();
                     model.max_stock = *s;
                     model.set_avail_stock_to_initial(opts.initial_stock);
@@ -104,7 +184,7 @@ pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
                     };
         
                     let fit_result = fit.create_fit(&cleaner).expect("Error in fit!");
-                    let diff = opts.crit_of_regular_tree - fit_result.crit;
+                    let diff = regular_tree_crit - fit_result.crit;
                     let mut guard = hist.lock().unwrap();
                     guard.increment(diff)
                         .expect("Hist error");
@@ -117,24 +197,34 @@ pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
 
     let header = [
         "bin_mid",
+        "normed",
         "hits"
     ];
 
     for (hist, s) in hists.into_iter().zip(opts.s.iter())
     {
-        let name = format!("{out}_N{}_{s}.hist", opts.N);
+        let name = format!("{out}_N{}_{s}.hist", N);
         let mut buf = create_buf_with_command_and_version_and_header(
             name, 
             header
         );
         let hist = hist.into_inner().unwrap();
+        let borders = hist.borders();
+        let bin_size = borders[1] - borders[0];
+        let all: usize = hist.hist().iter().sum();
+        let norm_factor = (all as f64 * bin_size).recip();
+        let mut sum = 0.0;
         for (bin, hits) in hist.bin_hits_iter(){
             let mid = (bin[0] + bin[1]) * 0.5;
+
+            let normed = hits as f64 * norm_factor;
+            sum += normed * bin_size;
             writeln!(
                 buf,
-                "{mid} {hits}"
+                "{mid} {normed} {hits}"
             ).unwrap();
         }
+        println!("SUM {sum} bin_size {bin_size}");
     }
 
 }

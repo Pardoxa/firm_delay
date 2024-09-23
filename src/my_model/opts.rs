@@ -294,7 +294,10 @@ pub struct ChainProfileHistOpts{
 /// Option for creating comparison between regular and random trees
 pub struct RandTreeCompareOpts
 {
-    pub N: usize,
+    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
+    pub regular_tree_depth: NonZeroUsize,
+    #[derivative(Default(value="NonZeroUsize::new(1).unwrap()"))]
+    pub regular_tree_z: NonZeroUsize,
     pub seed: u64,
     pub s: Vec<f64>,
     #[derivative(Default(value="NonZeroU32::new(20000).unwrap()"))]
@@ -305,7 +308,6 @@ pub struct RandTreeCompareOpts
     pub initial_stock: InitialStock,
     #[derivative(Default(value="NonZeroUsize::new(100).unwrap()"))]
     pub hist_bins: NonZeroUsize,
-    pub crit_of_regular_tree: f64,
     #[derivative(Default(value="WhichDistr::Uniform(UniformParser { start: 1, end: 2 })"))]
     pub rand_tree_distr: WhichDistr,
     #[derivative(Default(value="NonZeroU64::new(20000).unwrap()"))]
