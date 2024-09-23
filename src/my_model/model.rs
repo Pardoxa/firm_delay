@@ -1,5 +1,6 @@
-use std::{collections::VecDeque, num::*};
+use std::{collections::VecDeque, num::*, ops::DerefMut, sync::Mutex};
 use camino::{Utf8Path, Utf8PathBuf};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use sampling::HistF64;
 //use std::process::Command;
 use crate::misc::*;
@@ -19,13 +20,13 @@ use super::{GnuplotFit, InitialStock, RandTreeCompareOpts};
 pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
 {
     let cleaner = Cleaner::new();
-    let mut rng = Pcg64::seed_from_u64(opts.seed);
+    let rng = Mutex::new(Pcg64::seed_from_u64(opts.seed));
     let base_hist = HistF64::new(-1.0, 1.0, opts.hist_bins.get())
         .unwrap();
 
-    let mut hists = opts.s
+    let hists = opts.s
         .iter()
-        .map(|_| base_hist.clone())
+        .map(|_| Mutex::new(base_hist.clone()))
         .collect_vec();
 
     let header = [
@@ -43,64 +44,75 @@ pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
 
     let time_steps_as_float = opts.time_steps.get() as f64;
 
-    for sample_idx in 0..opts.tree_samples.get() {
-        let dist = opts.rand_tree_distr.get_distr();
-        let (mut model, _) =     Model::create_rand_tree_with_N(
-            usize::MAX,
-            Pcg64::from_rng(&mut rng).unwrap(),
-            10.0,
-            0.1,
-            dist,
-            25
-        );
-
-        for (s, hist) in opts.s.iter().zip(hists.iter_mut()){
-            model.reset_delays();
-            model.max_stock = *s;
-            model.set_avail_stock_to_initial(opts.initial_stock);
-
-            let out_name = format!("Tree{sample_idx}_{s}.dat");
-            let gp_name = format!("Tree{sample_idx}_{s}.gp");
-            let png_name = format!("Tree{sample_idx}_{s}.png");
-            
-            let mut buf = create_buf_with_command_and_version_and_header(
-                &out_name, 
-                header
-            );
-            for &demand in ratio_list.iter(){
-                model.demand_at_root = demand;
-                // Currently warmup does nothing!
-                //model.warmup(opts.warmup_samples);
-                model.reset_delays();
-                for _ in 0..opts.time_steps.get() {
-                    model.update_demand();
-                    model.update_production();
-                }
-                let velocity = model.current_demand[0] / time_steps_as_float;
-                writeln!(
-                    buf,
-                    "{demand} {velocity}"
-                ).unwrap();
-                if velocity <= super::execs::FIT_ZERO_THRESHOLD {
-                    break;
+    (0..opts.tree_samples.get())
+        .into_par_iter()
+        .for_each(
+            |sample_idx|
+            {
+                let dist = opts.rand_tree_distr.get_distr();
+                let mut rng_guard = rng.lock().unwrap();
+                let model_rng = Pcg64::from_rng(rng_guard.deref_mut()).unwrap();
+                drop(rng_guard);
+                let (mut model, _) =     Model::create_rand_tree_with_N(
+                    usize::MAX,
+                    model_rng,
+                    10.0,
+                    0.1,
+                    dist,
+                    25
+                );
+        
+                for (s, hist) in opts.s.iter().zip(hists.iter()){
+                    model.reset_delays();
+                    model.max_stock = *s;
+                    model.set_avail_stock_to_initial(opts.initial_stock);
+        
+                    let out_name = format!("Tree{sample_idx}_{s}.dat");
+                    let gp_name = format!("Tree{sample_idx}_{s}.gp");
+                    let png_name = format!("Tree{sample_idx}_{s}.png");
+                    
+                    let mut buf = create_buf_with_command_and_version_and_header(
+                        &out_name, 
+                        header
+                    );
+                    for &demand in ratio_list.iter(){
+                        model.demand_at_root = demand;
+                        // Currently warmup does nothing!
+                        //model.warmup(opts.warmup_samples);
+                        model.reset_delays();
+                        for _ in 0..opts.time_steps.get() {
+                            model.update_demand();
+                            model.update_production();
+                        }
+                        let velocity = model.current_demand[0] / time_steps_as_float;
+                        writeln!(
+                            buf,
+                            "{demand} {velocity}"
+                        ).unwrap();
+                        if velocity <= super::execs::FIT_ZERO_THRESHOLD {
+                            break;
+                        }
+                    }
+                    drop(buf);
+        
+                    let fit = GnuplotFit{
+                        data_file: out_name,
+                        gp_name,
+                        png_name,
+                        title: None,
+                        y_range: None
+                    };
+        
+                    let fit_result = fit.create_fit(&cleaner).expect("Error in fit!");
+                    let diff = opts.crit_of_regular_tree - fit_result.crit;
+                    let mut guard = hist.lock().unwrap();
+                    guard.increment(diff)
+                        .expect("Hist error");
+                    drop(guard);
                 }
             }
-            drop(buf);
+        );
 
-            let fit = GnuplotFit{
-                data_file: out_name,
-                gp_name,
-                png_name,
-                title: None,
-                y_range: None
-            };
-
-            let fit_result = fit.create_fit(&cleaner).expect("Error in fit!");
-            let diff = opts.crit_of_regular_tree - fit_result.crit;
-            hist.increment(diff)
-                .expect("Hist error");
-        }
-    }
     cleaner.clean();
 
     let header = [
@@ -108,14 +120,14 @@ pub fn test(opts: RandTreeCompareOpts, out: Utf8PathBuf)
         "hits"
     ];
 
-    for (hist, s) in hists.iter().zip(opts.s.iter())
+    for (hist, s) in hists.into_iter().zip(opts.s.iter())
     {
         let name = format!("{out}_N{}_{s}.hist", opts.N);
         let mut buf = create_buf_with_command_and_version_and_header(
             name, 
             header
         );
-
+        let hist = hist.into_inner().unwrap();
         for (bin, hits) in hist.bin_hits_iter(){
             let mid = (bin[0] + bin[1]) * 0.5;
             writeln!(
