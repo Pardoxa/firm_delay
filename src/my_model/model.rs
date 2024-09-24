@@ -23,7 +23,11 @@ pub fn regular_vs_random_tree(opts: RandTreeCompareOpts, out: Utf8PathBuf)
         "Demand",
         "Velocity"
     ];
-    let name_stub = format!("{out}_{}", opts.initial_stock.to_str());
+    let name_stub = format!(
+        "{out}_{}_hb{}", 
+        opts.initial_stock.to_str(),
+        opts.hist_bins
+    );
     let out = name_stub.as_str();
 
     let ratios = RatioIter::from_float(
