@@ -17,14 +17,17 @@ use crate::{
 
 use super::{GnuplotFit, InitialStock, RandTreeCompareOpts};
 
-pub fn regular_vs_random_tree(opts: RandTreeCompareOpts, out: Utf8PathBuf)
+pub fn regular_vs_random_tree(
+    opts: RandTreeCompareOpts, 
+    out_addon: Utf8PathBuf
+)
 {
     let header = [
         "Demand",
         "Velocity"
     ];
     let name_stub = format!(
-        "{out}_{}_hb{}", 
+        "{out_addon}_{}_hb{}", 
         opts.initial_stock.to_str(),
         opts.hist_bins
     );
@@ -35,7 +38,8 @@ pub fn regular_vs_random_tree(opts: RandTreeCompareOpts, out: Utf8PathBuf)
         1.0, 
         opts.demand_samples
     );
-    let mut ratio_list = ratios.float_iter().collect_vec();
+    let mut ratio_list = ratios.float_iter()
+        .collect_vec();
     ratio_list.reverse();
 
     let cleaner = Cleaner::new();
