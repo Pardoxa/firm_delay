@@ -17,6 +17,59 @@ use crate::{
 
 use super::{GnuplotFit, InitialStock, RandTreeCompareOpts};
 
+pub fn produced_vs_trash()
+{
+
+    for s in [0.0, 0.1, 0.25, 1.0, 2.0, 10.0, 100.0, 10000.0]{
+        let mut model_tree = Model::create_tree(
+            NonZero::new(2).unwrap(), 
+            1, 
+            Pcg64::seed_from_u64(29346), 
+            100.0, 
+            s
+        );
+    
+        let mut model_line = Model::create_tree(
+            NonZero::new(1).unwrap(), 
+            2, 
+            Pcg64::seed_from_u64(29346), 
+            100.0, 
+            s
+        );
+    
+        assert_eq!(model_tree.nodes.len(), 3);
+        assert_eq!(model_line.nodes.len(), 3);
+    
+        let name = format!("{s}.dat");
+        let mut buf = create_buf(name);
+    
+        let mut lost_tree_sum = 0.0;
+        let mut lost_line_sum = 0.0;
+        let mut total_production_line = 0.0;
+        let mut total_production_tree = 0.0;
+    
+        for i in 0..100000 {
+            model_tree.update_demand();
+            lost_tree_sum += model_tree.update_production_track_loss();
+    
+            model_line.update_demand();
+            lost_line_sum += model_line.update_production_track_loss();
+
+            total_production_line += model_line.currently_produced[0];
+            total_production_tree += model_tree.currently_produced[0];
+    
+            writeln!(
+                buf,
+                "{i} {lost_line_sum} {lost_tree_sum} {total_production_line} {total_production_tree} {}",
+                total_production_tree - total_production_line
+            ).unwrap()
+    
+    
+        }
+    }
+
+}
+
 pub fn regular_vs_random_tree(
     opts: RandTreeCompareOpts, 
     out_addon: Utf8PathBuf
@@ -782,6 +835,59 @@ impl Model{
             
         }
         self.current_demand[0] = 0.0_f64.max(self.current_demand[0] - self.currently_produced[0]);
+    }
+
+    /// returns max loss
+    pub fn update_production_track_loss(&mut self) -> f64
+    {
+        let mut max_loss = 0.0_f64;
+        self.stock_avail
+            .iter_mut()
+            .for_each(
+                |avail|
+                {
+                    // only for now as a sanity check:
+                    avail.iter_mut()
+                        .for_each(|item| item.currently_avail = f64::NAN);
+                }
+            );
+        set_const(&mut self.currently_produced, 0.0);
+        let uniform = Uniform::new_inclusive(0.0, 1.0);
+
+        for (&idx, rand) in self.leaf_order.iter().zip(uniform.sample_iter(&mut self.rng)){
+            // firstly calculate actual production
+            let production = &mut self.currently_produced[idx];
+            let this_demand = self.current_demand[idx];
+            *production = this_demand.min(rand);
+            let iter = self.stock_avail[idx].iter();
+            for StockAvailItem{currently_avail: avail, stock, ..} in iter {
+                *production = production.min(avail + stock);
+            }
+            // next calculate new stocks
+            let iter = self.stock_avail[idx]
+                .iter_mut();
+            for item in iter {
+                let potential_stock = item.currently_avail + item.stock - *production;
+                item.stock = self.max_stock.min(potential_stock);
+                let loss = potential_stock - item.stock;
+                max_loss = max_loss.max(loss);
+            }
+
+            if this_demand <= 0.0 {
+                for parent in self.nodes[idx].parents.iter(){
+                    let stock = &mut self.stock_avail[parent.node_idx][parent.internal_idx];
+                    stock.currently_avail = 0.0;
+                }   
+            } else {
+                for parent in self.nodes[idx].parents.iter(){
+                    let stock = &mut self.stock_avail[parent.node_idx][parent.internal_idx];
+                    stock.currently_avail = *production * stock.demand_passed_on / this_demand;
+                }
+            }
+            
+        }
+        self.current_demand[0] = 0.0_f64.max(self.current_demand[0] - self.currently_produced[0]);
+        max_loss
     }
 
     pub fn update_production_quenched(&mut self, production_quenched_rand: &[f64])

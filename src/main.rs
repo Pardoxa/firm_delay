@@ -190,7 +190,7 @@ fn main() {
             helper_chooser(helper_opt)
         },
         CmdChooser::Test => {
-            
+            my_model::model::produced_vs_trash();
         },
         CmdChooser::MyModel(sub) => {
             match sub {
