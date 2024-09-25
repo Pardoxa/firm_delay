@@ -205,7 +205,7 @@ pub fn regular_vs_random_tree(
                 }
             }
         );
-
+    cleaner.add("fit.log".to_owned());
     cleaner.clean();
 
     let header = [
