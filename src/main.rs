@@ -190,7 +190,7 @@ fn main() {
             helper_chooser(helper_opt)
         },
         CmdChooser::Test => {
-            my_model::model::produced_vs_trash();
+
         },
         CmdChooser::MyModel(sub) => {
             match sub {
@@ -288,6 +288,10 @@ fn main() {
                         options,
                         path.out.unwrap()
                     );
+                },
+                MyModelCommand::LineVsTree(path) => {
+                    let input: LineVsTreeOpts = parse_and_add_to_global(path.json);
+                    my_model::model::line_vs_tree(input);
                 }
             }
         }

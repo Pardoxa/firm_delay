@@ -404,6 +404,8 @@ pub enum MyModelCommand{
     /// Measure criticallity for closed chains by scanning through num chains
     #[clap(visible_alias="cmscrit2")]
     ClosedMultiChainCrit2(PathAndOut),
+    /// Line vs tree velocity
+    LineVsTree(OnlyPath),
     /// Testing numeric integration
     Num(OnlyPath)
 }

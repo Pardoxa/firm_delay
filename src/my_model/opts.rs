@@ -12,6 +12,17 @@ use std::{
 
 use crate::{create_buf, global_opts::*};
 
+#[derive(Serialize, Deserialize, Debug, Clone, Derivative, )]
+#[derivative(Default)]
+pub struct LineVsTreeOpts{
+    #[derivative(Default(value="5000000"))]
+    pub measure_time: u64,
+    #[derivative(Default(value="NonZeroUsize::new(2).unwrap()"))]
+    pub z: NonZeroUsize,
+    pub seed: u64
+}
+
+
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
 #[derivative(Default)]

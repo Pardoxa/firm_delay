@@ -15,57 +15,113 @@ use crate::{
     complexer_firms::network_helper::write_my_digraph, create_buf, Cleaner, MyDistr
 };
 
-use super::{GnuplotFit, InitialStock, RandTreeCompareOpts};
+use super::{GnuplotFit, InitialStock, RandTreeCompareOpts, opts::LineVsTreeOpts};
 
-pub fn produced_vs_trash()
+
+pub fn line_vs_tree(opts: LineVsTreeOpts)
 {
+    let measure_time = opts.measure_time;
+    let equilibration_time = measure_time / 10;
 
-    for s in [0.0, 0.1, 0.25, 1.0, 2.0, 10.0, 100.0, 10000.0]{
-        let mut model_tree = Model::create_tree(
-            NonZero::new(2).unwrap(), 
-            1, 
-            Pcg64::seed_from_u64(29346), 
-            100.0, 
-            s
-        );
-    
-        let mut model_line = Model::create_tree(
-            NonZero::new(1).unwrap(), 
-            2, 
-            Pcg64::seed_from_u64(29346), 
-            100.0, 
-            s
-        );
-    
-        assert_eq!(model_tree.nodes.len(), 3);
-        assert_eq!(model_line.nodes.len(), 3);
-    
-        let name = format!("{s}.dat");
-        let mut buf = create_buf(name);
-    
-        let mut lost_tree_sum = 0.0;
-        let mut lost_line_sum = 0.0;
-        let mut total_production_line = 0.0;
-        let mut total_production_tree = 0.0;
-    
-        for i in 0..100000 {
-            model_tree.update_demand();
-            lost_tree_sum += model_tree.update_production_track_loss();
-    
-            model_line.update_demand();
-            lost_line_sum += model_line.update_production_track_loss();
+    let header = [
+        "s",
+        "v"
+    ];
 
-            total_production_line += model_line.currently_produced[0];
-            total_production_tree += model_tree.currently_produced[0];
-    
-            writeln!(
-                buf,
-                "{i} {lost_line_sum} {lost_tree_sum} {total_production_line} {total_production_tree} {}",
-                total_production_tree - total_production_line
-            ).unwrap()
-    
-    
-        }
+    let name = format!("line_vs_tree_z{}_seed{}.dat", opts.z, opts.seed);
+
+    let mut buf = create_buf_with_command_and_version_and_header(
+        name, 
+        header
+    );
+
+    let iter1 = RatioIter::from_float(0.0, 1.0, NonZero::new(200).unwrap());
+    let iter2 = RatioIter::from_float(1.0, 10.0, NonZero::new(200).unwrap());
+    let iter3 = RatioIter::from_float(10.0, 100.0, NonZero::new(200).unwrap());
+
+    let iter = iter1.float_iter()
+        .chain(iter2.float_iter())
+        .chain(iter3.float_iter());
+
+    let s_list = iter.collect_vec();
+
+    let depth_line = opts.z.get();
+
+    let s_velocities: Vec<_> = s_list.par_iter()
+        .map(
+            |&s|
+            {
+                let mut model_tree = Model::create_tree(
+                    opts.z, 
+                    1, 
+                    Pcg64::seed_from_u64(opts.seed), 
+                    100.0, 
+                    s
+                );
+            
+                let mut model_line = Model::create_tree(
+                    NonZero::new(1).unwrap(), 
+                    depth_line, 
+                    Pcg64::seed_from_u64(opts.seed), 
+                    100.0, 
+                    s
+                );
+            
+                assert_eq!(model_tree.nodes.len(), opts.z.get() + 1);
+                assert_eq!(model_line.nodes.len(), opts.z.get() + 1);
+            
+                //let name = format!("{s}.dat");
+                //let mut buf = create_buf(name);
+            
+                let mut _lost_tree_sum = 0.0;
+                let mut _lost_line_sum = 0.0;
+                let mut total_production_line = 0.0;
+                let mut total_production_tree = 0.0;
+        
+                // Equilibration
+                for _ in 0..equilibration_time {
+                    model_tree.update_demand();
+                    _lost_tree_sum += model_tree.update_production_track_loss();
+            
+                    model_line.update_demand();
+                    _lost_line_sum += model_line.update_production_track_loss();
+        
+                }
+        
+                _lost_line_sum = 0.0;
+                _lost_tree_sum = 0.0;
+        
+
+            
+                for _i in 0..measure_time {
+                    model_tree.update_demand();
+                    _lost_tree_sum += model_tree.update_production_track_loss();
+            
+                    model_line.update_demand();
+                    _lost_line_sum += model_line.update_production_track_loss();
+        
+                    total_production_line += model_line.currently_produced[0];
+                    total_production_tree += model_tree.currently_produced[0];
+            
+                    //writeln!(
+                    //    buf,
+                    //    "{i} {lost_line_sum} {lost_tree_sum} {total_production_line} {total_production_tree} {}",
+                    //    total_production_tree - total_production_line
+                    //).unwrap()
+                }
+        
+                let v = (total_production_tree - total_production_line) / measure_time as f64;
+                (s, v)
+            }
+        ).collect();
+
+    for (s, v) in s_velocities{
+        
+
+        writeln!(
+            buf,
+            "{s} {v}"
+        ).unwrap();
     }
 
 }
