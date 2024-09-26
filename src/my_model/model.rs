@@ -25,7 +25,8 @@ pub fn line_vs_tree(opts: LineVsTreeOpts)
 
     let header = [
         "s",
-        "v"
+        "v",
+        "production_difference_divided_by_line_production"
     ];
 
     let name = format!("line_vs_tree_z{}_seed{}.dat", opts.z, opts.seed);
@@ -35,36 +36,45 @@ pub fn line_vs_tree(opts: LineVsTreeOpts)
         header
     );
 
+    let mut seed_rng = Pcg64::seed_from_u64(opts.seed);
+
     let iter1 = RatioIter::from_float(0.0, 1.0, NonZero::new(200).unwrap());
     let iter2 = RatioIter::from_float(1.0, 10.0, NonZero::new(200).unwrap());
     let iter3 = RatioIter::from_float(10.0, 100.0, NonZero::new(200).unwrap());
 
     let iter = iter1.float_iter()
         .chain(iter2.float_iter())
-        .chain(iter3.float_iter());
+        .chain(iter3.float_iter())
+        .map(
+            |s|
+            {
+                let r = Pcg64::from_rng(&mut seed_rng).unwrap();
+                (s, r)
+            }
+        );
 
-    let s_list = iter.collect_vec();
+    let s_and_rng_list = iter.collect_vec();
 
     let depth_line = opts.z.get();
 
-    let s_velocities: Vec<_> = s_list.par_iter()
+    let s_velocities: Vec<_> = s_and_rng_list.par_iter()
         .map(
-            |&s|
+            |(s, rng)|
             {
                 let mut model_tree = Model::create_tree(
                     opts.z, 
                     1, 
-                    Pcg64::seed_from_u64(opts.seed), 
+                    rng.clone(), 
                     100.0, 
-                    s
+                    *s
                 );
             
                 let mut model_line = Model::create_tree(
                     NonZero::new(1).unwrap(), 
                     depth_line, 
-                    Pcg64::seed_from_u64(opts.seed), 
+                    rng.clone(), 
                     100.0, 
-                    s
+                    *s
                 );
             
                 assert_eq!(model_tree.nodes.len(), opts.z.get() + 1);
@@ -110,17 +120,19 @@ pub fn line_vs_tree(opts: LineVsTreeOpts)
                     //).unwrap()
                 }
         
-                let v = (total_production_tree - total_production_line) / measure_time as f64;
-                (s, v)
+                let production_difference = total_production_tree - total_production_line;
+                let v = production_difference  / measure_time as f64;
+                let pd = production_difference / total_production_line; 
+                (s, v, pd)
             }
         ).collect();
 
-    for (s, v) in s_velocities{
+    for (s, v, pd) in s_velocities{
         
 
         writeln!(
             buf,
-            "{s} {v}"
+            "{s} {v} {pd}"
         ).unwrap();
     }
 
