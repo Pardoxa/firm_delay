@@ -663,6 +663,9 @@ pub fn chain_crit_scan(opt: DemandVelocityCritOpt, out: &str, skip_video: bool)
             let crit = -b/a;
             
             cleaner.add_multi([name, gp_name, png]);
+            if skip_video{
+                cleaner.clean_if_more_than(200);
+            }
 
             writeln!(
                 crit_buf,
