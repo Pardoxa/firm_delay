@@ -12,10 +12,10 @@ Otherwise these subcommands will crash during runtime.
 
 ## Compiling
 
-Note: The following constructions are for Ubuntu 22.04, but they should be the same for other linux distributions.
+Note: The following instructions are for Ubuntu 22.04, but they should be the same for most other linux distributions.
 
 
-If you do not have Rust (and cargo) installed, install it via [rustup](https://doc.rust-lang.org/book/ch01-01-installation.html)
+If you do not have Rust (and cargo) installed, install it via [rustup](https://doc.rust-lang.org/book/ch01-01-installation.html).
 
 
 For compiling, first clone this repository via 
@@ -35,7 +35,7 @@ Compile the program by opening a terminal in the folder where this README.md fil
 ```bash
 cargo build --release
 ```
-This will download the dependencies and compiles the program with release optimizations.
+This will download the dependencies and compile the program with release optimizations.
 The executable "firm_delay" will be now located in ./target/release
 and you can call it by running the command (make sure you are still in the folder with the README file):
 ```bash
@@ -53,3 +53,46 @@ This will download the dependencies, compile the program and add the executable 
 added to your PATH during the installation of Rust, 
 at least with default settings, so you can skip the PATH adding 
 step and still call the program firm_delay from anywhere.
+
+
+## Generating data from the paper:
+
+### Fig 2)
+
+I recommend to start in an empty folder, as the program will create a good number of temporary files.
+
+Create a config file like this:
+```json
+{
+    "opts": {
+        "root_demand_rate_min": 0.0,
+        "root_demand_rate_max": 1.0,
+        "root_demand_samples": 100,
+        "time": 4000000,
+        "samples": 1,
+        "chain_length": 2,
+        "seed": 312211001,
+        "threads": null,
+        "num_chains": 1,
+        "max_stock": 0.05,
+        "initial_stock": "Full"
+    },
+    "chain_start": 1,
+    "chain_end": 300,
+    "chain_step": 10,
+    "y_range": {
+        "start": 0.0,
+        "end": 1.0
+    }
+}
+```
+
+and save it as "config.json". 
+"max_stock" corresponds to the stock "s", so adjust this to whatever you desire.
+Adjust "chain_start" and "chain_end" to decide which "N" range to sample.
+Adjust "chain_step" for the step size with which "N" will be sampled.
+Next run:
+```bash
+firm_delay my chain-crit --json s0.05.json -o s0.05_a.dat -n
+```
+The "-n" skips the creation of an animation via ffmpeg, use this if ffmpeg is not installed or you don't want the animation. Remove the "-n" if you want the animation. Gnuplot is required.
