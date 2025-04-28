@@ -138,7 +138,7 @@ To simulate, run the command
 firm_delay my trcrit --json config.json --out output_name.dat
 ```
 
-### Figure 3
+### Figure 4
 
 
 I recommend to start in an empty folder. "config.json"
@@ -175,3 +175,31 @@ firm_delay my tvrt -j config.json -o output_name
 ```
 
 This will give you a file containing the histogram.
+
+### Figure S1
+
+
+config.json:
+```json
+{
+  "root_demand_rate_min": 0.0,
+  "root_demand_rate_max": 1.0,
+  "root_demand_samples": 100,
+  "time": 1000000,
+  "samples": 1,
+  "chain_length": 10,
+  "num_chains": 2,
+  "seed": 1284239,
+  "threads": null,
+  "max_stock": 1.0,
+  "initial_stock": "Empty"
+}
+```
+max_stock: s
+num_chains: how many chains we want
+chain_length: how long these chains should be (not counting root node)
+
+command to create the data:
+```bash
+firm_delay my vel -j config.json -o output.dat
+```
