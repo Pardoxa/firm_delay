@@ -195,9 +195,11 @@ config.json:
   "initial_stock": "Empty"
 }
 ```
-max_stock: s
-num_chains: how many chains we want
-chain_length: how long these chains should be (not counting root node)
+| parameter    | corresponds to                                           |
+|--------------|----------------------------------------------------------|
+| max_stock    | s                                                        |
+| num_chains   | how many chains we want                                  |
+| chain_length | how long these chains should be (not counting root node) |
 
 command to create the data:
 ```bash
