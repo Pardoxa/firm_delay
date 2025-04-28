@@ -16,7 +16,6 @@ use crate::misc::*;
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize, PartialEq)]
 #[derivative(Default)]
-    
 pub struct ModelInput{
     pub s: f64,
     /// should be at least 1000
@@ -415,7 +414,7 @@ fn calk_k_master_test(
 
     let for_helper = |kI: usize, update_k_vec: &mut ProbabilityDensity, probability_increment: f64|
     {
-        // first border exlusive
+        // first border exclusive
         let m_range_delta_left = kI.min(len_of_1)..len_of_1;
         let weight = if kI == 0{
             m_range_delta_left.len() - 1
@@ -424,11 +423,7 @@ fn calk_k_master_test(
         };
         update_k_vec.delta.0 += probability_increment * weight as f64;
         let m_range_delta_right = if kI >= idx_s{
-            let end = if kI >= idx_s{
-                kI - idx_s
-            } else {
-                0
-            };
+            let end = kI.saturating_sub(idx_s);
             0..end
         } else {
             0..0

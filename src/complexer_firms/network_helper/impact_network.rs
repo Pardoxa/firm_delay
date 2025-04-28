@@ -69,7 +69,7 @@ struct BFS<'a>{
     level: u32
 }
 
-impl<'a> Iterator for BFS<'a>
+impl Iterator for BFS<'_>
 {
     type Item = (u32, usize);
     fn next(&mut self) -> Option<Self::Item> {
