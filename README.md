@@ -87,11 +87,12 @@ Create a config file like this:
     }
 }
 ```
-
 and save it as "config.json". 
+Important parameter:
 "max_stock" corresponds to the stock "s", so adjust this to whatever you desire.
 Adjust "chain_start" and "chain_end" to decide which "N" range to sample.
 Adjust "chain_step" for the step size with which "N" will be sampled.
+threads: "null" means "use all available CPU threads". Otherwise specify the number of threads you want the program to use.
 Next run:
 ```bash
 firm_delay my chain-crit --json config.json -o output_name.dat -n
@@ -130,8 +131,47 @@ Important parameters:
 "tree_depth_start" corresponds to the first "h" value to simulate.
 "tree_depth_end" corresponds to the last "h" value to simulate.
 "max_stock" corresponds to "s"
+threads: "null" means "use all available CPU threads". Otherwise specify the number of threads you want the program to use.
 
 To simulate, run the command
-```json
+```bash
 firm_delay my trcrit --json config.json --out output_name.dat
 ```
+
+### Figure 3
+
+
+I recommend to start in an empty folder. "config.json"
+```json
+{
+  "seed": 18314569,
+  "s": [
+    1.0
+  ],
+  "time_steps": 30000,
+  "warmup_samples": 0,
+  "demand_samples": 30,
+  "initial_stock": "Empty",
+  "hist_bins": 20000,
+  "rand_tree_distr": {
+    "Uniform": {
+      "start": 2,
+      "end": 3
+    }
+  },
+  "regular_tree_depth": 6,
+  "regular_tree_z": 2,
+  "tree_samples": 800000
+}
+```
+["start", "end"] both inclusive, are the borders for the uniform distribution of the child count
+
+The random trees will be compared to a regular tree with:
+"regular_tree_depth": h
+"regular_tree_z": z
+
+```bash
+firm_delay my tvrt -j config.json -o output_name
+```
+
+This will give you a file containing the histogram.

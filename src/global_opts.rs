@@ -245,7 +245,7 @@ pub struct PathAndOut{
     pub json: Option<String>,
 
     #[arg(short, long)]
-    /// print alternative json options
+    /// Output file name
     pub out: Option<Utf8PathBuf>
 
 }
@@ -266,7 +266,7 @@ pub struct PathAndOutVideo{
     pub json: Option<String>,
 
     #[arg(short, long)]
-    /// print alternative json options
+    /// Output file name
     pub out: Option<Utf8PathBuf>,
 
     /// Use this flag to skip ffmpeg
@@ -288,7 +288,7 @@ pub struct TreePrintOpts{
     pub depth: usize,
 
     #[arg(long,short)]
-    /// Normaly parents point at children, this reverses the direction
+    /// Normally parents point at children, this reverses the direction
     pub reverse_direction: bool
 }
 
@@ -306,10 +306,10 @@ pub struct RandTreePrintOpts{
     pub seed: Option<u64>,
 
     #[arg(long,short)]
-    /// Normaly parents point at children, this reverses the direction
+    /// Normally parents point at children, this reverses the direction
     pub reverse_direction: bool,
 
-    /// Which distribution to use for childcount
+    /// Which distribution to use for child count
     #[command(subcommand)]
     pub which: WhichDistr
 }
