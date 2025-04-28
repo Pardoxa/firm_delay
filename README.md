@@ -1,10 +1,13 @@
-# 
+# Critical demand in a stochastic model of flows in supply networks
+
+This code was written by Yannick Feld for the paper "Critical demand in a stochastic model of flows in supply networks" by Yannick Feld and Marc Barthelemy in Physical Review Letters (DOI: To be added once I know the DOI).
 
 ## Requirements for compiling and using the program
 
 The program was programmed on Ubuntu 22.04 (and Arch and NixOS), but other Linux distributions should also work. 
 GCC or Clang are assumed to be installed.
-Some of the subcommands of the program require ffmpeg and gnuplot to be installed and available in the PATH.
+Some of the subcommands (those that will create a little animation) of the program require ffmpeg and gnuplot to be installed and available in the PATH. 
+Otherwise these subcommands will crash during runtime.
 
 
 ## Compiling
