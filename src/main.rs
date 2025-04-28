@@ -189,9 +189,6 @@ fn main() {
         CmdChooser::Helper(helper_opt) => {
             helper_chooser(helper_opt)
         },
-        CmdChooser::Test => {
-
-        },
         CmdChooser::MyModel(sub) => {
             match sub {
                 MyModelCommand::ChainVelocity(vel) => {

@@ -1,11 +1,18 @@
 # 
 
+## Requirements for compiling and using the program
+
+The program was programmed on Ubuntu 22.04 (and Arch and NixOS), but other Linux distributions should also work. 
+GCC or Clang are assumed to be installed.
+Some of the subcommands of the program require ffmpeg and gnuplot to be installed and available in the PATH.
+
+
 ## Compiling
 
-Note: This was tested on Ubuntu 22.04, but other Linux distributions should 
-also work.
+Note: The following constructions are for Ubuntu 22.04, but they should be the same for other linux distributions.
 
-If you do not have Rust (and cargo) installed, install it via [rustup](https://doc.rust-lang.org/book/ch01-01-installation.html) 
+
+If you do not have Rust (and cargo) installed, install it via [rustup](https://doc.rust-lang.org/book/ch01-01-installation.html)
 
 
 For compiling, first clone this repository via 
@@ -31,7 +38,7 @@ and you can call it by running the command (make sure you are still in the folde
 ```bash
 ./target/release/firm_delay
 ```
-or just add the executable to your PATH variable.
+or just add the executable to your PATH variable to be able to call firm_delay from anywhere.
 
 ### Option 2)
 
@@ -39,7 +46,7 @@ you can also install it by opening a terminal in the folder of this README file 
 ```bash
 cargo install --path .
 ```
-This will add the executable to .cargo/bin which is 
+This will download the dependencies, compile the program and add the executable to .cargo/bin which is 
 added to your PATH during the installation of Rust, 
 at least with default settings, so you can skip the PATH adding 
 step and still call the program firm_delay from anywhere.
