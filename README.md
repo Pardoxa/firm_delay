@@ -88,11 +88,14 @@ Create a config file like this:
 }
 ```
 and save it as "config.json". 
-Important parameter:
-"max_stock" corresponds to the stock "s", so adjust this to whatever you desire.
-Adjust "chain_start" and "chain_end" to decide which "N" range to sample.
-Adjust "chain_step" for the step size with which "N" will be sampled.
-threads: "null" means "use all available CPU threads". Otherwise specify the number of threads you want the program to use.
+
+| parameter    | corresponds to                                           |
+|--------------|----------------------------------------------------------|
+|  max_stock | s |                                                    
+|  chain_start and  chain_end |  to decide which "N" range to sample |
+| chain_step |  the step size with which "N" will be sampled |        
+| threads  | "null" means "use all available CPU threads". Otherwise specify the number of threads you want the program to use  |     
+
 Next run:
 ```bash
 firm_delay my chain-crit --json config.json -o output_name.dat -n
