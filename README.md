@@ -6,8 +6,9 @@ This code was written by Yannick Feld for the paper "Critical demand in a stocha
 
 The program was programmed on Ubuntu 22.04 (and Arch and NixOS), but other Linux distributions should also work. 
 GCC or Clang are assumed to be installed.
-Some of the subcommands (those that will create a little animation) of the program require ffmpeg and gnuplot to be installed and available in the PATH. 
-Otherwise these subcommands will crash during runtime.
+Gnuplot needs to be installed.
+Some of the subcommands (those that will create a little animation) of the program require ffmpeg to be installed and available in the PATH,
+otherwise these subcommands will crash during runtime.
 
 
 ## Compiling
@@ -57,7 +58,7 @@ step and still call the program firm_delay from anywhere.
 
 ## Generating data from the paper:
 
-### Fig 2)
+### Figure 2
 
 I recommend to start in an empty folder, as the program will create a good number of temporary files.
 
@@ -93,6 +94,44 @@ Adjust "chain_start" and "chain_end" to decide which "N" range to sample.
 Adjust "chain_step" for the step size with which "N" will be sampled.
 Next run:
 ```bash
-firm_delay my chain-crit --json s0.05.json -o s0.05_a.dat -n
+firm_delay my chain-crit --json config.json -o output_name.dat -n
 ```
 The "-n" skips the creation of an animation via ffmpeg, use this if ffmpeg is not installed or you don't want the animation. Remove the "-n" if you want the animation. Gnuplot is required.
+
+### Figure 3
+
+I recommend to start in an empty folder, as the program will create a good number of temporary files.
+
+Create a config file "config.json":
+```json
+{
+  "opts": {
+    "root_demand_rate_min": 0.0,
+    "root_demand_rate_max": 1.0,
+    "root_demand_samples": 100,
+    "time": 10000,
+    "samples": 20,
+    "tree_depth": 0,
+    "num_children": 7,
+    "seed": 0,
+    "threads": null,
+    "max_stock": 1.0
+  },
+  "tree_depth_start": 0,
+  "tree_depth_end": 5,
+  "y_range": {
+    "start": 0.0,
+    "end": 1.0
+  }
+}
+```
+Important parameters: 
+"num_children" corresponds to "z".
+"tree_depth_start" corresponds to the first "h" value to simulate.
+"tree_depth_end" corresponds to the last "h" value to simulate.
+"max_stock" corresponds to "s"
+
+To simulate, run the command
+```json
+firm_delay my trcrit --json config.json --out output_name.dat
+```
