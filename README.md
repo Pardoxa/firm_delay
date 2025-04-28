@@ -126,12 +126,14 @@ Create a config file "config.json":
   }
 }
 ```
-Important parameters: 
-"num_children" corresponds to "z".
-"tree_depth_start" corresponds to the first "h" value to simulate.
-"tree_depth_end" corresponds to the last "h" value to simulate.
-"max_stock" corresponds to "s"
-threads: "null" means "use all available CPU threads". Otherwise specify the number of threads you want the program to use.
+| parameter    | corresponds to                                           |
+|--------------|----------------------------------------------------------|
+| num_children | z |                                                    
+|  tree_depth_start  | the first "h" value to simulate  |
+|  tree_depth_end | the last "h" value to simulate  |        
+| max_stock  | s  |        
+| threads  | "null" means "use all available CPU threads". Otherwise specify the number of threads you want the program to use  |        
+
 
 To simulate, run the command
 ```bash
@@ -164,11 +166,12 @@ I recommend to start in an empty folder. "config.json"
   "tree_samples": 800000
 }
 ```
-["start", "end"] both inclusive, are the borders for the uniform distribution of the child count
+| parameter    | corresponds to                                           |
+|--------------|----------------------------------------------------------|
+| ["start", "end"]   |both inclusive, are the borders for the uniform distribution of the child count|                                                    
+|  regular_tree_depth | h |
+| regular_tree_z  | z |                                                    
 
-The random trees will be compared to a regular tree with:
-"regular_tree_depth": h
-"regular_tree_z": z
 
 ```bash
 firm_delay my tvrt -j config.json -o output_name
